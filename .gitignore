@@ -1,0 +1,4 @@
+# Node and Python ignores
+node_modules/
+__pycache__/
+.env
