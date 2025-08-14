@@ -128,3 +128,59 @@ header.nav nav a:hover{background:rgba(47,111,98,.08)}
 @media (max-width: 860px){
   .hero{grid-template-columns:1fr}
 }
+
+/* Navbar Styles */
+.nav {
+  background: #fdf9ee;
+  border-bottom: 1px solid #dcd5c7;
+  font-size: 0.9rem;
+  text-transform: uppercase;
+}
+
+.top-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 0;
+  border-bottom: 1px solid #bfb6a6;
+}
+
+.brand {
+  font-weight: 800;
+  font-size: 1.6rem;
+  letter-spacing: 0.08em;
+  text-shadow: 1px 1px rgba(0,0,0,0.15);
+}
+
+.icons {
+  display: flex;
+  gap: 16px;
+  font-size: 1.1rem;
+}
+
+.menu-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 0;
+}
+
+.categories {
+  display: flex;
+  gap: 14px;
+}
+
+.categories a {
+  padding: 0 6px;
+  border-right: 1px solid #bfb6a6;
+}
+
+.categories a:last-child {
+  border-right: none;
+}
+
+.actions {
+  display: flex;
+  gap: 8px;
+  font-weight: 700;
+}
