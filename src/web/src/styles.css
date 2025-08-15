@@ -111,9 +111,97 @@ header.nav nav a:hover{background:rgba(47,111,98,.08)}
 .product-card strong{font-weight:800}
 
 /* ---------- Footer ---------- */
-.footer{
-  background:#f0efe6;border-top:1px solid #e6e6e6;padding:30px 0;margin-top:34px;
+.footer {
+  background: #fffdf3;
+  color: var(--ink);
+  font-size: 14px;
+  line-height: 1.6;
 }
+
+.footer-divider {
+  height: 1px;
+  background: #e8e3d3;
+  opacity: .85;
+}
+
+.footer-top {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 40px;
+  padding: 36px 0 44px;
+}
+
+.ft-col { min-width: 170px; }
+
+.ft-title {
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: .12em;
+  margin-bottom: 12px;
+  color: #28302d;
+}
+
+.ft-link {
+  display: block;
+  font-size: 13px;
+  color: var(--muted);
+  padding: 3px 0;
+  text-decoration: none;
+  transition: color .2s ease;
+}
+.ft-link:hover { color: #141917; }
+
+.footer-bottom {
+  background: #eef8e9;
+  border-top: 1px solid #e6f1e0;
+}
+
+.footer-meta {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px 24px;
+  padding: 12px 0;
+  flex-wrap: wrap;
+}
+
+.meta-links {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  color: #4b4f4c;
+  font-size: 12px;
+}
+
+.meta-links .ft-link { font-size: 12px; color: #4b4f4c; }
+.meta-links .ft-link:hover { color: #141917; }
+.meta-sep { color: #c9c9c9; padding: 0 6px; }
+
+.socials { display: flex; align-items: center; gap: 10px; }
+.icon-circle {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid #dddddd;
+  background: #ffffff;
+  color: #1f1f1f;
+  transition: border-color .2s ease, background .2s ease, color .2s ease, transform .15s ease;
+}
+.icon-circle:hover { background: #111; color: #fff; border-color: #111; transform: translateY(-1px); }
+.icon-circle svg { display: block; }
+
+@media (max-width: 900px) {
+  .footer-top { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 520px) {
+  .footer-top { grid-template-columns: 1fr; }
+  .meta-links { justify-content: center; }
+  .socials { margin-left: auto; margin-right: auto; }
+}
+
 
 /* ---------- Utilities ---------- */
 .grid-2{display:grid;grid-template-columns:1fr 1fr;gap:var(--space)}

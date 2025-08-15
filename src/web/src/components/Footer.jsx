@@ -4,7 +4,6 @@ const LinkItem = ({ children, href = "#" }) => (
   <a className="ft-link" href={href}>{children}</a>
 );
 
-// inline SVG icons (so you don’t need extra packages)
 const Icon = ({ name }) => {
   const p = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
   if (name === "facebook") return (
@@ -22,7 +21,6 @@ const Icon = ({ name }) => {
 export default function Footer() {
   return (
     <footer className="footer">
-      {/* thin divider like the screenshot */}
       <div className="footer-divider" />
 
       <div className="container footer-top">
