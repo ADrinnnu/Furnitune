@@ -1,16 +1,76 @@
 import React from "react";
 
-export default function Footer(){
+const LinkItem = ({ children, href = "#" }) => (
+  <a className="ft-link" href={href}>{children}</a>
+);
+
+// inline SVG icons (so you don’t need extra packages)
+const Icon = ({ name }) => {
+  const p = { width: 18, height: 18, viewBox: "0 0 24 24", fill: "none", stroke: "currentColor", strokeWidth: 1.8, strokeLinecap: "round", strokeLinejoin: "round" };
+  if (name === "facebook") return (
+    <svg {...p}><path d="M18 2h-3a5 5 0 0 0-5 5v3H7v4h3v8h4v-8h3l1-4h-4V7a1 1 0 0 1 1-1h3z"/></svg>
+  );
+  if (name === "instagram") return (
+    <svg {...p}><rect x="3" y="3" width="18" height="18" rx="5"/><path d="M16 11.37A4 4 0 1 1 12.63 8 4 4 0 0 1 16 11.37z"/><line x1="17.5" y1="6.5" x2="17.51" y2="6.5"/></svg>
+  );
+  if (name === "x") return (
+    <svg {...p}><path d="M4 4l16 16M20 4L9.5 14.5M4 20l6.5-6.5"/></svg>
+  );
+  return null;
+};
+
+export default function Footer() {
   return (
     <footer className="footer">
-      <div className="container row" style={{justifyContent:'space-between'}}>
-        <div>
-          <div className="brand">FURNITUNE</div>
-          <p className="muted">© 2025 Furnitune. All rights reserved.</p>
+      {/* thin divider like the screenshot */}
+      <div className="footer-divider" />
+
+      <div className="container footer-top">
+        <div className="ft-col">
+          <div className="ft-title">FURNITURES</div>
+          <LinkItem>Furniture Types</LinkItem>
+          <LinkItem>Shippings</LinkItem>
+          <LinkItem>Returns</LinkItem>
+          <LinkItem>Warranty</LinkItem>
+          <LinkItem>Creation</LinkItem>
+          <LinkItem>Orders OTW</LinkItem>
         </div>
-        <div className="muted">
-          <div>Privacy Policy · Terms of Service · FAQs</div>
-          <div style={{marginTop:6}}>Visit us · Data Request Form</div>
+
+        <div className="ft-col">
+          <div className="ft-title">SUPPORT</div>
+          <LinkItem>FAQs</LinkItem>
+        </div>
+
+        <div className="ft-col">
+          <div className="ft-title">COMPANY</div>
+          <LinkItem>About us</LinkItem>
+        </div>
+
+        <div className="ft-col">
+          <div className="ft-title">VISIT US</div>
+          <LinkItem>View location</LinkItem>
+        </div>
+      </div>
+
+      <div className="footer-bottom">
+        <div className="container footer-meta">
+          <div className="meta-links">
+            <span>© 2025 Furnitune, All Rights Reserved</span>
+            <span className="meta-sep">|</span>
+            <a href="#" className="ft-link">Privacy Policy</a>
+            <span className="meta-sep">|</span>
+            <a href="#" className="ft-link">Terms of Service</a>
+            <span className="meta-sep">|</span>
+            <a href="#" className="ft-link">Visit us Now</a>
+            <span className="meta-sep">|</span>
+            <a href="#" className="ft-link">Data Request Form</a>
+          </div>
+
+          <div className="socials">
+            <a className="icon-circle" aria-label="Facebook" href="#"><Icon name="facebook" /></a>
+            <a className="icon-circle" aria-label="Instagram" href="#"><Icon name="instagram" /></a>
+            <a className="icon-circle" aria-label="X" href="#"><Icon name="x" /></a>
+          </div>
         </div>
       </div>
     </footer>
