@@ -46,17 +46,81 @@ h2{font-size:clamp(20px,3vw,28px);font-weight:800}
 .btn.ghost{background:transparent;color:var(--accent);border:2px solid var(--accent)}
 
 /* ---------- Navbar ---------- */
+/* ========== MAX-WIDTH NAV LIKE MOCK ========== */
+
+/* make ONLY the nav containers full-bleed */
+header.nav .container{
+  width:100%;
+  max-width:none;
+  padding-inline:24px;     /* gutter */
+}
+
+/* top row (brand + icons) with long underline */
+.top-bar{
+  position:relative;
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:18px 0 12px;
+}
+.top-bar::after{
+  content:"";
+  position:absolute;
+  left:0; right:0; bottom:0;
+  height:2px;
+  background:#49423f;      /* darker line like the mock */
+  opacity:.55;
+}
+
+/* second row (menu) edge-to-edge with thin line below */
+.menu-bar{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+  padding:10px 0;
+  border-bottom:1px solid #d4cbbd; /* subtle */
+}
+
+/* categories look: plain text + separators (no pills) */
+.categories{
+  display:flex; gap:0;
+  flex-wrap:wrap;
+}
+.categories a{
+  padding:8px 12px;
+  border-right:1px solid #c9c0b2;
+  border-radius:0;                /* remove rounded feel */
+  font-size:.78rem;
+  letter-spacing:.08em;
+  text-transform:uppercase;
+  color:#1f2a27;
+  transition:background .15s ease, color .15s ease;
+}
+.categories a:last-child{ border-right:none; }
+.categories a:hover{
+  background:rgba(47,111,98,.06);
+  color:#0f1715;
+}
+
+/* right actions */
+.actions{
+  display:flex;
+  align-items:center;
+  gap:10px;
+  font-weight:800;
+  letter-spacing:.06em;
+}
+
+/* icon row */
+.icons{ display:flex; gap:16px; font-size:1rem; }
+
+/* keep it sticky */
 header.nav{
-  position:sticky;top:0;z-index:40;
+  position:sticky; top:0; z-index:40;
   background:var(--bg);
-  border-bottom:1px solid #e7e6de;
   backdrop-filter:saturate(180%) blur(8px);
 }
-.brand{font-weight:800;letter-spacing:.12em}
-header.nav nav a{
-  padding:.4rem .7rem;border-radius:10px;transition:background .15s ease;
-}
-header.nav nav a:hover{background:rgba(47,111,98,.08)}
+
 
 /* ---------- Hero ---------- */
 .hero{
