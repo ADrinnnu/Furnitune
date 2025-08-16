@@ -1,10 +1,14 @@
 import React from "react";
+import { Link } from 'react-router-dom';
+
 
 export default function Navbar() {
   return (
     <header className="nav">
       <div className="top-bar container">
-        <div className="brand">FURNITUNE</div>
+        <Link to="/" className="brand" aria-label="Go to homepage">
+          FURNITUNE
+        </Link>
         <div className="icons">
           <span>🔍</span>
           <span>♡</span>
