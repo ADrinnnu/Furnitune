@@ -15,7 +15,7 @@ export default function Navbar() {
       </div>
       <div className="menu-bar container">
         <nav className="categories">
-          <a href="#">ALL FURNITURES</a>
+          <a href="/all-furnitures">ALL FURNITURES</a>
           <a href="#">IN STOCK</a>
           <a href="#">BEST SELLERS</a>
           <a href="#">NEW DESIGNS</a>
