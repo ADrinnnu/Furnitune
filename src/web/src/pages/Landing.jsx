@@ -38,11 +38,7 @@ export default function Landing(){
         <h2>Our <span className="muted">Collection</span>!</h2>
         <CardCarousel items={collections} type="collection" />
       </section>
-      
-      <section id="collections" className="container section">
-        <h2>Our <span className="muted">Collection</span>!</h2>
-        <CardCarousel items={collections} type="collection" />
-      </section>
+
     </>
   );
 }
