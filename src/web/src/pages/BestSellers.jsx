@@ -50,7 +50,6 @@ function ProductCard({ p }) {
 const TYPE_OPTIONS     = ["Beds","Sofas","Chairs","Tables","Benches","Sectionals","Ottomans"];
 const COLOR_OPTIONS    = ["Beige","Gray","Black","Green","Brown"];
 const MATERIAL_OPTIONS = ["Wood","Metal","Upholstery","Leather"];
-const STOCK_OPTIONS    = ["In stock","Pre-order"];
 
 const PRICE_RANGES = [
   { id:"p1", label:"₱0 – ₱1999",    test:(p)=> p.price < 2000 },
@@ -87,7 +86,6 @@ export default function AllFurnitures(){
   const [types, setTypes]         = useState(new Set());
   const [colors, setColors]       = useState(new Set());
   const [materials, setMaterials] = useState(new Set());
-  const [stocks, setStocks]       = useState(new Set());
   const [prices, setPrices]       = useState(new Set()); // store range ids
   const [sortBy, setSortBy]       = useState("relevance"); // priceAsc|priceDesc|rating|reviews|name
 
@@ -104,7 +102,6 @@ export default function AllFurnitures(){
       if (types.size     && !types.has(p.type))         return false;
       if (colors.size    && !colors.has(p.color))       return false;
       if (materials.size && !materials.has(p.material)) return false;
-      if (stocks.size    && !stocks.has(p.stock))       return false;
       if (prices.size) {
         // at least one selected range must match
         const match = [...prices].some(id => PRICE_RANGES.find(r=>r.id===id)?.test(p));
@@ -122,7 +119,7 @@ export default function AllFurnitures(){
       default:          /* relevance: keep original order */ break;
     }
     return list;
-  }, [types, colors, materials, stocks, prices, sortBy]);
+  }, [types, colors, materials, prices, sortBy]);
 
   return (
     <div className="catalog">
@@ -169,13 +166,6 @@ export default function AllFurnitures(){
             options={MATERIAL_OPTIONS}
             selected={materials}
             onToggle={toggle(setMaterials)}
-          />
-
-          <FilterGroup
-            title="Stock"
-            options={STOCK_OPTIONS}
-            selected={stocks}
-            onToggle={toggle(setStocks)}
           />
         </aside>
 
