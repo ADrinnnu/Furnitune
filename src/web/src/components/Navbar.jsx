@@ -21,12 +21,12 @@ export default function Navbar() {
         <nav className="categories">
           <a href="/all-furnitures">ALL FURNITURES</a>
           <a href="#">IN STOCK</a>
-          <a href="#">BEST SELLERS</a>
-          <a href="#">NEW DESIGNS</a>
-          <a href="#">LIVING ROOM</a>
-          <a href="#">BEDROOM</a>
-          <a href="#">DINING ROOM</a>
-          <a href="#">OUTDOOR</a>
+          <a href="/best-sellers">BEST SELLERS</a>
+          <a href="/new-designs">NEW DESIGNS</a>
+          <a href="/living-room">LIVING ROOM</a>
+          <a href="/bed-room">BEDROOM</a>
+          <a href="/dining-room">DINING ROOM</a>
+          <a href="/out-door">OUTDOOR</a>
         </nav>
         <div className="actions">
           <a href="#">CUSTOMIZE</a>
