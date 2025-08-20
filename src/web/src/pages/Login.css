@@ -1,0 +1,160 @@
+.login-container {
+  display: flex;
+  height: 100vh;
+  font-family: Arial, sans-serif;
+}
+
+/* LEFT SIDE */
+.login-left {
+  width: 50%;
+  background-color: #f8f6f1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 60px;
+}
+
+.login-title {
+  font-size: 24px;
+  font-weight: bold;
+  color: #1f2937;
+  margin-bottom: 30px;
+  line-height: 1.4;
+}
+
+.form-group {
+  margin-bottom: 20px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 14px;
+  margin-bottom: 5px;
+}
+
+.form-group input {
+  width: 100%;
+  padding: 10px 14px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.form-options {
+  display: flex;
+  justify-content: space-between;
+  font-size: 14px;
+  margin-bottom: 25px;
+}
+
+.form-options a {
+  text-decoration: none;
+  color: #555;
+}
+
+.form-options a:hover {
+  color: #1f5f5b;
+}
+
+.login-btn {
+  width: 100%;
+  padding: 12px;
+  background-color: #1f5f5b;
+  color: #fff;
+  font-weight: bold;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+.login-btn:hover {
+  background-color: #154340;
+}
+
+.divider {
+  display: flex;
+  align-items: center;
+  margin: 25px 0;
+  color: #999;
+}
+
+.divider hr {
+  flex: 1;
+  border: none;
+  border-top: 1px solid #ccc;
+}
+
+.divider span {
+  margin: 0 10px;
+  font-size: 14px;
+}
+
+.social-login {
+  display: flex;
+  justify-content: center;
+  gap: 25px;
+  margin-bottom: 20px;
+}
+
+.social-icon {
+  cursor: pointer;
+  color: #555;
+  transition: 0.3s;
+}
+
+.social-icon.google:hover {
+  color: #db4437;
+}
+.social-icon.facebook:hover {
+  color: #1877f2;
+}
+.social-icon.apple:hover {
+  color: #000;
+}
+
+.signup-text {
+  font-size: 14px;
+  text-align: center;
+}
+
+.signup-text a {
+  color: #1f5f5b;
+  font-weight: bold;
+  text-decoration: none;
+}
+
+.signup-text a:hover {
+  text-decoration: underline;
+}
+
+/* RIGHT SIDE */
+.login-right {
+  width: 50%;
+  background-color: #083d3d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.brand-box {
+  text-align: center;
+}
+
+.chair-img {
+  width: 280px;
+  margin-bottom: 20px;
+}
+
+.welcome-text {
+  color: white;
+  font-size: 20px;
+  letter-spacing: 2px;
+}
+
+.brand-text {
+  color: white;
+  font-size: 32px;
+  font-weight: bold;
+  letter-spacing: 4px;
+}
