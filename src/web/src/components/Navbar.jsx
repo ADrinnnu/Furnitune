@@ -12,7 +12,9 @@ export default function Navbar() {
         <div className="icons">
           <span>🔍</span>
           <span>♡</span>
-          <span>🛒</span>
+          <Link to="/cart" className="icon-btn" aria-label="Open cart">
+            🛒
+          </Link>
           <span>🔔</span>
           <span>👤</span>
         </div>

@@ -10,6 +10,7 @@ import LivingRoom from "./pages/LivingRoom.jsx";
 import Bedroom from "./pages/Bedroom.jsx";
 import DiningRoom from "./pages/DiningRoom.jsx";
 import Outdoor from "./pages/Outdoor.jsx";
+import CartPage from "./pages/CartPage.jsx";
 
 export default function App() {
   return (
@@ -24,6 +25,7 @@ export default function App() {
         <Route path="/bed-room" element={<Bedroom />} />
         <Route path="/dining-room" element={<DiningRoom/>} />
         <Route path="/out-door" element={<Outdoor/>} />
+        <Route path="/cart" element={<CartPage />} />
         {/* Fallback so the app never renders blank if the path is wrong */}
         <Route path="*" element={<Landing />} />
       </Routes>
