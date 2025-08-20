@@ -9,7 +9,7 @@ export default function Landing(){
     { id:1, title:'Sofa', price:'₱18,990', img:'https://images.unsplash.com/photo-1484101403633-562f891dc89a?w=800' },
     { id:2, title:'Chesterfield Sofa', price:'₱24,500', img:'https://images.unsplash.com/photo-1616594039964-ae9021a400a0?w=800' },
     { id:3, title:'Armchair', price:'₱7,990', img:'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=800' },
-    { id:4, title:'Coffee Table', price:'₱4,990', img:'https://images.unsplash.com/photo-1532372320978-54c1b7c59e95?w=800' },
+    { id:4, title:'Coffee Table', price:'₱4,990', img:'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=800' }
   ];
 
   const collections = [
