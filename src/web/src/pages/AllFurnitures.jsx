@@ -119,7 +119,7 @@ export default function AllFurnitures(){
       case "rating":    list.sort((a,b)=>b.rating-a.rating); break;
       case "reviews":   list.sort((a,b)=>b.reviews-a.reviews); break;
       case "name":      list.sort((a,b)=>a.title.localeCompare(b.title)); break;
-      default:          /* relevance: keep original order */ break;
+      default:          break;
     }
     return list;
   }, [types, colors, materials, stocks, prices, sortBy]);
