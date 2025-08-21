@@ -103,16 +103,6 @@ export default function AllFurnitures() {
         <aside className="filters" style={{ minWidth: 260 }}>
           <div className="filters-head">ALL FURNITURES</div>
 
-          {/* Search */}
-          <div className="filter-group">
-            <div className="filter-title">Search</div>
-            <input
-              placeholder="Search products…"
-              value={filters.search}
-              onChange={(e) => setFilters(f => ({ ...f, search: e.target.value }))}
-              style={{ width: "100%", padding: "10px 12px", border: "1px solid #e5e5e5", borderRadius: 12 }}
-            />
-          </div>
 
           {/* Type */}
           <div className="filter-group">
