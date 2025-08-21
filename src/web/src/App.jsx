@@ -12,7 +12,7 @@ import DiningRoom from "./pages/DiningRoom.jsx";
 import Outdoor from "./pages/Outdoor.jsx";
 import CartPage from "./pages/CartPage.jsx";
 import ProductDetail from "./pages/ProductDetail.jsx";
-
+import Repair from "./pages/Repair.jsx";
 export default function App() {
   return (
     <>
@@ -28,6 +28,7 @@ export default function App() {
         <Route path="/out-door" element={<Outdoor/>} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/repair" element={<Repair />} />
         {/* Fallback so the app never renders blank if the path is wrong */}
         <Route path="*" element={<Landing />} />
       </Routes>

@@ -1,0 +1,60 @@
+.repair-title {
+  font-weight: 800;
+  margin: 16px 0 20px;
+}
+
+.repair-layout {
+  display: grid;
+  grid-template-columns: 1.2fr 0.8fr;
+  gap: 24px;
+}
+
+.upload-box {
+  border: 2px dashed #ccc;
+  border-radius: 12px;
+  min-height: 300px;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  background: #fafafa;
+}
+.upload-empty { text-align:center; color:#666; }
+.big-icon { font-size:28px; }
+.thumbs { display:grid; grid-template-columns:repeat(3,1fr); gap:8px; }
+.thumb { position:relative; }
+.thumb img { width:100%; border-radius:8px; }
+.thumb button {
+  position:absolute; top:6px; right:6px;
+  background:#000a; color:#fff;
+  border:none; border-radius:50%; width:20px; height:20px;
+  cursor:pointer;
+}
+
+.upload-actions { display:flex; gap:12px; margin:12px 0; }
+.info-box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:16px; }
+
+.card {
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:12px;
+  padding:14px;
+  margin-bottom:12px;
+}
+.card-title { font-size:13px; font-weight:700; margin-bottom:8px; }
+
+.swatches { display:flex; gap:8px; }
+.swatch { width:30px; height:20px; border-radius:4px; border:2px solid transparent; cursor:pointer; }
+.swatch.active { border-color:#2d4739; }
+
+textarea {
+  width:100%; min-height:100px;
+  border:1px solid #ddd; border-radius:8px;
+  padding:8px; resize:vertical;
+}
+
+.btn { padding:8px 14px; border:none; border-radius:8px; cursor:pointer; }
+.btn.full { width:100%; margin-top:8px; }
+.btn.ghost { background:#fff; border:1px solid #2d4739; color:#2d4739; }
+.btn:not(.ghost) { background:#2d4739; color:#fff; }
+
+.muted { color:#666; font-size:13px; }
