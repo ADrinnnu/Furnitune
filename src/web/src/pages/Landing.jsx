@@ -3,6 +3,7 @@ import Hero from '../components/Hero.jsx';
 import FeatureStrip from '../components/FeatureStrip.jsx';
 import CategoryChips from '../components/CategoryChips.jsx';
 import CardCarousel from '../components/CardCarousel.jsx';
+import HomepageSections from '../components/HomepageSections.jsx';
 
 export default function Landing(){
   const bestSellers = [
@@ -39,6 +40,9 @@ export default function Landing(){
         <CardCarousel items={collections} type="collection" />
       </section>
 
+      <section id="homepage" className="container section">
+        <HomepageSections items={collections} type="collection" />
+      </section>
     </>
   );
 }

@@ -219,7 +219,136 @@ header.nav .container {
   color: #000;
   text-align: center;
 }
+/* ---------- Home Page ---------- */
+.homepage { 
+  font-family: 'Arial', sans-serif;
+  background-color: #f5f2e8;
+  padding: 2rem;
+}
 
+.features-section h2 {
+  text-align: center;
+  font-size: 1.8rem;
+  margin-bottom: 2rem;
+}
+
+.features-section .thin-text {
+  font-weight: normal;
+}
+
+.features-section .highlight {
+  color: #2d5b4f;
+  font-weight: bold;
+}
+
+.cards-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 1.5rem;
+  justify-content: center;
+}
+.feature-card {
+  width: 250px;
+  border-radius: 1rem;
+  overflow: hidden;
+  background: white;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+  display: flex;
+  flex-direction: column;
+}
+
+.feature-image {
+  height: 160px;
+  background-size: cover;
+  background-position: center;
+  border-top-left-radius: 1rem;
+  border-top-right-radius: 1rem;
+}
+
+.feature-content {
+  padding: 1rem;
+  background-color: #ded6c7;
+}
+
+.feature-content h3 {
+  font-size: 0.9rem;
+  margin-bottom: 0.5rem;
+}
+
+.feature-content p {
+  font-size: 0.75rem;
+  margin-bottom: 0.8rem;
+}
+
+.feature-content button {
+  background-color: #fff;
+  border: 1px solid #ccc;
+  padding: 0.4rem 0.6rem;
+  font-size: 0.7rem;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.reviews-section {
+  margin-top: 4rem;
+}
+
+.reviews-heading {
+  text-align: center;
+  font-size: 1.4rem;
+  margin-bottom: 2rem;
+}
+
+.stars {
+  font-size: 1.2rem;
+  color: #3b5f3f;
+  letter-spacing: 0.3rem;
+}
+
+.review-card {
+  width: 250px;
+  background-color: white;
+  border-radius: 1rem;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+.review-image {
+  height: 160px;
+  background-size: cover;
+  background-position: center;
+}
+
+.review-content {
+  padding: 1rem;
+}
+
+.review-content h4 {
+  font-size: 0.9rem;
+  font-weight: bold;
+  margin-bottom: 0.5rem;
+  text-align: center;
+}
+
+.review-content .quote {
+  font-size: 0.75rem;
+  font-style: italic;
+  margin-bottom: 0.5rem;
+}
+
+.reviewer {
+  font-size: 0.7rem;
+  color: #555;
+}
+
+.footer-note {
+  text-align: center;
+  font-size: 0.75rem;
+  margin-top: 2rem;
+  font-style: italic;
+}
 /* ---------- Product / Collection Carousels ---------- */
 .carousel {
   display:grid; grid-auto-flow:column; grid-auto-columns:minmax(220px,1fr);
