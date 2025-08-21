@@ -3,8 +3,8 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
-import "../Login.css";   // split-hero layout + field widths
-import "../auth.css";    // your existing button/input base styles
+import "../Login.css";   
+import "../auth.css";    
 
 export default function Login() {
   const nav = useNavigate();

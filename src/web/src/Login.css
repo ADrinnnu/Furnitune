@@ -31,17 +31,17 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  text-align: left;     /* ✅ force left alignment */
-  align-items: flex-start; /* ✅ align to left instead of center */
+  text-align: left;     
+  align-items: flex-start; 
 }
 
 .login-head span{ 
   font-size:40px; 
   text-shadow:0 2px 0 rgba(0,0,0,0.08); 
-  display:block;             /* each word on its own line */
+  display:block;             
 }
 
-/* card inherits base styles from your auth.css */
+
 .login-card{
   border: none;               
   box-shadow:none;
@@ -76,20 +76,20 @@
   background:var(--brand);
   border:1px solid var(--brand);
   font-weight:700;
-  margin:14px auto;         /* ✅ centers the button itself */
-  display:flex;             /* ✅ center text inside */
+  margin:14px auto;         
+  display:flex;             
   align-items:center;
   justify-content:center;
   text-align:center;
 }
 .pw-wrap input {
-  width: 100%;         /* ✅ full width */
-  padding-right: 40px; /* ✅ leave space for the eye icon */
+  width: 100%;         
+  padding-right: 40px; 
   box-sizing: border-box;
 }
 
 .pw-input{
-  padding-right:42px;   /* space for the eye button */
+  padding-right:42px;  
 }
 
 .pw-eye{
