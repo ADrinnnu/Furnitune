@@ -77,7 +77,7 @@ export default function ProductDetail() {
               ))}
             </div>
             <small>{FABRICS.find((x) => x.id === fabric)?.label}</small>
-
+<hr />
           {/* 2. Choose size (placeholders) */}
           <div style={{margin:"12px 0"}}>
             <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>2  CHOOSE SIZE</div>
@@ -87,7 +87,7 @@ export default function ProductDetail() {
               ))}
             </div>
           </div>
-
+<hr />
           {/* 3. Notes */}
           <div style={{margin:"12px 0"}}>
             <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>3  DESCRIPTION</div>
