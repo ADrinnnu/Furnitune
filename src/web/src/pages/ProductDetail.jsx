@@ -34,7 +34,7 @@ export default function ProductDetail() {
         {/* description & dimensions placeholders – your copy here */}
         <div className="card" style={{marginBottom:16}}>
           <h3 style={{margin:"0 0 8px"}}>DESCRIPTION</h3>
-          <p className="muted">Curabitur pretium tincidunt lacus. Nulla gravida orci a odio. …</p>
+          <p className="muted">hahahasdasdasdas</p>
         </div>
 
         <div className="card">
