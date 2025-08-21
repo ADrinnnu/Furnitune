@@ -13,6 +13,8 @@ import Outdoor from "./pages/Outdoor.jsx";
 import CartPage from "./pages/CartPage.jsx";
 import ProductDetail from "./pages/ProductDetail.jsx";
 import Repair from "./pages/Repair.jsx";
+import Login from "./pages/Login.jsx";
+import CreateAccount from "./pages/CreateAccount.jsx";
 export default function App() {
   return (
     <>
@@ -29,6 +31,8 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/repair" element={<Repair />} />
+        <Route path="/login" element={<Login />} />
+        <Route path="/create-account" element={<CreateAccount />} />
         {/* Fallback so the app never renders blank if the path is wrong */}
         <Route path="*" element={<Landing />} />
       </Routes>

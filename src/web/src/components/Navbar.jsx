@@ -42,7 +42,9 @@ export default function Navbar() {
           </div>
 
           <span>🔔</span>
-          <span>👤</span>
+          <Link to="/login" className="icon-btn" aria-label="Login or Profile">
+            👤
+          </Link>
         </div>
       </div>
 
