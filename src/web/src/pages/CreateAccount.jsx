@@ -1,20 +1,21 @@
+// src/pages/CreateAccount.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { getAuth, signInWithEmailAndPassword } from "firebase/auth";
+import { createUserWithEmailAndPassword } from "firebase/auth";
+import { auth } from "../firebase"; // <-- use the exported auth
 
-export default function Login() {
-  const [email, setEmail] = useState("");
+export default function CreateAccount() {
+  const [email, setEmail]       = useState("");
   const [password, setPassword] = useState("");
-  const [error, setError] = useState("");
+  const [error, setError]       = useState("");
   const navigate = useNavigate();
-  const auth = getAuth();
 
-  const handleLogin = async (e) => {
+  const handleSignup = async (e) => {
     e.preventDefault();
     setError("");
     try {
-      await signInWithEmailAndPassword(auth, email, password);
-      navigate("/"); // redirect after login
+      await createUserWithEmailAndPassword(auth, email, password);
+      navigate("/"); // go somewhere after signup
     } catch (err) {
       setError(err.message);
     }
@@ -22,8 +23,9 @@ export default function Login() {
 
   return (
     <div className="auth-page">
-      <form className="auth-card" onSubmit={handleLogin}>
-        <h2>Welcome Back</h2>
+      <form className="auth-card" onSubmit={handleSignup}>
+        <h2>Create Account</h2>
+
         <input
           type="email"
           placeholder="Email"
@@ -31,6 +33,7 @@ export default function Login() {
           onChange={(e)=>setEmail(e.target.value)}
           required
         />
+
         <input
           type="password"
           placeholder="Password"
@@ -38,11 +41,13 @@ export default function Login() {
           onChange={(e)=>setPassword(e.target.value)}
           required
         />
+
         {error && <div className="error">{error}</div>}
-        <button type="submit" className="btn">Login</button>
+
+        <button type="submit" className="btn">Create Account</button>
+
         <p className="muted">
-          Don’t have an account?{" "}
-          <Link to="/create-account">Create one</Link>
+          Already have an account? <Link to="/login">Log in</Link>
         </p>
       </form>
     </div>
