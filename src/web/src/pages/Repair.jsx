@@ -131,7 +131,7 @@ export default function Repair() {
         {/* RIGHT */}
         <aside className="repair-right">
           <div className="card">
-            <div className="card-title">1 • Choose Fabric</div>
+            <div className="card-title">1 - Choose Fabric</div>
             <div className="swatches">
               {FABRICS.map((f) => (
                 <button
@@ -143,22 +143,22 @@ export default function Repair() {
               ))}
             </div>
             <small>{FABRICS.find((x) => x.id === fabric)?.label}</small>
-          </div>
-
-          <div className="card">
-            <div className="card-title">2 • Additional Notes</div>
+            <hr />
+            <div className="card-title">2 - Additional Notes</div>
             <textarea
               placeholder="Describe the issue, preferred schedule, pickup address, etc."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
             />
-          </div>
-
-          <button className="btn full" disabled={!canSubmit} onClick={submit}>
+            <hr/>
+             <button className="btn full" disabled={!canSubmit} onClick={submit}>
             PLACE ORDER
           </button>
-
+          
           <small className="muted">This order will be reviewed before processing.</small>
+          </div>
+
+      
 
           <div className="card">
             <div className="card-title">Need Assistance?</div>
