@@ -1,5 +1,6 @@
+// src/App.jsx
 import React from "react";
-import { Routes, Route } from "react-router-dom";
+import { Routes, Route, useLocation } from "react-router-dom";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import Landing from "./pages/Landing.jsx";
@@ -12,13 +13,20 @@ import DiningRoom from "./pages/DiningRoom.jsx";
 import Outdoor from "./pages/Outdoor.jsx";
 import CartPage from "./pages/CartPage.jsx";
 import ProductDetail from "./pages/ProductDetail.jsx";
-import Repair from "./pages/Repair.jsx";
 import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
+import Repair from "./pages/Repair.jsx";
+
 export default function App() {
+  const location = useLocation();
+
+ 
+  const hideNavAndFooter = ["/login", "/create-account"].includes(location.pathname);
+
   return (
     <>
-      <Navbar />
+      {!hideNavAndFooter && <Navbar />}
+
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/all-furnitures" element={<AllFurnitures />} />
@@ -26,17 +34,19 @@ export default function App() {
         <Route path="/new-designs" element={<NewDesigns />} />
         <Route path="/living-room" element={<LivingRoom />} />
         <Route path="/bed-room" element={<Bedroom />} />
-        <Route path="/dining-room" element={<DiningRoom/>} />
-        <Route path="/out-door" element={<Outdoor/>} />
+        <Route path="/dining-room" element={<DiningRoom />} />
+        <Route path="/out-door" element={<Outdoor />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
-        <Route path="/repair" element={<Repair />} />
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
-        {/* Fallback so the app never renders blank if the path is wrong */}
+        <Route path="/repair" element={<Repair />} />
+
+        {/* fallback */}
         <Route path="*" element={<Landing />} />
       </Routes>
-      <Footer />
+
+      {!hideNavAndFooter && <Footer />}
     </>
   );
 }
