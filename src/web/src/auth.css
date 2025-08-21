@@ -24,11 +24,29 @@
   text-align:center;
 }
 
-.auth-card input {
-  padding:12px;
-  border:1px solid #ccc;
-  border-radius:8px;
-  font-size:1rem;
+.auth-input-group {
+  position: relative;
+  width: 100%;
+}
+
+.auth-input-group input {
+  width: 100%;
+  padding: 12px 40px 12px 12px; /* extra padding-right for the eye button */
+  border: 1px solid #ccc;
+  border-radius: 8px;
+  font-size: 1rem;
+}
+
+.auth-input-group button.toggle {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-size: 1.1rem;
+  color: #444;
 }
 
 .auth-card .btn {
