@@ -56,7 +56,6 @@ export default function Login() {
           <button
   className="back-link"
   onClick={() => {
-    // if history came from create-account, just go home
     if (document.referrer.includes("/create-account")) {
       nav("/");
     } else {
