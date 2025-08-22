@@ -1,6 +1,9 @@
 // src/App.jsx
-import React from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebase";
+
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import Landing from "./pages/Landing.jsx";
@@ -17,13 +20,30 @@ import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
 import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
-
+import VerifyEmail from "./pages/VerifyEmail.jsx";
 
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
 
- 
-  const hideNavAndFooter = ["/login", "/create-account"].includes(location.pathname);
+  // Redirect unverified users to /verify-email
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u || null);
+
+      // If logged in but email not verified, always keep them on /verify-email
+      if (u && !u.emailVerified && location.pathname !== "/verify-email") {
+        navigate("/verify-email", { replace: true });
+      }
+    });
+    return () => unsub();
+  }, [navigate, location.pathname]);
+
+  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email)
+  const hideNavAndFooter = ["/login", "/create-account", "/verify-email"].includes(
+    location.pathname
+  );
 
   return (
     <>
@@ -40,14 +60,18 @@ export default function App() {
         <Route path="/out-door" element={<Outdoor />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
+
+        {/* Auth-related pages */}
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
-        <Route path="/repair" element={<Repair />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+
+        {/* Placeholders you mentioned */}
         <Route path="/account" element={<div>My Account (placeholder)</div>} />
         <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
 
-        {/* fallback */}
+        {/* Fallback */}
         <Route path="*" element={<Landing />} />
       </Routes>
 
