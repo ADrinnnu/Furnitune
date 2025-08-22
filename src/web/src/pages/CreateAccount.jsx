@@ -1,55 +1,167 @@
-// src/pages/CreateAccount.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { createUserWithEmailAndPassword } from "firebase/auth";
-import { auth } from "../firebase"; // <-- use the exported auth
+import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
+import { auth } from "../firebase";
+
+import "../auth.css";            // (inputs, buttons you already have)
+import "../CreateAccount.css";   // (new layout styles for this page)
 
 export default function CreateAccount() {
-  const [email, setEmail]       = useState("");
-  const [password, setPassword] = useState("");
-  const [error, setError]       = useState("");
-  const navigate = useNavigate();
+  const nav = useNavigate();
 
-  const handleSignup = async (e) => {
+  const [first, setFirst] = useState("");
+  const [last, setLast]   = useState("");
+  const [email, setEmail] = useState("");
+  const [pw, setPw]       = useState("");
+  const [confirm, setConfirm] = useState("");
+  const [showPw, setShowPw]       = useState(false);
+  const [showPw2, setShowPw2]     = useState(false);
+  const [error, setError]         = useState("");
+  const [saving, setSaving]       = useState(false);
+
+  const onSubmit = async (e) => {
     e.preventDefault();
     setError("");
+
+    if (!first.trim() || !last.trim()) {
+      setError("Please enter your first and last name.");
+      return;
+    }
+    if (pw !== confirm) {
+      setError("Passwords don’t match.");
+      return;
+    }
+
     try {
-      await createUserWithEmailAndPassword(auth, email, password);
-      navigate("/"); // go somewhere after signup
+      setSaving(true);
+      const cred = await createUserWithEmailAndPassword(auth, email, pw);
+
+      // Save full name on the Firebase Auth user (no Firestore required)
+      await updateProfile(cred.user, {
+        displayName: `${first.trim()} ${last.trim()}`,
+      });
+
+      // If later you want to store extra profile data in Firestore, add it here.
+      // (Optional – commented so nothing breaks if Firestore isn’t installed)
+      // import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
+      // const db = getFirestore();
+      // await setDoc(doc(db, "users", cred.user.uid), {
+      //   first, last, email, createdAt: serverTimestamp(),
+      // });
+
+      nav("/"); // go home after signup
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSaving(false);
     }
   };
 
   return (
-    <div className="auth-page">
-      <form className="auth-card" onSubmit={handleSignup}>
-        <h2>Create Account</h2>
+    <main className="signup-page">
+      {/* LEFT: Form */}
+      <section className="signup-left">
+        <div className="signup-left-inner">
+          <h1 className="signup-head">
+            <span>CREATE YOUR</span>
+            <span>ACCOUNT</span>
+          </h1>
 
-        <input
-          type="email"
-          placeholder="Email"
-          value={email}
-          onChange={(e)=>setEmail(e.target.value)}
-          required
-        />
+          <form className="auth-card signup-card" onSubmit={onSubmit}>
+            {/* Name Row */}
+            <div className="field-row">
+              <div className="field">
+                <label className="field-label">Given Name*</label>
+                <input
+                  type="text"
+                  placeholder="Enter your name"
+                  value={first}
+                  onChange={(e)=>setFirst(e.target.value)}
+                  required
+                />
+              </div>
+              <div className="field">
+                <label className="field-label">Last Name*</label>
+                <input
+                  type="text"
+                  placeholder="Enter your last name"
+                  value={last}
+                  onChange={(e)=>setLast(e.target.value)}
+                  required
+                />
+              </div>
+            </div>
 
-        <input
-          type="password"
-          placeholder="Password"
-          value={password}
-          onChange={(e)=>setPassword(e.target.value)}
-          required
-        />
+            <label className="field-label">Email*</label>
+            <input
+              type="email"
+              placeholder="Enter your email"
+              value={email}
+              onChange={(e)=>setEmail(e.target.value)}
+              required
+            />
 
-        {error && <div className="error">{error}</div>}
+            <label className="field-label">Password*</label>
+            <div className="pw-wrap">
+              <input
+                type={showPw ? "text" : "password"}
+                placeholder="Enter your password"
+                value={pw}
+                onChange={(e)=>setPw(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="pw-eye"
+                aria-label="toggle password"
+                onClick={()=>setShowPw(s => !s)}
+              >
+                {showPw ? "🙈" : "👁️"}
+              </button>
+            </div>
 
-        <button type="submit" className="btn">Create Account</button>
+            <label className="field-label">Confirm Password*</label>
+            <div className="pw-wrap">
+              <input
+                type={showPw2 ? "text" : "password"}
+                placeholder="Confirm your password"
+                value={confirm}
+                onChange={(e)=>setConfirm(e.target.value)}
+                required
+              />
+              <button
+                type="button"
+                className="pw-eye"
+                aria-label="toggle password"
+                onClick={()=>setShowPw2(s => !s)}
+              >
+                {showPw2 ? "🙈" : "👁️"}
+              </button>
+            </div>
 
-        <p className="muted">
-          Already have an account? <Link to="/login">Log in</Link>
-        </p>
-      </form>
-    </div>
+            {error && <div className="error">{error}</div>}
+
+            <div className="signup-actions">
+              <button type="submit" className="btn" disabled={saving}>
+                {saving ? "Creating…" : "CREATE"}
+              </button>
+
+              <p className="muted small">
+                Already have an account?{" "}
+                <Link to="/login" className="link-strong">Log in.</Link>
+              </p>
+            </div>
+          </form>
+        </div>
+      </section>
+
+      {/* RIGHT: Hero */}
+      <section className="signup-right">
+        <div className="welcome">
+          <div className="welcome-sub">WELCOME!</div>
+          <div className="welcome-brand">FURNITUNE</div>
+        </div>
+      </section>
+    </main>
   );
 }
