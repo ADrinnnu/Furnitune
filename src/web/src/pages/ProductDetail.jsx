@@ -3,10 +3,18 @@ import { useParams } from "react-router-dom";
 import { getProduct } from "../data/products.js";
 import { useCart } from "../state/CartContext.jsx";
 
+const FABRICS = [
+  { id: "marble",  label: "Marble",    swatch: "#d9d3c7" },
+  { id: "terra",   label: "Terracotta",swatch: "#b86a52" },
+  { id: "cement",  label: "Cement",    swatch: "#6f6f6f" },
+  { id: "harbour", label: "Harbour",   swatch: "#2c3e50" },
+];
+
 export default function ProductDetail() {
   const { id } = useParams();
   const product = getProduct(id);
   const { add } = useCart();
+  const [fabric, setFabric] = (FABRICS[0].id);
 
   if (!product) {
     return <div className="container section"><h2>Product not found.</h2></div>;
@@ -55,15 +63,21 @@ export default function ProductDetail() {
           <div style={{fontWeight:900, fontSize:24, marginBottom:12}}>₱{price.toFixed(2)}</div>
 
           {/* 1. Choose fabric (placeholders) */}
-          <div style={{margin:"12px 0"}}>
-            <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>1  CHOOSE FABRIC</div>
-            <div style={{display:"flex", gap:8, marginTop:8}}>
-              {["#d6c1b0","#c57a63","#bdbebf","#1e2c2b"].map((c,i)=>(
-                <div key={i} title="fabric" style={{width:34, height:26, borderRadius:4, background:c, border:"1px solid #ddd"}}/>
+          <aside className="repair-right">
+          <div className="card1">
+            <div className="card-title">1 - Choose Fabric</div>
+            <div className="swatches">
+              {FABRICS.map((f) => (
+                <button
+                  key={f.id}
+                  className={`swatch1 ${fabric === f.id ? "active" : ""}`}
+                  style={{ background: f.swatch }}
+                  onClick={() => setFabric(f.id)}
+                />
               ))}
             </div>
-          </div>
-
+            <small>{FABRICS.find((x) => x.id === fabric)?.label}</small>
+<hr />
           {/* 2. Choose size (placeholders) */}
           <div style={{margin:"12px 0"}}>
             <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>2  CHOOSE SIZE</div>
@@ -73,7 +87,7 @@ export default function ProductDetail() {
               ))}
             </div>
           </div>
-
+<hr />
           {/* 3. Notes */}
           <div style={{margin:"12px 0"}}>
             <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>3  DESCRIPTION</div>
@@ -91,7 +105,10 @@ export default function ProductDetail() {
             </button>
           </div>
         </div>
+        </aside>
       </div>
     </div>
+</div>
   );
 }
+

@@ -1,10 +1,9 @@
-// src/pages/Login.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { signInWithEmailAndPassword } from "firebase/auth";
 import { auth } from "../firebase";
-import "../Login.css";   
-import "../auth.css";    
+import "../Login.css";     
+import "../auth.css";     
 
 export default function Login() {
   const nav = useNavigate();
@@ -18,10 +17,14 @@ export default function Login() {
     setError("");
     try {
       await signInWithEmailAndPassword(auth, email, pw);
-      nav("/");
+      nav("/"); // go home after login
     } catch (err) {
       setError(err.message);
     }
+  };
+
+  const goBack = () => {
+    nav(-1); // go back to previous page
   };
 
   return (
@@ -29,16 +32,19 @@ export default function Login() {
       {/* LEFT: form */}
       <section className="login-left">
         <div className="login-left-inner">
+          {/* Back Button */}
+          <div className="back-btn" onClick={goBack} role="button" aria-label="Go back">
+            ← Back
+          </div>
+
           <h1 className="login-head">
             <span>LOG IN TO </span>
             <span>YOUR ACCOUNT</span>
           </h1>
 
           <form className="auth-card login-card" onSubmit={onSubmit}>
-            {/* EMAIL */}
             <label className="field-label">Email*</label>
             <input
-              className="field"
               type="email"
               placeholder="Enter your email"
               value={email}
@@ -46,11 +52,9 @@ export default function Login() {
               required
             />
 
-            {/* PASSWORD (exact same width as email) */}
             <label className="field-label">Password*</label>
             <div className="pw-wrap">
               <input
-                className="field pw-input"
                 type={showPw ? "text" : "password"}
                 placeholder="Enter your password"
                 value={pw}
@@ -60,8 +64,8 @@ export default function Login() {
               <button
                 type="button"
                 className="pw-eye"
-                aria-label="toggle password visibility"
-                onClick={()=>setShowPw((s)=>!s)}
+                aria-label="toggle password"
+                onClick={()=>setShowPw(s => !s)}
               >
                 {showPw ? "🙈" : "👁️"}
               </button>
@@ -76,7 +80,9 @@ export default function Login() {
 
             {error && <div className="error">{error}</div>}
 
-            <button type="submit" className="btn login-btn">LOG IN</button>
+            <div className="btn-center">
+              <button type="submit" className="btn login-btn">LOG IN</button>
+            </div>
 
             <div className="or-row">
               <span className="line" />
@@ -91,8 +97,7 @@ export default function Login() {
             </div>
 
             <p className="muted small center">
-              Don’t have an account?{" "}
-              <Link to="/create-account" className="link-strong">Sign Up.</Link>
+              Don’t have an account? <Link to="/create-account" className="link-strong">Sign Up.</Link>
             </p>
           </form>
         </div>

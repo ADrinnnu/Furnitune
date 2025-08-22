@@ -15,6 +15,7 @@ import CartPage from "./pages/CartPage.jsx";
 import ProductDetail from "./pages/ProductDetail.jsx";
 import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
+import Repair from "./pages/Repair.jsx";
 
 export default function App() {
   const location = useLocation();
@@ -39,6 +40,9 @@ export default function App() {
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
+        <Route path="/repair" element={<Repair />} />
+        <Route path="/account" element={<div>My Account (placeholder)</div>} />
+        <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
 
         {/* fallback */}
         <Route path="*" element={<Landing />} />
