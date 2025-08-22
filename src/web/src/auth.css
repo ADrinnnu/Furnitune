@@ -83,4 +83,7 @@
 }
 .auth-card .btn:hover { background:#22362c; }
 
-.error { color:red; font-size:0.9rem; }
+.error {
+  color:red;
+  font-size:0.9rem;
+}

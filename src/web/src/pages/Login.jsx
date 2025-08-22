@@ -57,9 +57,8 @@ export default function Login() {
             ← Back
           </button>
           <h1 className="login-head">
-            <span>LOG IN</span>
-            <span>TO YOUR</span>
-            <span>ACCOUNT</span>
+            <span>LOG IN TO </span>
+            <span>YOUR ACCOUNT</span>
           </h1>
 
           <form className="auth-card login-card" onSubmit={onSubmit}>
