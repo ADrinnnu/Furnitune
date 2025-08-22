@@ -94,7 +94,7 @@ export default function Login() {
               <label className="remember">
                 <input type="checkbox" /> Remember Me
               </label>
-              <Link to="#" className="link-muted">
+              <Link to="/forgot-password" className="link-muted">
                 Forgot Password
               </Link>
             </div>
