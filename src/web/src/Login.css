@@ -21,33 +21,37 @@
 }
 .login-left-inner{ width:100%; max-width:520px; }
 
-/* Heading back to centered */
-.login-head {
-  margin: 0 0 18px;
-  font-weight: 800;
-  letter-spacing: .08em;
-  color: #2a3a32;
-  line-height: 1.05;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  text-align: left;     
-  align-items: flex-start; 
+/* Back button */
+.back-btn {
+  font-size: 1rem;
+  font-weight: 600;
+  color: var(--brand);
+  cursor: pointer;
+  margin-bottom: 20px;
+  display: inline-block;
+}
+.back-btn:hover {
+  text-decoration: underline;
 }
 
-.login-head span{ 
-  font-size:40px; 
-  text-shadow:0 2px 0 rgba(0,0,0,0.08); 
-  display:block;             
+.login-head{
+  margin:0 0 18px;
+  font-weight:800;
+  letter-spacing:.08em;
+  color:#2a3a32;
+  line-height:1.05;
+  display:flex; flex-direction:column; gap:8px;
+  text-align:left;
 }
+.login-head span{ font-size:40px; text-shadow:0 2px 0 rgba(0,0,0,0.08); }
 
-
+/* card inherits base styles from your auth.css */
 .login-card{
-  border: none;               
+  border: none;
   box-shadow:none;
   padding:0;
   gap:10px;
-  background:transparent;     
+  background:transparent;
 }
 .field-label{
   font-size:.9rem;
@@ -55,11 +59,24 @@
   color:#2f3d35;
   margin-top:4px;
 }
-.pw-wrap{ position:relative; }
-.pw-eye{
-  position:absolute; right:10px; top:50%; transform:translateY(-50%);
-  border:none; background:transparent; cursor:pointer; font-size:16px;
+.pw-wrap input {
+  width: 100%;
+  box-sizing: border-box;
+  padding-right: 40px; /* leave space for the eye button */
 }
+
+.pw-eye {
+  position: absolute;
+  right: 10px;
+  top: 50%;
+  transform: translateY(-50%);
+  border: none;
+  background: transparent;
+  cursor: pointer;
+  font-size: 16px;
+}
+
+
 
 .row{ display:flex; gap:12px; align-items:center; }
 .between{ justify-content:space-between; }
@@ -69,39 +86,19 @@
 .link-muted:hover{ text-decoration:underline; }
 .link-strong{ color:var(--brand); font-weight:700; }
 
-/* Center the LOG IN button text */
+/* Center login button */
+.btn-center {
+  display: flex;
+  justify-content: center;
+  margin-top: 10px;
+}
+
 .login-btn{
   width:180px;
   border-radius:999px;
   background:var(--brand);
   border:1px solid var(--brand);
   font-weight:700;
-  margin:14px auto;         
-  display:flex;             
-  align-items:center;
-  justify-content:center;
-  text-align:center;
-}
-.pw-wrap input {
-  width: 100%;         
-  padding-right: 40px; 
-  box-sizing: border-box;
-}
-
-.pw-input{
-  padding-right:42px;  
-}
-
-.pw-eye{
-  position:absolute;
-  right:10px;
-  top:50%;
-  transform:translateY(-50%);
-  border:none;
-  background:transparent;
-  cursor:pointer;
-  font-size:16px;
-  line-height:1;
 }
 
 /* OR separator + socials */
