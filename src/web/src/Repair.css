@@ -38,13 +38,19 @@
   border:1px solid #ddd;
   border-radius:12px;
   padding:14px;
-  margin-bottom:15px;
-
+}
+.card1 {
+  background:#fff;
+  border:1px solid #ddd;
+  border-radius:12px;
+  padding:14px;
+  margin-bottom: 15px;
 }
 .card-title { font-size:16px; font-weight:700; margin-bottom:18px; }
 
 .swatches { display: flex; gap:45px; margin-bottom: 12px;}
-.swatch { width:70px; height:60px; border-radius:4px; border:2px solid transparent; cursor:pointer; }
+.swatch { width:80px; height:60px; border-radius:4px; border:2px solid transparent; cursor:pointer; }
+.swatch1 { width: 100px; height:50px; border-radius:4px; border:2px solid transparent; cursor:pointer; }
 .swatch.active { border-color:#2d4739; }
 
 textarea {
@@ -59,6 +65,6 @@ textarea {
 .btn.ghost { background:#fff; border:1px solid #2d4739; color:#2d4739; }
 .btn:not(.ghost) { background:#2d4739; color:#fff; }
 
-.muted { color:#666; font-size:13px;margin-left: 70px;}
-
+.muted { color:#666; font: size 10px;}
+.muted1 { color:#666; font: size 10px;margin-left: 70px;}
 

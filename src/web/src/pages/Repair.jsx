@@ -130,7 +130,7 @@ export default function Repair() {
 
         {/* RIGHT */}
         <aside className="repair-right">
-          <div className="card">
+          <div className="card1">
             <div className="card-title">1 - Choose Fabric</div>
             <div className="swatches">
               {FABRICS.map((f) => (
@@ -155,7 +155,7 @@ export default function Repair() {
             PLACE ORDER
           </button>
           
-          <small className="muted">This order will be reviewed before processing.</small>
+          <small className="muted1">This order will be reviewed before processing.</small>
           </div>
 
       
