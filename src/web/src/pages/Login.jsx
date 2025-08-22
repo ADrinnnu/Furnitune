@@ -73,6 +73,7 @@ export default function Login() {
           <form className="auth-card login-card" onSubmit={onSubmit}>
             <label className="field-label">Email*</label>
             <input
+              className="field-email"
               type="email"
               placeholder="Enter your email"
               value={email}
@@ -83,6 +84,7 @@ export default function Login() {
             <label className="field-label">Password*</label>
             <div className="pw-wrap">
               <input
+                className="field-password"
                 type={showPw ? "text" : "password"}
                 placeholder="Enter your password"
                 value={pw}
