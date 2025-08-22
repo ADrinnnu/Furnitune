@@ -182,7 +182,6 @@ header.nav .container {
   gap: 3.2rem;
   padding: 1rem;
   background-color: #f5f2e8;
-  overflow-x: auto;
 }
 
 .chip-wrapper {

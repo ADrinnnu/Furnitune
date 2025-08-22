@@ -2,22 +2,21 @@ import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../firebase";
-
-import "../auth.css";            // (inputs, buttons you already have)
-import "../CreateAccount.css";   // (new layout styles for this page)
+import "../auth.css";
+import "../CreateAccount.css";
 
 export default function CreateAccount() {
   const nav = useNavigate();
 
   const [first, setFirst] = useState("");
-  const [last, setLast]   = useState("");
+  const [last, setLast] = useState("");
   const [email, setEmail] = useState("");
-  const [pw, setPw]       = useState("");
+  const [pw, setPw] = useState("");
   const [confirm, setConfirm] = useState("");
-  const [showPw, setShowPw]       = useState(false);
-  const [showPw2, setShowPw2]     = useState(false);
-  const [error, setError]         = useState("");
-  const [saving, setSaving]       = useState(false);
+  const [showPw, setShowPw] = useState(false);
+  const [showPw2, setShowPw2] = useState(false);
+  const [error, setError] = useState("");
+  const [saving, setSaving] = useState(false);
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -35,21 +34,8 @@ export default function CreateAccount() {
     try {
       setSaving(true);
       const cred = await createUserWithEmailAndPassword(auth, email, pw);
-
-      // Save full name on the Firebase Auth user (no Firestore required)
-      await updateProfile(cred.user, {
-        displayName: `${first.trim()} ${last.trim()}`,
-      });
-
-      // If later you want to store extra profile data in Firestore, add it here.
-      // (Optional – commented so nothing breaks if Firestore isn’t installed)
-      // import { getFirestore, doc, setDoc, serverTimestamp } from "firebase/firestore";
-      // const db = getFirestore();
-      // await setDoc(doc(db, "users", cred.user.uid), {
-      //   first, last, email, createdAt: serverTimestamp(),
-      // });
-
-      nav("/"); // go home after signup
+      await updateProfile(cred.user, { displayName: `${first.trim()} ${last.trim()}` });
+      nav("/");
     } catch (err) {
       setError(err.message);
     } finally {
@@ -59,7 +45,6 @@ export default function CreateAccount() {
 
   return (
     <main className="signup-page">
-      {/* LEFT: Form */}
       <section className="signup-left">
         <div className="signup-left-inner">
           <h1 className="signup-head">
@@ -68,7 +53,6 @@ export default function CreateAccount() {
           </h1>
 
           <form className="auth-card signup-card" onSubmit={onSubmit}>
-            {/* Name Row */}
             <div className="field-row">
               <div className="field">
                 <label className="field-label">Given Name*</label>
@@ -76,7 +60,7 @@ export default function CreateAccount() {
                   type="text"
                   placeholder="Enter your name"
                   value={first}
-                  onChange={(e)=>setFirst(e.target.value)}
+                  onChange={(e) => setFirst(e.target.value)}
                   required
                 />
               </div>
@@ -86,7 +70,7 @@ export default function CreateAccount() {
                   type="text"
                   placeholder="Enter your last name"
                   value={last}
-                  onChange={(e)=>setLast(e.target.value)}
+                  onChange={(e) => setLast(e.target.value)}
                   required
                 />
               </div>
@@ -97,7 +81,7 @@ export default function CreateAccount() {
               type="email"
               placeholder="Enter your email"
               value={email}
-              onChange={(e)=>setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
 
@@ -107,14 +91,14 @@ export default function CreateAccount() {
                 type={showPw ? "text" : "password"}
                 placeholder="Enter your password"
                 value={pw}
-                onChange={(e)=>setPw(e.target.value)}
+                onChange={(e) => setPw(e.target.value)}
                 required
               />
               <button
                 type="button"
                 className="pw-eye"
                 aria-label="toggle password"
-                onClick={()=>setShowPw(s => !s)}
+                onClick={() => setShowPw((s) => !s)}
               >
                 {showPw ? "🙈" : "👁️"}
               </button>
@@ -126,14 +110,14 @@ export default function CreateAccount() {
                 type={showPw2 ? "text" : "password"}
                 placeholder="Confirm your password"
                 value={confirm}
-                onChange={(e)=>setConfirm(e.target.value)}
+                onChange={(e) => setConfirm(e.target.value)}
                 required
               />
               <button
                 type="button"
                 className="pw-eye"
                 aria-label="toggle password"
-                onClick={()=>setShowPw2(s => !s)}
+                onClick={() => setShowPw2((s) => !s)}
               >
                 {showPw2 ? "🙈" : "👁️"}
               </button>
@@ -148,14 +132,15 @@ export default function CreateAccount() {
 
               <p className="muted small">
                 Already have an account?{" "}
-                <Link to="/login" className="link-strong">Log in.</Link>
+                <Link to="/login" state={{ fromCreate: true }} className="link-strong">
+                  Log in.
+                </Link>
               </p>
             </div>
           </form>
         </div>
       </section>
 
-      {/* RIGHT: Hero */}
       <section className="signup-right">
         <div className="welcome">
           <div className="welcome-sub">WELCOME!</div>

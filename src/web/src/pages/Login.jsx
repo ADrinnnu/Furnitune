@@ -1,12 +1,19 @@
 import React, { useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
-import { signInWithEmailAndPassword } from "firebase/auth";
+import { Link, useNavigate, useLocation } from "react-router-dom";
+import {
+  signInWithEmailAndPassword,
+  GoogleAuthProvider,
+  signInWithPopup,
+} from "firebase/auth";
 import { auth } from "../firebase";
-import "../Login.css";     
-import "../auth.css";     
+import "../Login.css";
+import "../auth.css";
+import googleIcon from "../assets/Google.png";
 
 export default function Login() {
   const nav = useNavigate();
+  const location = useLocation();
+
   const [email, setEmail] = useState("");
   const [pw, setPw] = useState("");
   const [error, setError] = useState("");
@@ -17,26 +24,38 @@ export default function Login() {
     setError("");
     try {
       await signInWithEmailAndPassword(auth, email, pw);
-      nav("/"); // go home after login
+      nav("/");
     } catch (err) {
       setError(err.message);
     }
   };
 
-  const goBack = () => {
-    nav(-1); // go back to previous page
+  const handleGoogleLogin = async () => {
+    try {
+      const provider = new GoogleAuthProvider();
+      await signInWithPopup(auth, provider);
+      nav("/");
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleBack = () => {
+    
+    if (location.key !== "default" && location.state?.from !== "/create-account") {
+      nav(-1);
+    } else {
+      nav("/"); 
+    }
   };
 
   return (
     <main className="login-page">
-      {/* LEFT: form */}
       <section className="login-left">
         <div className="login-left-inner">
-          {/* Back Button */}
-          <div className="back-btn" onClick={goBack} role="button" aria-label="Go back">
+          <button className="back-link" onClick={handleBack}>
             ← Back
-          </div>
-
+          </button>
           <h1 className="login-head">
             <span>LOG IN</span>
             <span>TO YOUR</span>
@@ -49,7 +68,7 @@ export default function Login() {
               type="email"
               placeholder="Enter your email"
               value={email}
-              onChange={(e)=>setEmail(e.target.value)}
+              onChange={(e) => setEmail(e.target.value)}
               required
             />
 
@@ -59,14 +78,14 @@ export default function Login() {
                 type={showPw ? "text" : "password"}
                 placeholder="Enter your password"
                 value={pw}
-                onChange={(e)=>setPw(e.target.value)}
+                onChange={(e) => setPw(e.target.value)}
                 required
               />
               <button
                 type="button"
                 className="pw-eye"
                 aria-label="toggle password"
-                onClick={()=>setShowPw(s => !s)}
+                onClick={() => setShowPw((s) => !s)}
               >
                 {showPw ? "🙈" : "👁️"}
               </button>
@@ -76,14 +95,16 @@ export default function Login() {
               <label className="remember">
                 <input type="checkbox" /> Remember Me
               </label>
-              <Link to="#" className="link-muted">Forgot Password</Link>
+              <Link to="#" className="link-muted">
+                Forgot Password
+              </Link>
             </div>
 
             {error && <div className="error">{error}</div>}
 
-            <div className="btn-center">
-              <button type="submit" className="btn login-btn">LOG IN</button>
-            </div>
+            <button type="submit" className="btn login-btn">
+              LOG IN
+            </button>
 
             <div className="or-row">
               <span className="line" />
@@ -92,19 +113,26 @@ export default function Login() {
             </div>
 
             <div className="socials">
-              <button type="button" className="social-btn" aria-label="Login with Google">G</button>
-              <button type="button" className="social-btn" aria-label="Login with Facebook">f</button>
-              <button type="button" className="social-btn" aria-label="Login with Apple"></button>
+              <button
+                type="button"
+                className="social-btn"
+                aria-label="Login with Google"
+                onClick={handleGoogleLogin}
+              >
+                <img src={googleIcon} alt="Google" width="20" height="20" />
+              </button>
             </div>
 
             <p className="muted small center">
-              Don’t have an account? <Link to="/create-account" className="link-strong">Sign Up.</Link>
+              Don’t have an account?{" "}
+              <Link to="/create-account" className="link-strong">
+                Sign Up.
+              </Link>
             </p>
           </form>
         </div>
       </section>
 
-      {/* RIGHT: hero */}
       <section className="login-right">
         <div className="welcome">
           <div className="welcome-sub">WELCOME!</div>
