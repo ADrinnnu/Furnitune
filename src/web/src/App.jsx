@@ -41,6 +41,8 @@ export default function App() {
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
         <Route path="/repair" element={<Repair />} />
+        <Route path="/account" element={<div>My Account (placeholder)</div>} />
+        <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
 
         {/* fallback */}
         <Route path="*" element={<Landing />} />
