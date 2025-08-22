@@ -1,7 +1,9 @@
+// src/pages/CreateAccount.jsx
 import React, { useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { createUserWithEmailAndPassword, updateProfile } from "firebase/auth";
 import { auth } from "../firebase";
+
 import "../auth.css";
 import "../CreateAccount.css";
 
@@ -34,7 +36,11 @@ export default function CreateAccount() {
     try {
       setSaving(true);
       const cred = await createUserWithEmailAndPassword(auth, email, pw);
-      await updateProfile(cred.user, { displayName: `${first.trim()} ${last.trim()}` });
+
+      await updateProfile(cred.user, {
+        displayName: `${first.trim()} ${last.trim()}`,
+      });
+
       nav("/");
     } catch (err) {
       setError(err.message);
@@ -132,7 +138,12 @@ export default function CreateAccount() {
 
               <p className="muted small">
                 Already have an account?{" "}
-                <Link to="/login" state={{ fromCreate: true }} className="link-strong">
+                {/* ✅ Pass state so login knows you came from signup */}
+                <Link
+                  to="/login"
+                  state={{ from: "/create-account" }}
+                  className="link-strong"
+                >
                   Log in.
                 </Link>
               </p>
