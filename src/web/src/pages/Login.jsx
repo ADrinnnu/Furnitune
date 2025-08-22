@@ -53,9 +53,19 @@ export default function Login() {
     <main className="login-page">
       <section className="login-left">
         <div className="login-left-inner">
-          <button className="back-link" onClick={handleBack}>
-            ← Back
-          </button>
+          <button
+  className="back-link"
+  onClick={() => {
+    // if history came from create-account, just go home
+    if (document.referrer.includes("/create-account")) {
+      nav("/");
+    } else {
+      nav(-1);
+    }
+  }}
+>
+  ← Back
+</button>
           <h1 className="login-head">
             <span>LOG IN TO </span>
             <span>YOUR ACCOUNT</span>
