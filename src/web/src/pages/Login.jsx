@@ -56,7 +56,7 @@ export default function Login() {
           <button
   className="back-link"
   onClick={() => {
-    if (document.referrer.includes("/create-account")) {
+    if (document.referrer.includes("/create-account", "/forgot-password")) {
       nav("/");
     } else {
       nav(-1);

@@ -21,6 +21,7 @@ import CreateAccount from "./pages/CreateAccount.jsx";
 import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
+import Account from "./pages/Account.jsx";
 
 export default function App() {
   const location = useLocation();
@@ -61,14 +62,15 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
 
-        {/* Auth-related pages */}
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/account" element={<Account />} />
+        <Route path="/Repair" element={<Repair />} />
 
         {/* Placeholders you mentioned */}
-        <Route path="/account" element={<div>My Account (placeholder)</div>} />
+        <Route path="/account" element={<Account/>} />
         <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
 
         {/* Fallback */}
