@@ -42,7 +42,7 @@ export default function App() {
   }, [navigate, location.pathname]);
 
   // Hide Navbar/Footer on the auth pages (login, create-account, verify-email)
-  const hideNavAndFooter = ["/login", "/create-account", "/verify-email"].includes(
+  const hideNavAndFooter = ["/login", "/create-account", "/verify-email", "/forgot-password"].includes(
     location.pathname
   );
 
@@ -69,12 +69,6 @@ export default function App() {
         <Route path="/account" element={<Account />} />
         <Route path="/Repair" element={<Repair />} />
 
-        {/* Placeholders you mentioned */}
-        <Route path="/account" element={<Account/>} />
-        <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
-
-        {/* Fallback */}
-        <Route path="*" element={<Landing />} />
       </Routes>
 
       {!hideNavAndFooter && <Footer />}

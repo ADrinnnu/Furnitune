@@ -53,18 +53,17 @@ export default function Login() {
     <main className="login-page">
       <section className="login-left">
         <div className="login-left-inner">
+
           <button
-  className="back-link"
-  onClick={() => {
-    if (document.referrer.includes("/create-account", "/forgot-password")) {
-      nav("/");
-    } else {
-      nav(-1);
-    }
-  }}
->
-  ← Back
-</button>
+            className="back-link"
+            onClick={() => {
+            if (document.referrer.includes("/create-account", "/forgot-password", "/verify-email", )) {
+            nav(-1, { replace: true });
+            } else {
+            nav(-1);}
+            }}>
+            ← Back
+          </button>
           <h1 className="login-head">
             <span>LOG IN TO </span>
             <span>YOUR ACCOUNT</span>
