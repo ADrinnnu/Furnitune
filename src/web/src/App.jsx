@@ -41,7 +41,7 @@ export default function App() {
     return () => unsub();
   }, [navigate, location.pathname]);
 
-  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email)
+  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email and forgot-password)
   const hideNavAndFooter = ["/login", "/create-account", "/verify-email", "/forgot-password"].includes(
     location.pathname
   );
