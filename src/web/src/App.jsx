@@ -23,6 +23,17 @@ import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
 
+const AUTH_PAGES = new Set(["/login", "/create-account", "/forgot-password", "/verify-email"]);
+function HistoryTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!AUTH_PAGES.has(pathname)) {
+      sessionStorage.setItem("lastNonAuthPath", pathname);
+    }
+  }, [pathname]);
+  return null;
+}
+
 export default function App() {
   const location = useLocation();
   const navigate = useNavigate();
@@ -49,7 +60,7 @@ export default function App() {
   return (
     <>
       {!hideNavAndFooter && <Navbar />}
-
+      <HistoryTracker />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/all-furnitures" element={<AllFurnitures />} />

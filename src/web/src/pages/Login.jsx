@@ -10,6 +10,8 @@ import "../Login.css";
 import "../auth.css";
 import googleIcon from "../assets/Google.png";
 
+const AUTH_PAGES = ["/create-account", "/forgot-password", "/verify-email", "/login"];
+
 export default function Login() {
   const nav = useNavigate();
   const location = useLocation();
@@ -24,7 +26,8 @@ export default function Login() {
     setError("");
     try {
       await signInWithEmailAndPassword(auth, email, pw);
-      nav("/");
+      const last = sessionStorage.getItem("lastNonAuthPath");
+      nav(last || "/");
     } catch (err) {
       setError(err.message);
     }
@@ -34,36 +37,35 @@ export default function Login() {
     try {
       const provider = new GoogleAuthProvider();
       await signInWithPopup(auth, provider);
-      nav("/");
+      const last = sessionStorage.getItem("lastNonAuthPath");
+      nav(last || "/");
     } catch (err) {
       setError(err.message);
     }
   };
 
   const handleBack = () => {
-    
-    if (location.key !== "default" && location.state?.from !== "/create-account") {
-      nav(-1);
-    } else {
-      nav("/"); 
+    const last = sessionStorage.getItem("lastNonAuthPath");
+    if (last && !AUTH_PAGES.includes(last)) {
+      nav(last, { replace: true });
+      return;
     }
+
+    const from = location.state?.from;
+    if (!from || AUTH_PAGES.includes(from)) {
+      nav("/", { replace: true });
+      return;
+    }
+
+    nav(-1);
   };
 
   return (
     <main className="login-page">
       <section className="login-left">
         <div className="login-left-inner">
+          <button className="back-link" onClick={handleBack}>← Back</button>
 
-          <button
-            className="back-link"
-            onClick={() => {
-            if (document.referrer.includes("/create-account", "/forgot-password", "/verify-email", )) {
-            nav(-1, { replace: true });
-            } else {
-            nav(-1);}
-            }}>
-            ← Back
-          </button>
           <h1 className="login-head">
             <span>LOG IN TO </span>
             <span>YOUR ACCOUNT</span>
@@ -104,16 +106,19 @@ export default function Login() {
               <label className="remember">
                 <input type="checkbox" /> Remember Me
               </label>
-              <Link to="/forgot-password" className="link-muted">
+              <Link
+                to="/forgot-password"
+                state={{ from: "/login" }}
+                replace
+                className="link-muted"
+              >
                 Forgot Password
               </Link>
             </div>
 
             {error && <div className="error">{error}</div>}
 
-            <button type="submit" className="btn login-btn">
-              LOG IN
-            </button>
+            <button type="submit" className="btn login-btn">LOG IN</button>
 
             <div className="or-row">
               <span className="line" />
@@ -134,7 +139,12 @@ export default function Login() {
 
             <p className="muted small center">
               Don’t have an account?{" "}
-              <Link to="/create-account" className="link-strong">
+              <Link
+                to="/create-account"
+                state={{ from: "/login" }}
+                replace
+                className="link-strong"
+              >
                 Sign Up.
               </Link>
             </p>

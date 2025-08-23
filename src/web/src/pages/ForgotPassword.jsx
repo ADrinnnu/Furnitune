@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { sendPasswordResetEmail } from "firebase/auth";
 import { auth } from "../firebase";
 import "../auth.css";
@@ -8,6 +8,7 @@ export default function ForgotPassword() {
   const [email, setEmail] = useState("");
   const [status, setStatus] = useState({ ok: false, msg: "" });
   const [loading, setLoading] = useState(false);
+  const location = useLocation();
 
   const onSubmit = async (e) => {
     e.preventDefault();
@@ -15,10 +16,7 @@ export default function ForgotPassword() {
     setLoading(true);
     try {
       await sendPasswordResetEmail(auth, email);
-      setStatus({
-        ok: true,
-        msg: "Reset link sent! Please check your inbox (and spam).",
-      });
+      setStatus({ ok: true, msg: "Reset link sent! Please check your inbox (and spam)." });
     } catch (err) {
       setStatus({ ok: false, msg: err.message });
     } finally {
@@ -53,7 +51,9 @@ export default function ForgotPassword() {
         </button>
 
         <p className="muted small center" style={{ marginTop: 8 }}>
-          <Link to="/login" className="link-strong">Back to Login</Link>
+          <Link to="/login" replace state={{ from: "/forgot-password" }} className="link-strong">
+            Back to Login
+          </Link>
         </p>
       </form>
     </main>
