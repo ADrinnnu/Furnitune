@@ -22,12 +22,17 @@ import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
+import AppAdmin from "./admin/AppAdmin";
 
-const AUTH_PAGES = new Set(["/login", "/create-account", "/forgot-password", "/verify-email"]);
+// Auth routes you want to treat specially (no public navbar/footer)
+const AUTH_PREFIXES = ["/login", "/create-account", "/verify-email", "/forgot-password"];
+
 function HistoryTracker() {
   const { pathname } = useLocation();
   useEffect(() => {
-    if (!AUTH_PAGES.has(pathname)) {
+    const isAdmin = pathname.startsWith("/admin");
+    const isAuth = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
+    if (!isAdmin && !isAuth) {
       sessionStorage.setItem("lastNonAuthPath", pathname);
     }
   }, [pathname]);
@@ -39,29 +44,34 @@ export default function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
 
-  // Redirect unverified users to /verify-email
+  // Auth state + verify-email redirect (but don't hijack admin/auth pages)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u || null);
 
-      // If logged in but email not verified, always keep them on /verify-email
-      if (u && !u.emailVerified && location.pathname !== "/verify-email") {
+      const path = location.pathname;
+      const isAdmin = path.startsWith("/admin");
+      const isAuth = AUTH_PREFIXES.some((p) => path.startsWith(p));
+
+      if (u && !u.emailVerified && !isAdmin && !isAuth && path !== "/verify-email") {
         navigate("/verify-email", { replace: true });
       }
     });
     return () => unsub();
   }, [navigate, location.pathname]);
 
-  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email and forgot-password)
-  const hideNavAndFooter = ["/login", "/create-account", "/verify-email", "/forgot-password"].includes(
-    location.pathname
-  );
+  const path = location.pathname;
+  const isAdmin = path.startsWith("/admin");
+  const isAuthPage = AUTH_PREFIXES.some((p) => path.startsWith(p));
+  const hideNavAndFooter = isAdmin || isAuthPage;
 
   return (
     <>
       {!hideNavAndFooter && <Navbar />}
       <HistoryTracker />
+
       <Routes>
+        {/* Public pages */}
         <Route path="/" element={<Landing />} />
         <Route path="/all-furnitures" element={<AllFurnitures />} />
         <Route path="/best-sellers" element={<BestSellers />} />
@@ -72,14 +82,17 @@ export default function App() {
         <Route path="/out-door" element={<Outdoor />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/Repair" element={<Repair />} />
 
+        {/* Auth pages */}
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/account" element={<Account />} />
-        <Route path="/Repair" element={<Repair />} />
 
+        {/* Admin app (has its own layout; no public navbar/footer) */}
+        <Route path="/admin/*" element={<AppAdmin />} />
       </Routes>
 
       {!hideNavAndFooter && <Footer />}
