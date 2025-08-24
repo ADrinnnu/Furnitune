@@ -1,6 +1,6 @@
 /* --- Card stays the same --- */
 .auth-page {
-  min-height: 100vh;
+  min-height: 90vh;
   display:flex;
   align-items:center;
   justify-content:center;
@@ -86,4 +86,9 @@
 .error {
   color:red;
   font-size:0.9rem;
+}
+.field-email, .field-password {
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #8f8f8f;
 }

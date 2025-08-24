@@ -109,7 +109,7 @@ export default function Navbar() {
                 <div className="profile-dropdown">
                   <div className="pd-head">ACCOUNT SETTINGS</div>
 
-                  <Link to="/profile" className="pd-item" onClick={() => setOpen(false)}>
+                  <Link to="/account" className="pd-item" onClick={() => setOpen(false)}>
                     <span className="pd-ic">👤</span>
                     <span>My Account</span>
                   </Link>

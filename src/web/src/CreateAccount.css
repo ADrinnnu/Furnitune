@@ -100,3 +100,8 @@
   .signup-left{ padding:32px 20px; }
   .signup-head span{ font-size:32px; }
 }
+input{
+  padding: 12px;
+  border-radius: 10px;
+  border: 1px solid #8f8f8f;
+}

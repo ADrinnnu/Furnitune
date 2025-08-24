@@ -1,0 +1,169 @@
+/* Everything is scoped under .admin-root so it won't touch your existing app */
+.admin-root { display: grid; grid-template-columns: 240px 1fr; min-height: 100vh; font-family: system-ui, sans-serif; }
+.admin-sidebar { background:#0f172a; color:#fff; padding:16px; display:flex; flex-direction:column; gap:12px; }
+.admin-brand a { color:#fff; text-decoration:none; font-weight:700; }
+.admin-sidebar nav { display:flex; flex-direction:column; gap:6px; }
+.admin-sidebar a { color:#cbd5e1; text-decoration:none; padding:8px 10px; border-radius:6px; }
+.admin-sidebar a.active { background:#1e293b; color:#fff; }
+.admin-back { margin-top:auto; background:#1e293b; border:0; color:#fff; padding:8px 10px; border-radius:6px; cursor:pointer; }
+
+.admin-main { padding:24px; background:#f8fafc; }
+.admin-card { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:16px; }
+.admin-toolbar { display:flex; gap:8px; align-items:center; margin-bottom:12px; }
+.admin-table { width:100%; border-collapse: collapse; background:#fff; border-radius:8px; overflow:hidden; }
+.admin-table th, .admin-table td { padding:10px 12px; border-bottom:1px solid #e2e8f0; text-align:left; }
+.admin-btn { padding:8px 12px; border-radius:6px; border:1px solid #cbd5e1; background:#fff; cursor:pointer; }
+.admin-btn.primary { background:#0ea5e9; border-color:#0ea5e9; color:#fff; }
+.admin-input, .admin-select { padding:8px 10px; border:1px solid #cbd5e1; border-radius:6px; background:#fff; }
+.admin-kanban { display:grid; gap:12px; grid-template-columns: repeat(7, minmax(220px,1fr)); }
+.admin-col { background:#fff; border:1px solid #e2e8f0; border-radius:8px; padding:8px; }
+.admin-col h4 { margin:4px 0 8px; }
+.admin-card-sm { border:1px solid #e2e8f0; border-radius:6px; padding:8px; margin-bottom:8px; background:#fff; }
+
+/* ===========================
+   Admin Login Page (scoped)
+   =========================== */
+
+.admin-auth-wrap{
+  min-height:100vh;
+  display:grid;
+  grid-template-columns: 1fr 1fr;   /* left form | right brand */
+  background:#faf8f2;               /* soft cream across page */
+}
+
+/* Left panel */
+.admin-auth-left{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:48px 32px;
+  background:#faf8f2;
+}
+
+.admin-auth-inner{
+  width:100%;
+  max-width: 420px;
+}
+
+.admin-auth-title{
+  margin:0 0 28px 0;
+  line-height:1.15;
+  letter-spacing:2px;
+  color:#16352f;                    /* deep green */
+  font-size:40px;
+  font-weight:800;
+}
+
+/* Fields */
+.admin-field-label{
+  display:block;
+  font-size:14px;
+  color:#334155;
+  margin:14px 0 8px;
+}
+
+.admin-input{
+  width:100%;
+  height:44px;
+  padding:0 14px;
+  border-radius:10px;
+  border:1px solid #d9ddd9;
+  background:#fff;
+  outline:none;
+  font-size:14px;
+}
+
+.admin-input:focus{
+  border-color:#2e5b52;
+  box-shadow:0 0 0 3px rgba(46,91,82,.15);
+}
+
+/* Password + eye */
+.admin-password-row{
+  position:relative;
+}
+
+.admin-eye{
+  position:absolute;
+  right:12px;
+  top:50%;
+  transform:translateY(-50%);
+  font-size:14px;
+  color:#64748b;
+  user-select:none;
+}
+
+/* Button */
+.admin-login-btn{
+  margin-top:22px;
+  width:140px;
+  height:44px;
+  border:0;
+  border-radius:999px;
+  background:#2e5b52;               /* dark desaturated green */
+  color:#fff;
+  font-weight:700;
+  letter-spacing:.08em;
+  cursor:pointer;
+  transition:transform .05s ease, filter .2s ease;
+}
+
+.admin-login-btn:hover{ filter:brightness(1.03); }
+.admin-login-btn:active{ transform:translateY(1px); }
+.admin-login-btn:disabled{ opacity:.6; cursor:not-allowed; }
+
+/* Back link */
+.admin-auth-footer{
+  margin-top:18px;
+}
+
+.admin-back-link{
+  color:#2e5b52;
+  text-decoration:none;
+  font-weight:600;
+}
+
+/* Error */
+.admin-auth-error{
+  background:#fee2e2;
+  color:#b91c1c;
+  border:1px solid #fecaca;
+  padding:10px 12px;
+  border-radius:8px;
+  margin-bottom:12px;
+  font-size:14px;
+}
+
+/* Right brand panel */
+.admin-auth-right{
+  background:#2e4f47;               /* rich green */
+  color:#fff;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:48px 24px;
+}
+
+.admin-welcome{
+  text-align:center;
+  letter-spacing:.35em;
+  line-height:1.5;
+  font-weight:800;
+  font-size:18px;
+}
+
+.admin-welcome::before{
+  content:"WELCOME!";
+  display:block;
+  font-size:12px;
+  letter-spacing:.25em;
+  margin-bottom:12px;
+  opacity:.85;
+}
+
+/* Responsive */
+@media (max-width: 900px){
+  .admin-auth-wrap{ grid-template-columns: 1fr; }
+  .admin-auth-right{ order:-1; min-height: 35vh; }
+}
+

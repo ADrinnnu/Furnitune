@@ -1,6 +1,9 @@
 // src/App.jsx
-import React from "react";
-import { Routes, Route, useLocation } from "react-router-dom";
+import React, { useEffect, useState } from "react";
+import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "./firebase";
+
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import Landing from "./pages/Landing.jsx";
@@ -17,6 +20,24 @@ import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
 import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
+import VerifyEmail from "./pages/VerifyEmail.jsx";
+import Account from "./pages/Account.jsx";
+import AppAdmin from "./admin/AppAdmin";
+
+// Auth routes you want to treat specially (no public navbar/footer)
+const AUTH_PREFIXES = ["/login", "/create-account", "/verify-email", "/forgot-password"];
+
+function HistoryTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    const isAdmin = pathname.startsWith("/admin");
+    const isAuth = AUTH_PREFIXES.some((p) => pathname.startsWith(p));
+    if (!isAdmin && !isAuth) {
+      sessionStorage.setItem("lastNonAuthPath", pathname);
+    }
+  }, [pathname]);
+  return null;
+}
 import Notification from "./pages/Notification.jsx";
 import Checkout from "./pages/Checkout.jsx";
 import Payment from "./pages/Payment.jsx";
@@ -26,15 +47,37 @@ import MyPurchases from "./pages/MyPurchases.jsx";
 
 export default function App() {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [user, setUser] = useState(null);
 
- 
-  const hideNavAndFooter = ["/login", "/create-account"].includes(location.pathname);
+  // Auth state + verify-email redirect (but don't hijack admin/auth pages)
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      setUser(u || null);
+
+      const path = location.pathname;
+      const isAdmin = path.startsWith("/admin");
+      const isAuth = AUTH_PREFIXES.some((p) => path.startsWith(p));
+
+      if (u && !u.emailVerified && !isAdmin && !isAuth && path !== "/verify-email") {
+        navigate("/verify-email", { replace: true });
+      }
+    });
+    return () => unsub();
+  }, [navigate, location.pathname]);
+
+  const path = location.pathname;
+  const isAdmin = path.startsWith("/admin");
+  const isAuthPage = AUTH_PREFIXES.some((p) => path.startsWith(p));
+  const hideNavAndFooter = isAdmin || isAuthPage;
 
   return (
     <>
       {!hideNavAndFooter && <Navbar />}
+      <HistoryTracker />
 
       <Routes>
+        {/* Public pages */}
         <Route path="/" element={<Landing />} />
         <Route path="/all-furnitures" element={<AllFurnitures />} />
         <Route path="/best-sellers" element={<BestSellers />} />
@@ -45,10 +88,14 @@ export default function App() {
         <Route path="/out-door" element={<Outdoor />} />
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/Repair" element={<Repair />} />
+
+        {/* Auth pages */}
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
-        <Route path="/repair" element={<Repair />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
+        <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/account" element={<Account />} />
         <Route path="/account" element={<div>My Account (placeholder)</div>} />
         <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
         <Route path="/notifications" element={<Notification />} />
@@ -59,8 +106,8 @@ export default function App() {
         
 
 
-        {/* fallback */}
-        <Route path="*" element={<Landing />} />
+        {/* Admin app (has its own layout; no public navbar/footer) */}
+        <Route path="/admin/*" element={<AppAdmin />} />
       </Routes>
 
       {!hideNavAndFooter && <Footer />}
