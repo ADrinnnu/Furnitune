@@ -61,7 +61,6 @@ export default function Navbar() {
 
         <div className="icons">
           <span>🔍</span>
-          <span>♡</span>
 
           {/* Cart with badge */}
           <div style={{ position: "relative", display: "inline-block" }}>
@@ -87,7 +86,9 @@ export default function Navbar() {
             )}
           </div>
 
-          <span>🔔</span>
+          <Link to="/notifications" className="icon-btn" aria-label="Notification">
+              🔔
+            </Link>
 
           {/* Profile / Login */}
           {!user ? (

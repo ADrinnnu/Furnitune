@@ -17,6 +17,11 @@ import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
 import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
+import Notification from "./pages/Notification.jsx";
+import Checkout from "./pages/Checkout.jsx";
+import Payment from "./pages/Payment.jsx";
+import OrderSummary from "./pages/OrderSummary.jsx";
+import MyPurchases from "./pages/MyPurchases.jsx";
 
 
 export default function App() {
@@ -46,6 +51,13 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/account" element={<div>My Account (placeholder)</div>} />
         <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
+        <Route path="/notifications" element={<Notification />} />
+        <Route path="/checkout" element={<Checkout />} />
+        <Route path="/payment" element={<Payment />} />
+        <Route path="/ordersummary" element={<OrderSummary />} />
+        <Route path="" element={<MyPurchases />} />  
+        
+
 
         {/* fallback */}
         <Route path="*" element={<Landing />} />

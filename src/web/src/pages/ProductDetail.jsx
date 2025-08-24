@@ -2,6 +2,8 @@ import React from "react";
 import { useParams } from "react-router-dom";
 import { getProduct } from "../data/products.js";
 import { useCart } from "../state/CartContext.jsx";
+import { useNavigate } from "react-router-dom";
+
 
 const FABRICS = [
   { id: "marble",  label: "Marble",    swatch: "#d9d3c7" },
@@ -15,6 +17,8 @@ export default function ProductDetail() {
   const product = getProduct(id);
   const { add } = useCart();
   const [fabric, setFabric] = (FABRICS[0].id);
+  const navigate = useNavigate();
+
 
   if (!product) {
     return <div className="container section"><h2>Product not found.</h2></div>;
@@ -95,7 +99,7 @@ export default function ProductDetail() {
           </div>
 
           <div style={{display:"flex", gap:10, marginTop:8}}>
-            <button className="btn ghost" style={{flex:"0 0 120px"}}>₱{price.toFixed(2)}</button>
+            <button className="btn ghost" style={{flex:"0 0 120px"}} onClick={() => navigate("/Checkout")}>₱{price.toFixed(2)}</button>
             <button
               className="btn"
               style={{flex:1}}
