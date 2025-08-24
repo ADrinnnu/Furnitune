@@ -21,6 +21,18 @@ import CreateAccount from "./pages/CreateAccount.jsx";
 import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
+import Account from "./pages/Account.jsx";
+
+const AUTH_PAGES = new Set(["/login", "/create-account", "/forgot-password", "/verify-email"]);
+function HistoryTracker() {
+  const { pathname } = useLocation();
+  useEffect(() => {
+    if (!AUTH_PAGES.has(pathname)) {
+      sessionStorage.setItem("lastNonAuthPath", pathname);
+    }
+  }, [pathname]);
+  return null;
+}
 
 export default function App() {
   const location = useLocation();
@@ -40,15 +52,15 @@ export default function App() {
     return () => unsub();
   }, [navigate, location.pathname]);
 
-  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email)
-  const hideNavAndFooter = ["/login", "/create-account", "/verify-email"].includes(
+  // Hide Navbar/Footer on the auth pages (login, create-account, verify-email and forgot-password)
+  const hideNavAndFooter = ["/login", "/create-account", "/verify-email", "/forgot-password"].includes(
     location.pathname
   );
 
   return (
     <>
       {!hideNavAndFooter && <Navbar />}
-
+      <HistoryTracker />
       <Routes>
         <Route path="/" element={<Landing />} />
         <Route path="/all-furnitures" element={<AllFurnitures />} />
@@ -61,18 +73,13 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
 
-        {/* Auth-related pages */}
         <Route path="/login" element={<Login />} />
         <Route path="/create-account" element={<CreateAccount />} />
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
+        <Route path="/account" element={<Account />} />
+        <Route path="/Repair" element={<Repair />} />
 
-        {/* Placeholders you mentioned */}
-        <Route path="/account" element={<div>My Account (placeholder)</div>} />
-        <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
-
-        {/* Fallback */}
-        <Route path="*" element={<Landing />} />
       </Routes>
 
       {!hideNavAndFooter && <Footer />}

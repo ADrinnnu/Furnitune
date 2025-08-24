@@ -20,10 +20,7 @@ export default function VerifyEmail() {
       }
     });
     const t = setInterval(() => setTick((x) => x + 1), 1000);
-    return () => {
-      stop();
-      clearInterval(t);
-    };
+    return () => { stop(); clearInterval(t); };
   }, [nav]);
 
   const key = "verifyResendUntil";
@@ -47,20 +44,17 @@ export default function VerifyEmail() {
 
   const obfuscated = (user?.email || "").replace(/^(.).+(@.+)$/, (_m, a, b) => `${a}******${b}`);
 
-  const handleGoHome = () => nav("/");
-
+  const handleGoHome = () => nav("/", { replace: true });
   const handleUseAnother = async () => {
     await signOut(auth);
-    nav("/login");
+    nav("/login", { replace: true, state: { from: "/verify-email" } });
   };
 
   return (
     <main className="verify-page">
       <section className="verify-left">
         <div className="verify-inner">
-          <h1 className="verify-head">
-            <span>VERIFY YOUR EMAIL</span>
-          </h1>
+          <h1 className="verify-head"><span>VERIFY YOUR EMAIL</span></h1>
 
           <p className="verify-copy">
             We’ve sent a verification link to <strong>{obfuscated}</strong>. Please check your
