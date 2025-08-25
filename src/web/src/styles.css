@@ -720,6 +720,56 @@ header.nav .container {
   font-size: 13px;
 }
 
+/* ---------- Visit Us ---------- */
+
+.homepage-container {
+  width: 100%;
+}
+
+/* Store Info Section */
+.store-info {
+  display: flex;
+  justify-content: space-between;
+  gap: 40px;
+  padding: 40px 80px;
+  align-items: flex-start;
+}
+
+.store-text {
+  flex: 1;
+}
+
+.store-text h1 {
+  font-size: 28px;
+  font-weight: bold;
+  margin: 5px 0 15px;
+}
+
+.store-text h3 {
+  font-size: 14px;
+  font-weight: bold;
+  color: #444;
+  margin-bottom: 5px;
+}
+
+.store-text p {
+  margin: 8px 0;
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.contact {
+  margin-top: 15px;
+  font-weight: bold;
+}
+
+.store-map img {
+  width: 350px;
+  border-radius: 8px;
+  object-fit: cover;
+}
+
+
 /* ---------- My Purchases ---------- */
 
 .orders-container {

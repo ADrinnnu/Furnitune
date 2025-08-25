@@ -24,6 +24,7 @@ import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
 import AppAdmin from "./admin/AppAdmin";
 
+
 // Auth routes you want to treat specially (no public navbar/footer)
 const AUTH_PREFIXES = ["/login", "/create-account", "/verify-email", "/forgot-password"];
 
@@ -43,6 +44,7 @@ import Checkout from "./pages/Checkout.jsx";
 import Payment from "./pages/Payment.jsx";
 import OrderSummary from "./pages/OrderSummary.jsx";
 import MyPurchases from "./pages/MyPurchases.jsx";
+import VisitUs from "./pages/VisitUs.jsx";
 
 
 export default function App() {
@@ -102,8 +104,9 @@ export default function App() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/ordersummary" element={<OrderSummary />} />
-        <Route path="" element={<MyPurchases />} />  
-        
+        <Route path="/mypurchases" element={<MyPurchases />} />  
+        <Route path="/visitus" element={<VisitUs />} />  
+
 
 
         {/* Admin app (has its own layout; no public navbar/footer) */}

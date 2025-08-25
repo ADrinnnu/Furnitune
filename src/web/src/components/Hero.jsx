@@ -1,6 +1,9 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 
 export default function Hero(){
+    const navigate = useNavigate();
+  
   return (
     <section id="hero" className="hero">
       <div className="panel" style={{padding:28}}>
@@ -9,7 +12,7 @@ export default function Hero(){
           <p style={{opacity:.95, lineHeight:1.6}}>
             20% off for orders ₱10,000 and below; 25% off for orders ₱20,000 and above.
           </p>
-          <button className="btn">Shop Now</button>
+          <button className="btn" onClick={() => navigate("/all-furnitures")} >Shop Now</button>
         </div>
       </div>
       <div className="panel" style={{background:'#fff', display:'block'}}>
