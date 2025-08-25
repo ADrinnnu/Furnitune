@@ -24,7 +24,7 @@ export default function Payment() {
         </div>
 
         <div className="form-actions">
-          <button className="back-btn">GO BACK</button>
+          <button className="back-btn"onClick={() => navigate(-1)}>GO BACK</button>
           <button className="order-btn"onClick={() => navigate("/OrderSummary")}>PLACE ORDER</button>
         </div>
       </div>

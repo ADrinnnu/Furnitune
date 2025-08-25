@@ -28,7 +28,7 @@ export default function Checkout() {
         <input type="text" placeholder="*Phone Number" required />
 
         <div className="form-actions">
-          <button className="cancel-btn"onClick={() => navigate("/ProductDetail")}>CANCEL</button>
+          <button className="cancel-btn"onClick={() => navigate(-1)}>CANCEL</button>
           <button className="pay-btn" onClick={() => navigate("/Payment")}>CONTINUE TO PAY</button>
         </div>
       </div>
