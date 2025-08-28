@@ -23,6 +23,7 @@ import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
 import AppAdmin from "./admin/AppAdmin";
+import Customization from "./pages/Customization.jsx";
 
 
 // Auth routes you want to treat specially (no public navbar/footer)
@@ -91,6 +92,8 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/Repair" element={<Repair />} />
+        <Route path="/Customization" element={<Customization />} />
+
 
         {/* Auth pages */}
         <Route path="/login" element={<Login />} />
