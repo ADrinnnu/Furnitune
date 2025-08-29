@@ -16,7 +16,7 @@ const features = [
       "Bring your vision to life with our customization feature—make your own piece in your own way.",
     button: "Click to start customizing your furniture",
     image: "/images/customize.png",
-    path: "" 
+    path: "/Customization" 
   },
   {
     title: "ASK FURNITURE SUGGESTION!",
