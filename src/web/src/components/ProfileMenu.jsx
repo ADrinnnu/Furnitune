@@ -23,7 +23,7 @@ export default function ProfileMenu({ onClose }) {
         <span>My Account</span>
       </Link>
 
-      <Link to="/purchases" className="pm-item" onClick={onClose}>
+      <Link to="/mypurchases" className="pm-item" onClick={onClose}>
         <span className="pm-ico pm-cart" />
         <span>My Purchase</span>
       </Link>

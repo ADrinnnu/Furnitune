@@ -141,7 +141,7 @@ export default function Navbar() {
           <a href="/out-door">OUTDOOR</a>
         </nav>
         <div className="actions">
-          <a href="/customize">CUSTOMIZE</a>
+          <a href="/Customization">CUSTOMIZE</a>
           <span>|</span>
           <a href="/repair">REPAIR</a>
         </div>

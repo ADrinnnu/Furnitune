@@ -89,6 +89,8 @@ export default function App() {
         <Route path="/cart" element={<CartPage />} />
         <Route path="/product/:id" element={<ProductDetail />} />
         <Route path="/Repair" element={<Repair />} />
+        <Route path="/Customization" element={<Customization />} />
+
 
         {/* Auth pages */}
         <Route path="/login" element={<Login />} />
@@ -102,6 +104,7 @@ export default function App() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/ordersummary" element={<OrderSummary />} />
+<<<<<<< HEAD
         <Route path="/purchases" element={<MyPurchases />} />  
 
 
