@@ -107,13 +107,13 @@ export default function App() {
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/ordersummary" element={<OrderSummary />} />
-<<<<<<< HEAD
-        <Route path="/purchases" element={<MyPurchases />} />  
-=======
+
+         
+
         <Route path="/mypurchases" element={<MyPurchases />} />  
         <Route path="/visitus" element={<VisitUs />} />  
 
->>>>>>> eedd91cf70f5f27ed6954846b29282a6d2bc5562
+
 
 
         {/* Admin app (has its own layout; no public navbar/footer) */}
