@@ -63,7 +63,6 @@ export default function Footer() {
           <div className="socials">
             <a className="icon-circle" aria-label="Facebook" href="#"><Icon name="facebook" /></a>
             <a className="icon-circle" aria-label="Instagram" href="#"><Icon name="instagram" /></a>
-            <a className="icon-circle" aria-label="X" href="#"><Icon name="x" /></a>
           </div>
         </div>
       </div>
