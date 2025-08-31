@@ -322,6 +322,7 @@ header.nav .container {
 
 .review-content {
   padding: 1rem;
+  background-color: #ded6c7;
 }
 
 .review-content h4 {
@@ -1195,6 +1196,14 @@ textarea {
   letter-spacing:.12em;
   margin-bottom:12px;
   color:#28302d;
+}
+.link-item{
+  display:block;
+  font-size:13px;
+  color:var(--muted);
+  padding:3px 0;
+  text-decoration:none;
+  transition:color .2s ease;
 }
 .ft-link {
   display:block;
