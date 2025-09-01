@@ -26,12 +26,11 @@ export default function Footer() {
       <div className="container footer-top">
         <div className="ft-col">
           <div className="ft-title">FURNITURES</div>
-          <LinkItem>Furniture Types</LinkItem>
-          <LinkItem>Shippings</LinkItem>
-          <LinkItem>Returns</LinkItem>
-          <LinkItem>Warranty</LinkItem>
-          <LinkItem>Creation</LinkItem>
-          <LinkItem>Orders OTW</LinkItem>
+          <a href="/all-furnitures" className="link-item">Furniture Types</a>
+          <a href="/living-room" className="link-item">Living Room</a>
+          <a href="/bed-room" className="link-item">Bed Room</a>
+          <a href="/dining-room" className="link-item">Living Room</a>
+          <a href="/out-door" className="link-item">Outdoor</a>
         </div>
 
         <div className="ft-col">
@@ -46,7 +45,7 @@ export default function Footer() {
 
         <div className="ft-col">
           <div className="ft-title">VISIT US</div>
-          <LinkItem>View location</LinkItem>
+          <a href="/visitus" className="link-item">View Location</a>
         </div>
       </div>
 
@@ -55,19 +54,15 @@ export default function Footer() {
           <div className="meta-links">
             <span>© 2025 Furnitune, All Rights Reserved</span>
             <span className="meta-sep">|</span>
-            <a href="#" className="ft-link">Privacy Policy</a>
-            <span className="meta-sep">|</span>
             <a href="#" className="ft-link">Terms of Service</a>
             <span className="meta-sep">|</span>
-            <a href="#" className="ft-link">Visit us Now</a>
+            <a href="/visitus" className="ft-link">Visit us Now</a>
             <span className="meta-sep">|</span>
-            <a href="#" className="ft-link">Data Request Form</a>
           </div>
 
           <div className="socials">
             <a className="icon-circle" aria-label="Facebook" href="#"><Icon name="facebook" /></a>
             <a className="icon-circle" aria-label="Instagram" href="#"><Icon name="instagram" /></a>
-            <a className="icon-circle" aria-label="X" href="#"><Icon name="x" /></a>
           </div>
         </div>
       </div>

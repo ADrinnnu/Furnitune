@@ -1,4 +1,5 @@
 import React from "react";
+import { useNavigate } from "react-router-dom";
 
 const features = [
   {
@@ -7,7 +8,7 @@ const features = [
       "Bring your vision to life with our customization feature—make your own piece in your own way.",
     button: "Click to start customizing your furniture",
     image: "/images/map.png",
-    path: "" 
+    path: "/Customization" 
   },
   {
     title: "REPAIR YOUR FURNITURE!",
@@ -15,7 +16,7 @@ const features = [
       "Give your furniture a second life—restore what matters, using our repair service.",
     button: "Send your furniture request.",
     image: "/images/customize.png",
-    path: "" 
+    path: "/Repair" 
   },
   {
     title: "ASK FURNITURE SUGGESTION!",
@@ -28,6 +29,8 @@ const features = [
 ];
 
 export default function VisitUs() {
+    const navigate = useNavigate(); 
+  
   return (
     <div className="homepage-container">
       {/* Store Info Section */}
@@ -58,6 +61,7 @@ export default function VisitUs() {
             nec feugiat lorem eros eget purus. Duis ultricies fringilla metus
             vitae ante iaculis vel, convallis erat porttitor. Aliquam erat volutpat.
           </p>
+          
         </div>
 
         <div className="store-map">
