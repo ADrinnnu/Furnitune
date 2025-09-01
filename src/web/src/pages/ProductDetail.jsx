@@ -1,118 +1,335 @@
-import React from "react";
+// src/pages/ProductDetail.jsx
+import React, { useEffect, useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { getProduct } from "../data/products.js";
-import { useCart } from "../state/CartContext.jsx";
-import { useNavigate } from "react-router-dom";
-
+import {
+  firestore,
+  storage,
+  doc,
+  getDoc,
+  ref,
+  getDownloadURL,
+} from "../firebase";
+import { collection, query, where, getDocs } from "firebase/firestore";
+import "../ProductDetail.css";
 
 const FABRICS = [
-  { id: "marble",  label: "Marble",    swatch: "#d9d3c7" },
-  { id: "terra",   label: "Terracotta",swatch: "#b86a52" },
-  { id: "cement",  label: "Cement",    swatch: "#6f6f6f" },
-  { id: "harbour", label: "Harbour",   swatch: "#2c3e50" },
+  { id: "marble", label: "Marble", sw: "#d9d3c7" },
+  { id: "terra", label: "Terracotta", sw: "#b86a52" },
+  { id: "cement", label: "Cement", sw: "#6f6f6f" },
+  { id: "harbour", label: "Harbour", sw: "#2c3e50" },
 ];
+
+// fallback sizes so all Chairs share same options
+const DEFAULT_SIZES_BY_TYPE = {
+  Chairs: ["Standard", "Counter", "Bar"],
+};
+
+const slugify = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
+const titleCase = (s) =>
+  String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+function resolveCategorySlug(data) {
+  if (data.categorySlug) return String(data.categorySlug).trim().toLowerCase();
+  const raw = data.baseType || data.type || data.category || data.name || "";
+  return slugify(raw);
+}
+
+async function resolveStorageUrl(val) {
+  if (!val || typeof val !== "string") return "";
+  if (/^https?:\/\//i.test(val)) return val;
+  try { return await getDownloadURL(ref(storage, val)); } catch { return ""; }
+}
+
+function normalizeTypeLabel(data, catSlug) {
+  const t = (data.baseType || data.type || "").toLowerCase();
+  const c = String(catSlug || "").toLowerCase();
+  if (t.includes("chair") || c.includes("chair")) return "Chairs";
+  if (t.includes("sofa") || t.includes("couch") || c.includes("sofa")) return "Sofas";
+  if (t.includes("bed") || c.includes("bed")) return "Beds";
+  if (t.includes("table") || c.includes("table")) return "Tables";
+  if (t.includes("bench") || c.includes("bench")) return "Benches";
+  if (t.includes("ottoman") || c.includes("ottoman")) return "Ottomans";
+  return titleCase(catSlug || t || "Furniture");
+}
 
 export default function ProductDetail() {
   const { id } = useParams();
-  const product = getProduct(id);
-  const { add } = useCart();
-  const [fabric, setFabric] = (FABRICS[0].id);
-  const navigate = useNavigate();
 
+  const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
+  const [images, setImages] = useState([]);
+  const [activeIdx, setActiveIdx] = useState(0);
 
-  if (!product) {
-    return <div className="container section"><h2>Product not found.</h2></div>;
-  }
+  // UI state
+  const [fabric, setFabric] = useState(FABRICS[0].id);
+  const [sizeOptions, setSizeOptions] = useState([]);
+  const [size, setSize] = useState("");
+  const [absPrices, setAbsPrices] = useState({}); // size -> absolute price
+  const [notes, setNotes] = useState("");
+  const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
-  const { title, price, type, thumb, images = [], rating, reviews } = product;
+  useEffect(() => {
+    if (!id) { setProduct(null); return; }
+    (async () => {
+      try {
+        const snap = await getDoc(doc(firestore, "products", String(id)));
+        if (!snap.exists()) { setProduct(null); return; }
+        const data = snap.data();
+
+        // images
+        const rawImgs = Array.isArray(data.images) && data.images.length
+          ? data.images : (data.image ? [data.image] : []);
+        const resolved = (await Promise.all(rawImgs.map(resolveStorageUrl))).filter(Boolean);
+        setImages(resolved);
+        setActiveIdx(0);
+
+        // header/meta
+        const rawType = data.baseType ?? data.type ?? data.category ?? data.categorySlug ?? "";
+        const displayType = rawType ? String(rawType).toUpperCase() : "FURNITURE";
+        setProduct({
+          id: snap.id,
+          name: data.name || "Untitled Product",
+          type: displayType,
+          description: data.description || "",
+          basePrice: Number(data.basePrice ?? 0),
+          ratingAvg: Number(data.ratingAvg ?? 0),
+          reviewsCount: Number(data.reviewsCount ?? 0),
+        });
+
+        // sizes: product → category → default by type
+        const catSlug = resolveCategorySlug(data);
+        let sizes = Array.isArray(data.sizeOptions) ? data.sizeOptions : null;
+
+        if (!sizes && catSlug) {
+          try {
+            const catDoc = await getDoc(doc(firestore, "categories", catSlug));
+            if (catDoc.exists() && Array.isArray(catDoc.data().sizeOptions)) {
+              sizes = catDoc.data().sizeOptions;
+            }
+          } catch {}
+        }
+
+        const typeLabel = normalizeTypeLabel(data, catSlug);
+        if (!sizes || !sizes.length) sizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
+
+        sizes = Array.isArray(sizes) ? sizes : [];
+        setSizeOptions(sizes);
+        if (sizes.length) setSize(String(sizes[0]));
+
+        // prices by type -> filter to sizes we show
+        const priceMap = {};
+        if (typeLabel) {
+          try {
+            const qType = query(collection(firestore, "sizePrices"), where("type", "==", typeLabel));
+            const snapType = await getDocs(qType);
+            snapType.forEach((d) => {
+              const r = d.data();
+              const k = String(r?.size || "");
+              if (!k) return;
+              if (!sizes.length || sizes.includes(k)) priceMap[k] = Number(r.price || 0);
+            });
+          } catch (e) {
+            console.warn("sizePrices(type) read:", e?.code || e);
+          }
+        }
+        setAbsPrices(priceMap);
+      } catch (err) {
+        console.error("Error fetching product:", err);
+        setProduct(null);
+      }
+    })();
+  }, [id]);
+
+  const unitPrice = useMemo(() => {
+    if (!product) return 0;
+    if (size && absPrices[size] != null) return Number(absPrices[size]);
+    return Number(product.basePrice || 0);
+  }, [product, size, absPrices]);
+
+  const priceStr = `₱${Number(unitPrice || 0).toLocaleString()}`;
+  const hero = images[activeIdx] || "/placeholder.jpg";
+
+  const handleAddToCart = () => {
+    alert(
+      `Added: ${product.name}` +
+      (size ? ` — ${size}` : "") +
+      (fabric ? ` (${fabric})` : "") +
+      ` @ ${priceStr}`
+    );
+  };
+
+  if (product === undefined) return <div className="pd-loading">Loading…</div>;
+  if (product === null) return <div className="pd-loading">Product not found.</div>;
 
   return (
-    <div className="container section" style={{display:"grid", gridTemplateColumns:"minmax(280px, 1fr) 420px", gap:24}}>
-      {/* Left: big image + gallery + description + dimensions */}
-      <div>
-        <div className="round card" style={{padding:0, overflow:"hidden", background:"#8aa397"}}>
-          {thumb ? <img src={thumb} alt={title} style={{width:"100%", display:"block"}}/> : <div style={{height:360, display:"grid", placeItems:"center", color:"#2e3c38", fontWeight:700}}>{type}</div>}
-        </div>
-
-        {/* small gallery */}
-        <div style={{display:"flex", gap:10, margin:"10px 0 16px"}}>
-          {[thumb, ...images].filter(Boolean).slice(0,6).map((src, idx) => (
-            <div key={idx} style={{width:72, height:54, overflow:"hidden", borderRadius:8, background:"#8aa397"}}>
-              <img src={src} alt="" style={{width:"100%", height:"100%", objectFit:"cover"}}/>
-            </div>
-          ))}
-        </div>
-
-        {/* description & dimensions placeholders – your copy here */}
-        <div className="card" style={{marginBottom:16}}>
-          <h3 style={{margin:"0 0 8px"}}>DESCRIPTION</h3>
-          <p className="muted">hahahasdasdasdas</p>
-        </div>
-
-        <div className="card">
-          <h3 style={{margin:"0 0 8px"}}>DIMENSIONS</h3>
-          <p className="muted">Width x Depth x Height details, diagrams or images.</p>
-        </div>
-      </div>
-
-      {/* Right: summary + options + add to cart */}
-      <div>
-        <div className="card" style={{padding:18}}>
-          <div className="muted" style={{textTransform:"uppercase", letterSpacing:".08em"}}>{type}</div>
-          <h2 style={{margin:"4px 0 6px"}}>{title}</h2>
-          <div style={{display:"flex", alignItems:"center", gap:8, marginBottom:8}}>
-            <span>{"★★★★★".slice(0, rating)}{"☆☆☆☆☆".slice(rating)}</span>
-            <span className="muted"> {reviews} Reviews</span>
+    <div className="pd-wrap">
+      <div className="pd-grid">
+        {/* LEFT */}
+        <section className="pd-left">
+          <div className="pd-stage light">
+            <img
+              src={hero}
+              alt={product.name}
+              className="pd-main contain"
+              onError={(e)=>{ e.currentTarget.src="/placeholder.jpg"; }}
+            />
           </div>
-          <div style={{fontWeight:900, fontSize:24, marginBottom:12}}>₱{price.toFixed(2)}</div>
 
-          {/* 1. Choose fabric (placeholders) */}
-          <aside className="repair-right">
-          <div className="card1">
-            <div className="card-title">1 - Choose Fabric</div>
-            <div className="swatches">
-              {FABRICS.map((f) => (
+          {images.length > 1 && (
+            <div className="pd-thumbstrip">
+              {images.map((u, i) => (
                 <button
-                  key={f.id}
-                  className={`swatch1 ${fabric === f.id ? "active" : ""}`}
-                  style={{ background: f.swatch }}
-                  onClick={() => setFabric(f.id)}
-                />
+                  key={u + i}
+                  className={`thumb ${i === activeIdx ? "active" : ""}`}
+                  onClick={() => setActiveIdx(i)}
+                  aria-label={`Image ${i+1}`}
+                >
+                  <img src={u} alt={`Thumb ${i+1}`} />
+                </button>
               ))}
             </div>
-            <small>{FABRICS.find((x) => x.id === fabric)?.label}</small>
-<hr />
-          {/* 2. Choose size (placeholders) */}
-          <div style={{margin:"12px 0"}}>
-            <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>2  CHOOSE SIZE</div>
-            <div style={{display:"grid", gridTemplateColumns:"repeat(4,1fr)", gap:8, marginTop:8}}>
-              {["60\"", "72\"", "76\"", "80\"", "84\"", "90\"", "96\"", "Custom"].map((s)=>(
-                <button key={s} className="ghost-btn" style={{padding:"8px 0"}}>{s}</button>
-              ))}
-            </div>
-          </div>
-<hr />
-          {/* 3. Notes */}
-          <div style={{margin:"12px 0"}}>
-            <div style={{fontWeight:800, fontSize:12, letterSpacing:".1em"}}>3  DESCRIPTION</div>
-            <textarea rows={4} placeholder="Optional notes…" style={{width:"100%", marginTop:8, padding:10, borderRadius:12, border:"1px solid #e6e2d6"}}/>
-          </div>
+          )}
 
-          <div style={{display:"flex", gap:10, marginTop:8}}>
-            <button className="btn ghost" style={{flex:"0 0 120px"}} onClick={() => navigate("/Checkout")}>₱{price.toFixed(2)}</button>
-            <button
-              className="btn"
-              style={{flex:1}}
-              onClick={() => add({ id, title, price, type, thumb })}
-            >
-              Add to cart
-            </button>
+          <div className="pd-desc slab">
+            <h3>DESCRIPTION</h3>
+            <p>
+              {product.description ||
+                "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
+            </p>
+          </div>
+        </section>
+
+        {/* RIGHT */}
+        <div className="pd-right-col">
+          <aside className="pd-card right-pane">
+            <div className="rp-header">
+              <div className="rp-type">{product.type}</div>
+              <div className="rp-title">{product.name}</div>
+              {product.reviewsCount > 0 && (
+                <div className="rp-reviews">
+                  <span className="stars">
+                    {"★".repeat(Math.round(product.ratingAvg))}
+                  </span>
+                  <span className="muted">&nbsp;{product.reviewsCount} Reviews</span>
+                </div>
+              )}
+              <div className="rp-price">{priceStr}</div>
+            </div>
+
+            {/* Step 1 */}
+            <div className="rp-step">
+              <button
+                className="rp-step-h"
+                onClick={() => setOpen((o) => ({ ...o, 1: !o[1] }))}
+                aria-expanded={open[1]}
+              >
+                <span className="rp-num">1</span>
+                <span className="rp-label">CHOOSE FABRIC</span>
+                <span className={`chev ${open[1] ? "open" : ""}`}>▾</span>
+              </button>
+
+              {open[1] && (
+                <div className="rp-step-c">
+                  <div className="swatches">
+                    {FABRICS.map((f) => (
+                      <button
+                        key={f.id}
+                        className={`swatch ${fabric === f.id ? "active" : ""}`}
+                        style={{ background: f.sw }}
+                        onClick={() => setFabric(f.id)}
+                        aria-label={f.label}
+                        title={f.label}
+                      />
+                    ))}
+                  </div>
+                  <div className="swatch-labels">
+                    {FABRICS.map((f) => <span key={f.id}>{f.label}</span>)}
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Step 2 */}
+            <div className="rp-step">
+              <button
+                className="rp-step-h"
+                onClick={() => setOpen((o) => ({ ...o, 2: !o[2] }))}
+                aria-expanded={open[2]}
+              >
+                <span className="rp-num">2</span>
+                <span className="rp-label">CHOOSE SIZE</span>
+                <span className={`chev ${open[2] ? "open" : ""}`}>▾</span>
+              </button>
+
+              {open[2] && (
+                <div className="rp-step-c">
+                  {sizeOptions.length ? (
+                    <div className="chip-tray">
+                      <div className="chips">
+                        {sizeOptions.map((s) => (
+                          <button
+                            key={s}
+                            className={`chip ${size === s ? "active" : ""}`}
+                            onClick={() => setSize(String(s))}
+                          >
+                            {s}
+                          </button>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="muted" style={{ padding: "8px 4px" }}>
+                      No size options available for this item.
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+
+            {/* Step 3 */}
+            <div className="rp-step">
+              <button
+                className="rp-step-h"
+                onClick={() => setOpen((o) => ({ ...o, 3: !o[3] }))}
+                aria-expanded={open[3]}
+              >
+                <span className="rp-num">3</span>
+                <span className="rp-label">DESCRIPTION</span>
+                <span className={`chev ${open[3] ? "open" : ""}`}>▾</span>
+              </button>
+
+              {open[3] && (
+                <div className="rp-step-c">
+                  <textarea
+                    className="pd-notes rp-notes"
+                    rows={6}
+                    placeholder="Add notes or special instructions here."
+                    value={notes}
+                    onChange={(e) => setNotes(e.target.value)}
+                  />
+                </div>
+              )}
+            </div>
+
+            {/* CTA row — both buttons share the pill style */}
+            <div className="rp-cta-row">
+              <button type="button" className="price-pill" onClick={handleAddToCart}>
+                {priceStr}
+              </button>
+              <button type="button" className="price-pill add-cart" onClick={handleAddToCart}>
+                <span className="cart-ic" aria-hidden>🛒</span>
+                <span>ADD TO CART</span>
+              </button>
+            </div>
+          </aside>
+
+          <div className="pd-help help-box outside">
+            <h4>NEED ASSISTANCE?</h4>
+            <p>💬 Live Chat: Offline now</p>
+            <p>📞 Call: 123-323-312</p>
+            <p>✉️ Email Us: Furnitune@jameyl.com</p>
           </div>
         </div>
-        </aside>
       </div>
     </div>
-</div>
   );
 }
-

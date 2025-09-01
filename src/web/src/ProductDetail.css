@@ -1,0 +1,230 @@
+/* ===============================
+   Product Detail – FULL STYLES
+   =============================== */
+
+:root{
+  --bg: #f5f1e7;
+  --paper: #ffffff;
+  --muted: #6f756e;
+  --line: #eee3ce;
+  --accent: #2f6a59;       
+  --shadow: 0 8px 24px rgba(0,0,0,.08);
+}
+
+.pd-loading{ padding:32px; }
+
+/* ---- Layout ---- */
+.pd-wrap{
+  background: var(--bg);
+  padding: 24px;
+}
+
+.pd-grid{
+  display:grid;
+  grid-template-columns: minmax(420px, 1fr) 360px; /* big left, fixed right */
+  gap:24px;
+  align-items:start;
+}
+
+.pd-left{ width: 100%; }
+
+/* Right column stacks the pane + help card */
+.pd-right-col{
+  display:flex;
+  flex-direction:column;
+  gap:12px;
+}
+
+/* ---- LEFT: Canvas + Gallery + Description ---- */
+.pd-stage.light{
+  background:#f8f8f6;
+  border:1px solid #e8e6de;
+  border-radius:14px;
+  box-shadow: 0 8px 18px rgba(0,0,0,.06);
+  width:100%;
+  aspect-ratio: 4 / 3;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  padding:24px;
+  overflow:hidden;
+}
+.pd-main.contain{
+  max-width:100%;
+  max-height:100%;
+  width:auto;
+  height:auto;
+  object-fit:contain;
+  object-position:center;
+  display:block;
+  filter: drop-shadow(0 10px 12px rgba(0,0,0,.18));
+}
+
+.pd-thumbstrip{
+  margin-top:12px;
+  display:flex;
+  gap:12px;
+  padding:8px 0;
+}
+.thumb{
+  width:86px; height:86px;
+  background:#fff;
+  border:1px solid #e8e6de;
+  border-radius:12px;
+  box-shadow:0 3px 8px rgba(0,0,0,.04);
+  display:grid; place-items:center;
+  overflow:hidden; cursor:pointer;
+  transition: transform .12s ease, box-shadow .12s ease, border-color .12s ease;
+}
+.thumb:hover{ transform: translateY(-1px); box-shadow:0 6px 14px rgba(0,0,0,.08); }
+.thumb.active{ border-color: var(--accent); box-shadow:0 6px 14px rgba(0,0,0,.10); }
+.thumb img{ width:100%; height:100%; object-fit:cover; }
+
+.slab{
+  margin-top:14px;
+  background: var(--paper);
+  border:1px solid #e3dbc9;
+  border-radius:12px;
+  padding:16px 18px;
+  color:#2c2c2c;
+}
+.slab h3{ margin:0 0 6px; font-size:.95rem; letter-spacing:.08em; }
+
+/* ---- RIGHT: Pane with collapsible steps ---- */
+.pd-card{
+  background: var(--paper);
+  border: 1px solid #e3dbc9;
+  border-radius: 14px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+}
+
+.right-pane{
+  background:#fffaf0;
+  border: 1px solid #efe4ca;
+  border-radius: 12px;
+  box-shadow: 0 6px 16px rgba(0,0,0,.06);
+  padding: 18px 16px;
+}
+
+.rp-header { padding-bottom: 6px; }
+.rp-type { font-size:.82rem; letter-spacing:.12em; color:#3e3e3e; font-weight:700; }
+.rp-title { font-weight:800; font-size:1.25rem; margin:2px 0 6px; color:#161616; text-transform: uppercase; }
+.rp-reviews { color:#5b5f57; font-size:.92rem; margin-bottom:8px; }
+.stars{ color:#1f6d52; text-shadow: 0 1px 0 #d7e6dc; }
+.rp-price{
+  font-weight:900; font-size:1.7rem; margin:6px 0 8px; color:#202820;
+  text-shadow: 0 3px 8px rgba(0,0,0,.15);
+}
+
+.rp-step{ border-top:1px solid #e9e0c9; padding:10px 0; }
+.rp-step:first-of-type{ border-top:1px solid #e9e0c9; }
+
+.rp-step-h{
+  width:100%;
+  display:grid;
+  grid-template-columns: 36px 1fr 18px;
+  align-items:center;
+  gap:10px;
+  background:transparent;
+  border:0;
+  padding:6px 2px;
+  cursor:pointer;
+}
+.rp-num{
+  width:34px; height:28px; border-radius:6px; display:grid; place-items:center;
+  font-weight:800; font-size:.9rem; color:#3e453e;
+  background:#f2e9d4; border:1px solid #e6dcc3; box-shadow: 0 2px 0 #ddd2b8 inset;
+}
+.rp-label{ font-size:.82rem; font-weight:800; letter-spacing:.08em; color:#3b3f36; }
+.chev{ transform: rotate(-90deg); transition: transform .15s ease; color:#5d5d5d; }
+.chev.open{ transform: rotate(0deg); }
+
+.rp-step-c{ padding:8px 2px 4px; }
+
+.swatches{ display:flex; gap:10px; margin-bottom:6px; }
+.swatch{
+  width:46px; height:34px; border-radius:6px; border:1px solid #cfc7b7; cursor:pointer;
+}
+.swatch.active{ outline: 2px solid #23493f; }
+.swatch-labels{
+  display:grid; grid-template-columns:repeat(4,46px); gap:10px;
+  font-size:.65rem; color:#6c736c; text-align:center;
+}
+
+.chip-tray{
+  border:2px solid #d8d1be; border-radius:12px; padding:10px 8px;
+  background:#fffdf6; box-shadow: 0 2px 0 #ede6d0 inset;
+}
+.chips{ display:grid; grid-template-columns: repeat(4, 1fr); gap:8px; }
+.chip{
+  background:#f6f2e7; border:1px solid #d9d1c2; border-radius:10px;
+  padding:10px 0; font-weight:800; font-size:.82rem; cursor:pointer;
+}
+.chip.active{ outline: 2px solid #23493f; }
+
+.pd-notes.rp-notes{
+  width:100%;
+  background:#fbf6e8; border:1px solid #d8cfb8; border-radius:12px; color:#2f2f2f;
+  box-shadow: 0 3px 0 #e5dcc4 inset;
+  padding:10px; font:inherit; font-size:.92rem; resize:vertical;
+}
+
+/* ---- CTA row ---- */
+.rp-cta-row{
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:12px;
+  margin-top:10px;
+  padding-top:12px;
+  border-top:1px solid #e9e0c9;
+}
+
+.price-pill{
+  display:inline-flex; align-items:center; justify-content:center; gap:8px;
+  min-height:48px; padding:12px 20px; border-radius:999px;
+  font-weight:800; line-height:1;
+  background:var(--accent) !important;
+  color:#fff !important;
+  border:1.5px solid var(--accent) !important;
+  box-shadow:0 8px 22px rgba(0,0,0,.08);
+  transition:background .15s,color .15s,border-color .15s,box-shadow .15s,transform .03s;
+}
+
+.price-pill:hover,
+.price-pill:focus-visible{
+  background:#fff !important;
+  color:var(--accent) !important;
+  border-color:var(--accent) !important;
+  box-shadow:0 12px 24px rgba(0,0,0,.08), 0 0 0 3px rgba(47,106,89,.18);
+  outline:none;
+}
+.price-pill:active{ transform:translateY(1px); }
+
+.price-pill *, .price-pill span { color:inherit !important; fill:currentColor; }
+.cart-ic { color: inherit; }
+
+.rp-cta-row .price-pill:first-child{ font-variant-numeric: tabular-nums; }
+
+.btn.add-cart, .add-cart { background:#2f6a59 !important; border:none !important; }
+
+/* ---- Help card ---- */
+.pd-help.help-box.outside{
+  background:#f5efe1;
+  border: 1px solid #eadfca;
+  border-radius: 12px;
+  padding: 14px;
+  color:#4a534e;
+  box-shadow: 0 6px 14px rgba(0,0,0,.06);
+}
+.pd-help.help-box.outside h4{
+  margin:0 0 6px;
+  letter-spacing:.06em;
+}
+
+/* ---- Responsive ---- */
+@media (max-width: 980px){
+  .pd-grid{ grid-template-columns:1fr; }
+  .pd-right-col{ order:-1; }
+}

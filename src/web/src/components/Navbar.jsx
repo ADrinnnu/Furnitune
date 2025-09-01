@@ -1,27 +1,25 @@
 // src/components/Navbar.jsx
 import React, { useEffect, useRef, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useCart } from "../state/CartContext";
 import { auth } from "../firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
-import "../ProfileMenu.css"; // styles just below
+import "../ProfileMenu.css";
 
 export default function Navbar() {
-  const { items } = useCart();
-  const count = items.reduce((sum, it) => sum + it.qty, 0);
+  const { cartItems } = useCart();
+  const count = (cartItems || []).reduce((sum, it) => sum + (it.qty || 0), 0);
 
   const [user, setUser] = useState(null);
   const [open, setOpen] = useState(false);
   const menuRef = useRef(null);
   const nav = useNavigate();
 
-  // Watch auth state
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsub();
   }, []);
 
-  // Close on outside click / ESC
   useEffect(() => {
     const click = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
@@ -39,18 +37,22 @@ export default function Navbar() {
     try {
       await signOut(auth);
       setOpen(false);
-      nav("/"); // back to home
+      nav("/");
     } catch (e) {
       console.error(e);
     }
   };
 
-  // Helper for a small round avatar with initials
   const initials =
-    (user?.displayName?.trim().split(/\s+/).map((n) => n[0]).join("") ||
+    (
+      user?.displayName?.trim().split(/\s+/).map((n) => n[0]).join("") ||
       user?.email?.[0] ||
       "U"
-    ).toUpperCase().slice(0, 2);
+    )
+      .toUpperCase()
+      .slice(0, 2);
+
+  const activeClass = ({ isActive }) => (isActive ? "active" : undefined);
 
   return (
     <header className="nav">
@@ -62,7 +64,6 @@ export default function Navbar() {
         <div className="icons">
           <span>🔍</span>
 
-          {/* Cart with badge */}
           <div style={{ position: "relative", display: "inline-block" }}>
             <Link to="/cart" className="icon-btn" aria-label="Open cart">
               🛒
@@ -87,10 +88,9 @@ export default function Navbar() {
           </div>
 
           <Link to="/notifications" className="icon-btn" aria-label="Notification">
-              🔔
-            </Link>
+            🔔
+          </Link>
 
-          {/* Profile / Login */}
           {!user ? (
             <Link to="/login" className="icon-btn" aria-label="Login or Profile">
               👤
@@ -114,9 +114,10 @@ export default function Navbar() {
                     <span>My Account</span>
                   </Link>
 
-                  <Link to="/orders" className="pd-item" onClick={() => setOpen(false)}>
+                  {/* Use your real purchases route; you have /mypurchases in App.jsx */}
+                  <Link to="/mypurchases" className="pd-item" onClick={() => setOpen(false)}>
                     <span className="pd-ic">🛒</span>
-                    <span>My Purchase</span>
+                    <span>My Purchases</span>
                   </Link>
 
                   <button className="pd-item danger" onClick={handleLogout}>
@@ -132,18 +133,21 @@ export default function Navbar() {
 
       <div className="menu-bar container">
         <nav className="categories">
-          <Link to="/all-furnitures">ALL FURNITURES</Link>
-          <a href="/best-sellers">BEST SELLERS</a>
-          <a href="/new-designs">NEW DESIGNS</a>
-          <a href="/living-room">LIVING ROOM</a>
-          <a href="/bed-room">BEDROOM</a>
-          <a href="/dining-room">DINING ROOM</a>
-          <a href="/out-door">OUTDOOR</a>
+          {/* ✅ use NavLink + correct paths that exist in App.jsx */}
+          <NavLink to="/all"          className={activeClass} end>ALL FURNITURES</NavLink>
+          <NavLink to="/best-sellers" className={activeClass}>BEST SELLERS</NavLink>
+          <NavLink to="/new-designs"  className={activeClass}>NEW DESIGNS</NavLink>
+          <NavLink to="/living-room"  className={activeClass}>LIVING ROOM</NavLink>
+          <NavLink to="/bedroom"      className={activeClass}>BEDROOM</NavLink>
+          <NavLink to="/dining-room"  className={activeClass}>DINING ROOM</NavLink>
+          <NavLink to="/outdoor"      className={activeClass}>OUTDOOR</NavLink>
         </nav>
+
         <div className="actions">
-          <a href="/Customization">CUSTOMIZE</a>
+          {/* match your defined routes' casing */}
+          <NavLink to="/Customization" className={activeClass}>CUSTOMIZE</NavLink>
           <span>|</span>
-          <a href="/repair">REPAIR</a>
+          <NavLink to="/Repair" className={activeClass}>REPAIR</NavLink>
         </div>
       </div>
     </header>

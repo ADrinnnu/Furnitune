@@ -354,15 +354,7 @@ header.nav .container {
   gap:16px; overflow:auto; padding:6px 2px 12px 2px;
   scroll-snap-type:x mandatory;
 }
-.product-card {
-  background:var(--paper); border-radius:var(--radius);
-  padding:16px; box-shadow:var(--shadow); scroll-snap-align:start;
-  border:1px solid #eef0ea;
-}
-.product-card img {
-  width:100%; height:150px; object-fit:cover; border-radius:12px;
-}
-.product-card strong { font-weight:800 }
+
 
 /* ---------- Notifications ---------- */
 

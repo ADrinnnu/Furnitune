@@ -1,33 +1,53 @@
 // src/App.jsx
 import React, { useEffect, useState } from "react";
-import { Routes, Route, useLocation, useNavigate } from "react-router-dom";
+import {
+  Routes,
+  Route,
+  useLocation,
+  useNavigate,
+  Navigate,
+} from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 
+/* Layout */
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
+
+/* Public pages */
 import Landing from "./pages/Landing.jsx";
 import AllFurnitures from "./pages/AllFurnitures.jsx";
-import BestSellers from "./pages/BestSellers.jsx";
-import NewDesigns from "./pages/NewDesigns.jsx";
-import LivingRoom from "./pages/LivingRoom.jsx";
-import Bedroom from "./pages/Bedroom.jsx";
-import DiningRoom from "./pages/DiningRoom.jsx";
-import Outdoor from "./pages/Outdoor.jsx";
 import CartPage from "./pages/CartPage.jsx";
-import ProductDetail from "./pages/ProductDetail.jsx";
+import Repair from "./pages/Repair.jsx";
+import Customization from "./pages/Customization.jsx";
+import ProductDetail from "./pages/ProductDetail";
+
+/* Auth pages */
 import Login from "./pages/Login.jsx";
 import CreateAccount from "./pages/CreateAccount.jsx";
-import Repair from "./pages/Repair.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
+
+/* Other */
 import AppAdmin from "./admin/AppAdmin";
-import Customization from "./pages/Customization.jsx";
+import Notification from "./pages/Notification.jsx";
+import Checkout from "./pages/Checkout.jsx";
+import Payment from "./pages/Payment.jsx";
+import OrderSummary from "./pages/OrderSummary.jsx";
+import MyPurchases from "./pages/MyPurchases.jsx";
+import VisitUs from "./pages/VisitUs.jsx";
 
+/* Optional tabbed hub (you can keep or remove) */
+import FurnitureHub from "./pages/FurnitureHub";
 
-// Auth routes you want to treat specially (no public navbar/footer)
-const AUTH_PREFIXES = ["/login", "/create-account", "/verify-email", "/forgot-password"];
+/** Auth routes you want to treat specially (no public navbar/footer) */
+const AUTH_PREFIXES = [
+  "/login",
+  "/create-account",
+  "/verify-email",
+  "/forgot-password",
+];
 
 function HistoryTracker() {
   const { pathname } = useLocation();
@@ -40,13 +60,6 @@ function HistoryTracker() {
   }, [pathname]);
   return null;
 }
-import Notification from "./pages/Notification.jsx";
-import Checkout from "./pages/Checkout.jsx";
-import Payment from "./pages/Payment.jsx";
-import OrderSummary from "./pages/OrderSummary.jsx";
-import MyPurchases from "./pages/MyPurchases.jsx";
-import VisitUs from "./pages/VisitUs.jsx";
-
 
 export default function App() {
   const location = useLocation();
@@ -80,20 +93,31 @@ export default function App() {
       <HistoryTracker />
 
       <Routes>
-        {/* Public pages */}
+        {/* Home */}
         <Route path="/" element={<Landing />} />
-        <Route path="/all-furnitures" element={<AllFurnitures />} />
-        <Route path="/best-sellers" element={<BestSellers />} />
-        <Route path="/new-designs" element={<NewDesigns />} />
-        <Route path="/living-room" element={<LivingRoom />} />
-        <Route path="/bed-room" element={<Bedroom />} />
-        <Route path="/dining-room" element={<DiningRoom />} />
-        <Route path="/out-door" element={<Outdoor />} />
-        <Route path="/cart" element={<CartPage />} />
+
+        {/* ✅ One reusable page per topnav item (filter panel appears on each) */}
+        <Route path="/all"          element={<AllFurnitures pageTitle="ALL FURNITURES" />} />
+        <Route path="/best-sellers" element={<AllFurnitures collection="best-sellers" pageTitle="BEST SELLERS" />} />
+        <Route path="/new-designs"  element={<AllFurnitures collection="new-designs"  pageTitle="NEW DESIGNS"  />} />
+        <Route path="/living-room"  element={<AllFurnitures room="living-room" pageTitle="LIVING ROOM" />} />
+        <Route path="/bedroom"      element={<AllFurnitures room="bedroom"     pageTitle="BEDROOM"     />} />
+        <Route path="/dining-room"  element={<AllFurnitures room="dining-room" pageTitle="DINING ROOM" />} />
+        <Route path="/outdoor"      element={<AllFurnitures room="outdoor"     pageTitle="OUTDOOR"     />} />
+
+        {/* Old path redirect */}
+        <Route path="/all-furnitures" element={<Navigate to="/all" replace />} />
+
+        {/* Product detail & cart */}
         <Route path="/product/:id" element={<ProductDetail />} />
+        <Route path="/cart" element={<CartPage />} />
+
+        {/* Other public pages */}
         <Route path="/Repair" element={<Repair />} />
         <Route path="/Customization" element={<Customization />} />
 
+        {/* Optional: the single-page tabbed hub at /furniture */}
+        <Route path="/furniture" element={<FurnitureHub />} />
 
         {/* Auth pages */}
         <Route path="/login" element={<Login />} />
@@ -101,23 +125,20 @@ export default function App() {
         <Route path="/forgot-password" element={<ForgotPassword />} />
         <Route path="/verify-email" element={<VerifyEmail />} />
         <Route path="/account" element={<Account />} />
-        <Route path="/account" element={<div>My Account (placeholder)</div>} />
-        <Route path="/purchases" element={<div>My Purchase (placeholder)</div>} />
+
+        {/* Misc */}
         <Route path="/notifications" element={<Notification />} />
         <Route path="/checkout" element={<Checkout />} />
         <Route path="/payment" element={<Payment />} />
         <Route path="/ordersummary" element={<OrderSummary />} />
-
-         
-
-        <Route path="/mypurchases" element={<MyPurchases />} />  
-        <Route path="/visitus" element={<VisitUs />} />  
-
-
-
+        <Route path="/mypurchases" element={<MyPurchases />} />
+        <Route path="/visitus" element={<VisitUs />} />
 
         {/* Admin app (has its own layout; no public navbar/footer) */}
         <Route path="/admin/*" element={<AppAdmin />} />
+
+        {/* Fallback */}
+        <Route path="*" element={<Navigate to="/all" replace />} />
       </Routes>
 
       {!hideNavAndFooter && <Footer />}

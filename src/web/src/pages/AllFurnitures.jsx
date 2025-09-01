@@ -1,262 +1,317 @@
 // src/pages/AllFurnitures.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useState, useCallback } from "react";
+import { firestore, storage } from "../firebase";
+import * as FS from "firebase/firestore";
 import { Link } from "react-router-dom";
+import { getDownloadURL, ref } from "firebase/storage";
 import "../AllFurnitures.css";
 
-// If you already have a data layer, use that:
-import { listProducts } from "../data/products"; // returns all products (mock or firestore)
+/* ---------- helpers ---------- */
+const slug = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
 
-const TYPES = ["Beds", "Sofas", "Chairs", "Tables", "Benches", "Sectionals", "Ottomans"];
-const COLORS = ["Beige", "Gray", "Black", "Green", "Brown"];
-const MATERIALS = ["Wood", "Metal", "Upholstery", "Leather"];
+/* ---------- TYPE options by page ---------- */
+const TYPE_LABELS_ALL = ["Beds", "Sofas", "Chairs", "Tables", "Benches", "Sectionals", "Ottomans"];
+const TYPES_BY_ROOM = {
+  "living-room": ["Sofas", "Chairs", "Tables", "Benches", "Sectionals", "Ottomans"],
+  bedroom: ["Beds", "Chairs", "Tables", "Benches", "Ottomans"],
+  "dining-room": ["Chairs", "Tables"],
+  outdoor: ["Chairs", "Tables", "Benches", "Ottomans"],
+};
 
-const SORTS = [
-  { value: "",            label: "Relevance" },
-  { value: "price:asc",   label: "Price: Low to High" },
-  { value: "price:desc",  label: "Price: High to Low" },
-  { value: "title:asc",   label: "Name: A → Z" },
-  { value: "title:desc",  label: "Name: Z → A" },
+
+
+/* ---------- Materials (only Fabrics & Leather now) ---------- */
+const MATERIAL_LABELS = ["Fabrics", "Leather"];
+
+/* ---------- Price filter buckets ---------- */
+const PRICE_ITEMS = [
+  { code: "<5k", label: "Under ₱5,000" },
+  { code: "5-9.9k", label: "₱5,000–₱9,999" },
+  { code: "10-14.9k", label: "₱10,000–₱14,999" },
+  { code: "15k+", label: "₱15,000+" },
 ];
 
-function ProductCard({ p }) {
-  return (
-    <Link to={`/product/${p.id}`} className="pcard">
-      <div className="pcard-thumb">
-        {p.images?.[0]?.url
-          ? <img src={p.images[0].url} alt={p.title} />
-          : <div className="pcard-placeholder">{p.type}</div>}
-      </div>
-      <div className="pcard-body">
-        <div className="pcard-type">{p.type}</div>
-        <div className="pcard-title">{p.title}</div>
-        <div className="pcard-price">₱{Number(p.price || 0).toFixed(2)}</div>
-        <div className="pcard-meta muted">Ready to ship</div>
-      </div>
-    </Link>
-  );
+/* ---------- filter state ---------- */
+const makeEmptyFilters = () => ({
+  type: new Set(),
+  materials: new Set(),
+  price: new Set(),
+});
+
+/* ---------- product field normalizers ---------- */
+function normalizeType(d) {
+  const raw = String(d.baseType ?? d.type ?? d.category ?? d.categorySlug ?? "").toLowerCase();
+  if (raw.includes("sectional")) return "Sectionals";
+  if (raw.includes("sofa") || raw.includes("couch")) return "Sofas";
+  if (raw.includes("bed")) return "Beds";
+  if (raw.includes("chair")) return "Chairs";
+  if (raw.includes("table")) return "Tables";
+  if (raw.includes("bench")) return "Benches";
+  if (raw.includes("ottoman")) return "Ottomans";
+  const n = (d.name || "").toLowerCase();
+  if (n.includes("sectional")) return "Sectionals";
+  if (n.includes("sofa")) return "Sofas";
+  if (n.includes("bed")) return "Beds";
+  if (n.includes("chair")) return "Chairs";
+  if (n.includes("table")) return "Tables";
+  if (n.includes("bench")) return "Benches";
+  if (n.includes("ottoman")) return "Ottomans";
+  return "Other";
 }
 
-/* ---------------- Client-side filter helper ---------------- */
-function applyFilters(rows, f) {
-  const inMin = (p) => (f.priceMin != null ? Number(p.price) >= f.priceMin : true);
-  const inMax = (p) => (f.priceMax != null ? Number(p.price) <= f.priceMax : true);
+function normalizeMaterials(d) {
+  const out = new Set();
+  // Fabrics signals
+  if (Array.isArray(d.materialOptions) && d.materialOptions.length) out.add("Fabrics");
+  if (Array.isArray(d.colorOptions) && d.colorOptions.length) out.add("Fabrics");
+  if (String(d.material).toLowerCase().includes("fabric")) out.add("Fabrics");
+  if ((d.tags || []).some((t) => String(t).toLowerCase().includes("fabric"))) out.add("Fabrics");
 
-  const matches = rows.filter(p => {
-    const typeOk   = !f.type   || p.type === f.type;
-    const colorOk  = !f.color  || (p.colors?.includes ? p.colors.includes(f.color) : p.color === f.color);
-    const matOk    = !f.material || (p.materials?.includes ? p.materials.includes(f.material) : p.material === f.material);
-    const searchOk = !f.search || p.title?.toLowerCase().includes(f.search.toLowerCase());
-    const priceOk  = inMin(p) && inMax(p);
-    return typeOk && colorOk && matOk && searchOk && priceOk;
-  });
+  // Leather signal
+  const hay = [d.name, d.material, ...(d.tags || [])].join(" ").toLowerCase();
+  if (hay.includes("leather")) out.add("Leather");
 
-  if (f.sort) {
-    const [field, dir = "asc"] = f.sort.split(":");
-    matches.sort((a, b) => {
-      const va = a[field], vb = b[field];
-      if (typeof va === "number" && typeof vb === "number") return va - vb;
-      return String(va ?? "").localeCompare(String(vb ?? ""));
-    });
-    if (dir === "desc") matches.reverse();
+  return Array.from(out);
+}
+
+function normalizeDepartments(d) {
+  const candidates = [
+    d.departments,
+    d.departmentSlugs,
+    d.department_slug,
+    d.departmentSlug,
+    d.department,
+    d.rooms,
+    d.room,
+    d.parentSlug,
+  ];
+  for (const val of candidates) {
+    if (Array.isArray(val) && val.length) return val.map(slug);
+    const s = slug(val);
+    if (s) return [s];
   }
-
-  return matches;
+  // Fallback: infer from categorySlug prefix
+  const cat = String(d.categorySlug || "").toLowerCase();
+  if (cat) {
+    const first = cat.split("-")[0];
+    const map = { dining: "dining-room", living: "living-room", bedroom: "bedroom", bed: "bedroom", outdoor: "outdoor" };
+    const guess = map[first];
+    if (guess) return [guess];
+  }
+  return [];
 }
 
-/* ---------------- Page ---------------- */
-export default function AllFurnitures() {
-  const [raw, setRaw] = useState(null);
-  const [loading, setLoading] = useState(true);
+function normalizeCollections(d) {
+  const out = new Set();
+  const add = (v) => { const s = slug(v); if (s) out.add(s); };
+  const addArr = (arr) => Array.isArray(arr) && arr.forEach(add);
+  add(d.categorySlug);
+  add(d.category);
+  addArr(d.collections);
+  addArr(d.collectionSlugs);
+  addArr(d.tags);
+  if (d.isBestSeller) add("best-sellers");
+  if (d.isNew || d.isNewArrival) add("new-designs");
+  return Array.from(out);
+}
 
-  // filter state (removed inStock; everything else stays)
-  const [filters, setFilters] = useState({
-    type: "",
-    color: "",
-    material: "",
-    priceMin: null,
-    priceMax: null,
-    search: "",
-    sort: "", // relevance by default
-  });
+function priceBucket(n) {
+  const p = Number(n || 0);
+  if (p < 5000) return "<5k";
+  if (p < 10000) return "5-9.9k";
+  if (p < 15000) return "10-14.9k";
+  return "15k+";
+}
+
+// storage path/gs:// -> https
+async function resolveImage(val) {
+  if (!val || typeof val !== "string") return "";
+  if (/^https?:\/\//i.test(val)) return val;
+  try { return await getDownloadURL(ref(storage, val)); } catch { return ""; }
+}
+
+/* ---------- main ---------- */
+export default function AllFurnitures({
+  room = null,                 // "living-room" | "bedroom" | ...
+  collection: coll = null,     // "best-sellers" | "new-designs" | ...
+  pageTitle = "ALL FURNITURES"
+}) {
+  const [products, setProducts] = useState([]);
+  const [filters, setFilters] = useState(makeEmptyFilters);
+
+  // Which Type labels to display for this page
+  const allowedTypeLabels = useMemo(() => {
+    const r = slug(room);
+    if (r && TYPES_BY_ROOM[r]) return TYPES_BY_ROOM[r];
+    // default for All / Best Sellers / New Designs
+    return TYPE_LABELS_ALL;
+  }, [room]);
+
+  const clearFilters = useCallback(() => setFilters(makeEmptyFilters()), []);
 
   useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      setLoading(true);
-      const rows = await listProducts();
-      if (!cancelled) { setRaw(rows || []); setLoading(false); }
-    })();
-    return () => { cancelled = true; };
-  }, []);
+    const fetchProducts = async () => {
+      try {
+        const snap = await FS.getDocs(FS.collection(firestore, "products"));
+        let list = await Promise.all(
+          snap.docs.map(async (d) => {
+            const data = d.data();
+            const imgsRaw = Array.isArray(data.images) ? data.images : [];
+            const imgs = (await Promise.all(imgsRaw.map(resolveImage))).filter(Boolean);
 
-  const products = useMemo(() => {
-    if (!raw) return [];
-    return applyFilters(raw, filters);
-  }, [raw, filters]);
+            const base = Number(data.basePrice || 0);
 
-  const setPrice = (min, max) => setFilters(f => ({ ...f, priceMin: min, priceMax: max }));
+            return {
+              id: d.id,
+              title: data.name || "Untitled",
+              price: base,
+              _priceBucket: priceBucket(base),
+
+              images: imgs,
+              reviewsCount: Number(data.reviewsCount || 0),
+              ratingAvg: Number(data.ratingAvg || 0),
+
+              _type: normalizeType(data),
+              _materials: normalizeMaterials(data),
+              _departments: normalizeDepartments(data),
+              _collections: normalizeCollections(data),
+            };
+          })
+        );
+
+        // scope by room
+        if (room) {
+          const key = slug(room);
+          list = list.filter((p) => p._departments.includes(key));
+        }
+
+        // scope by collection (if you use it)
+        if (coll) {
+          const c = slug(coll);
+          list = list.filter((p) => (p._collections || []).includes(c));
+        }
+
+        setProducts(list);
+      } catch (error) {
+        console.error("Error fetching products:", error);
+      }
+    };
+
+    fetchProducts();
+  }, [room, coll]);
+
+  /* ---------- filter behavior ---------- */
+  const toggleFilter = (group, value) => {
+    setFilters((prev) => {
+      const next = new Set(prev[group]);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return { ...prev, [group]: next };
+    });
+  };
+
+  const filtered = useMemo(() => {
+    return products.filter((p) => {
+      // Type (only among allowed types for this page)
+      if (filters.type.size) {
+        if (!filters.type.has(p._type)) return false;
+      }
+      // Materials (Fabrics/Leather)
+      if (filters.materials.size) {
+        const has = p._materials?.some((m) => filters.materials.has(m));
+        if (!has) return false;
+      }
+      // Price
+      if (filters.price.size) {
+        if (!filters.price.has(p._priceBucket)) return false;
+      }
+      return true;
+    });
+  }, [products, filters]);
 
   return (
-    <div className="catalog">
-      <div className="container" style={{ display: "flex", gap: 24 }}>
-        {/* Sidebar */}
-        <aside className="filters" style={{ minWidth: 260 }}>
-          <div className="filters-head">ALL FURNITURES</div>
-
-
-          {/* Type */}
-          <div className="filter-group">
-            <div className="filter-title">Type</div>
-            <ul>
-              <li>
-                <label>
-                  <input
-                    type="radio"
-                    name="type"
-                    checked={!filters.type}
-                    onChange={() => setFilters(f => ({ ...f, type: "" }))}
-                  /> <span>All</span>
-                </label>
-              </li>
-              {TYPES.map(t => (
-                <li key={t}>
-                  <label>
-                    <input
-                      type="radio"
-                      name="type"
-                      checked={filters.type === t}
-                      onChange={() => setFilters(f => ({ ...f, type: t }))}
-                    /> <span>{t}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Color */}
-          <div className="filter-group">
-            <div className="filter-title">Color</div>
-            <ul>
-              <li>
-                <label>
-                  <input
-                    type="radio"
-                    name="color"
-                    checked={!filters.color}
-                    onChange={() => setFilters(f => ({ ...f, color: "" }))}
-                  /> <span>All</span>
-                </label>
-              </li>
-              {COLORS.map(c => (
-                <li key={c}>
-                  <label>
-                    <input
-                      type="radio"
-                      name="color"
-                      checked={filters.color === c}
-                      onChange={() => setFilters(f => ({ ...f, color: c }))}
-                    /> <span>{c}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Material */}
-          <div className="filter-group">
-            <div className="filter-title">Material</div>
-            <ul>
-              <li>
-                <label>
-                  <input
-                    type="radio"
-                    name="material"
-                    checked={!filters.material}
-                    onChange={() => setFilters(f => ({ ...f, material: "" }))}
-                  /> <span>All</span>
-                </label>
-              </li>
-              {MATERIALS.map(m => (
-                <li key={m}>
-                  <label>
-                    <input
-                      type="radio"
-                      name="material"
-                      checked={filters.material === m}
-                      onChange={() => setFilters(f => ({ ...f, material: m }))}
-                    /> <span>{m}</span>
-                  </label>
-                </li>
-              ))}
-            </ul>
-          </div>
-
-          {/* Price */}
-          <div className="filter-group">
-            <div className="filter-title">Price</div>
-            <ul>
-              <li><label><input type="radio" name="price" checked={filters.priceMin==null && filters.priceMax==null} onChange={() => setPrice(null, null)} /> <span>All</span></label></li>
-              <li><label><input type="radio" name="price" checked={filters.priceMin===0    && filters.priceMax===1999} onChange={() => setPrice(0, 1999)} /> <span>₱0 – ₱1999</span></label></li>
-              <li><label><input type="radio" name="price" checked={filters.priceMin===2000 && filters.priceMax===3999} onChange={() => setPrice(2000, 3999)} /> <span>₱2000 – ₱3999</span></label></li>
-              <li><label><input type="radio" name="price" checked={filters.priceMin===4000 && filters.priceMax==null} onChange={() => setPrice(4000, null)} /> <span>₱4000+</span></label></li>
-            </ul>
-          </div>
-
-          {/* Clear */}
+    <div className="all-furnitures">
+      <div className="filter">
+        <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <h2>{pageTitle}</h2>
           <button
-            className="ghost-btn"
-            onClick={() =>
-              setFilters({
-                type: "", color: "", material: "", priceMin: null, priceMax: null, search: "", sort: ""
-              })
-            }
+            onClick={clearFilters}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" }}
           >
-            Clear filters
+            Clear Filters
           </button>
-        </aside>
+        </div>
 
-        {/* Right column (toolbar + grid) */}
-        <section style={{ flex: 1 }}>
-          {/* Toolbar with Sort on top-right */}
-          <div
-            className="catalog-toolbar"
-            style={{ display: "flex", justifyContent: "flex-end", alignItems: "center", margin: "0 0 12px" }}
-          >
-            <label className="muted" style={{ display: "flex", alignItems: "center", gap: 8 }}>
-              <span>Sort:</span>
-              <select
-                value={filters.sort}
-                onChange={(e) => setFilters(f => ({ ...f, sort: e.target.value }))}
-                style={{ padding: "8px 12px", border: "1px solid #c9c0b2", borderRadius: 8 }}
-              >
-                {SORTS.map(s => (
-                  <option key={s.value} value={s.value}>{s.label}</option>
-                ))}
-              </select>
+        {/* Type (dynamic list by page) */}
+        <div className="filter-group">
+          <h3>Type</h3>
+          {allowedTypeLabels.map((lbl) => (
+            <label key={lbl}>
+              <input
+                type="checkbox"
+                checked={filters.type.has(lbl)}
+                onChange={() => toggleFilter("type", lbl)}
+              />{" "}
+              {lbl}
             </label>
-          </div>
+          ))}
+        </div>
 
-          {/* Grid */}
-          <div className="grid">
-            {loading && (
-              <div className="muted" style={{ gridColumn: "1/-1" }}>Loading…</div>
-            )}
-            {!loading && products.length === 0 && (
-              <div className="muted" style={{ gridColumn: "1/-1" }}>No products match your filters.</div>
-            )}
-            {products.map(p => <ProductCard key={p.id} p={p} />)}
-          </div>
-        </section>
+        {/* Materials (only Fabrics & Leather) */}
+        <div className="filter-group">
+          <h3>Materials</h3>
+          {MATERIAL_LABELS.map((lbl) => (
+            <label key={lbl}>
+              <input
+                type="checkbox"
+                checked={filters.materials.has(lbl)}
+                onChange={() => toggleFilter("materials", lbl)}
+              />{" "}
+              {lbl}
+            </label>
+          ))}
+        </div>
+
+        {/* Price */}
+        <div className="filter-group">
+          <h3>Price</h3>
+          {PRICE_ITEMS.map(({ code, label }) => (
+            <label key={code}>
+              <input
+                type="checkbox"
+                checked={filters.price.has(code)}
+                onChange={() => toggleFilter("price", code)}
+              />{" "}
+              {label}
+            </label>
+          ))}
+        </div>
+
+        {/* ⛔️ Removed: Number of Seats & Product Shape, per your request */}
       </div>
 
-      {/* Pagination (static) */}
-      <div className="pagination">
-        <div className="container">
-          <nav className="pager">
-            <a href="#">1</a><a href="#">2</a><a href="#">3</a><a href="#">4</a>
-            <a href="#">5</a><a href="#">6</a><a href="#">7</a><a href="#">9+</a>
-          </nav>
-        </div>
+      <div className="product-grid">
+        {filtered.length > 0 ? (
+          filtered.map((product) => (
+            <div key={product.id} className="product-card">
+              <Link to={`/product/${product.id}`}>
+                <img
+                  src={product.images[0] || "/path/to/default/image.jpg"}
+                  alt={product.title}
+                  className="product-image"
+                />
+              </Link>
+              <h3>{product.title}</h3>
+              <p>₱{product.price.toLocaleString()}</p>
+              <div className="rating">
+                <span>{"⭐".repeat(Math.floor(product.ratingAvg))}</span>
+                <p>({product.reviewsCount} Reviews)</p>
+              </div>
+            </div>
+          ))
+        ) : (
+          <p>No products found.</p>
+        )}
       </div>
     </div>
   );
