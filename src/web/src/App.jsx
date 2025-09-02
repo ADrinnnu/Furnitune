@@ -7,12 +7,15 @@ import {
   useNavigate,
   Navigate,
 } from "react-router-dom";
+import Recommender from "./pages/Recommender";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 
 /* Layout */
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
+import FloatingRobot from "./components/FloatingRobot";
+
 
 /* Public pages */
 import Landing from "./pages/Landing.jsx";
@@ -28,6 +31,8 @@ import CreateAccount from "./pages/CreateAccount.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
+
+
 
 /* Other */
 import AppAdmin from "./admin/AppAdmin";
@@ -139,10 +144,13 @@ export default function App() {
 
         {/* Admin app (has its own layout; no public navbar/footer) */}
         <Route path="/admin/*" element={<AppAdmin />} />
+        <Route path="/recommender" element={<Recommender />} />
+        <Route path="/chatbot" element={<div>ChatBot coming soon</div>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/all" replace />} />
       </Routes>
+      <FloatingRobot />
 
       {!hideNavAndFooter && <Footer />}
     </>
