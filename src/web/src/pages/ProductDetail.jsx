@@ -1,6 +1,6 @@
 // src/pages/ProductDetail.jsx
 import React, { useEffect, useMemo, useState } from "react";
-import { useParams } from "react-router-dom";
+import { useParams, useNavigate } from "react-router-dom";
 import {
   firestore,
   storage,
@@ -11,6 +11,7 @@ import {
 } from "../firebase";
 import { collection, query, where, getDocs } from "firebase/firestore";
 import "../ProductDetail.css";
+
 
 const FABRICS = [
   { id: "marble", label: "Marble", sw: "#d9d3c7" },
@@ -82,6 +83,7 @@ function normalizeTypeLabel(data, catSlug) {
 }
 
 export default function ProductDetail() {
+  const navigate = useNavigate();
   const { id } = useParams();
 
   const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
@@ -341,7 +343,7 @@ export default function ProductDetail() {
 
             {/* CTA row — both buttons share the pill style */}
             <div className="rp-cta-row">
-              <button type="button" className="price-pill" onClick={handleAddToCart}>
+              <button type="button" className="price-pill"  onClick={() => navigate("/checkout")}>
                 {priceStr}
               </button>
               <button type="button" className="price-pill add-cart" onClick={handleAddToCart}>

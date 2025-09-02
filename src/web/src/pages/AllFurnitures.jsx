@@ -329,9 +329,16 @@ export default function AllFurnitures({
                   alt={product.title}
                   className="product-image"
                 />
+               {/* Title */}
+          <h3 className="product-title">
+            {product.title || "Untitled"}
+          </h3>
+
+          {/* Price */}
+          <p className="product-price">
+            ₱{product.price ? product.price.toLocaleString() : "N/A"}
+          </p>
               </Link>
-              <h3>{product.title}</h3>
-              <p>₱{product.price.toLocaleString()}</p>
               <div className="rating">
                 <span>{"⭐".repeat(Math.floor(product.ratingAvg))}</span>
                 <p>({product.reviewsCount} Reviews)</p>
