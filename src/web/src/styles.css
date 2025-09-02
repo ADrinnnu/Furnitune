@@ -1025,6 +1025,121 @@ textarea {
   background: #fff;
   border: 1px solid #444;
 }
+
+/* ---------- About Us ---------- */
+.about-container {
+  padding: 50px 10%;
+  background: #faf9f5;
+  font-family: Arial, sans-serif;
+}
+
+/* Intro Section */
+.intro-section {
+  text-align: center;
+  margin-bottom: 50px;
+}
+
+.intro-section h1 {
+  font-size: 2.2rem;
+  margin-bottom: 15px;
+  font-weight: bold;
+  color: #2e7d32;
+}
+
+.intro-section p {
+  font-size: 1.1rem;
+  color: #333;
+  max-width: 800px;
+  margin: 0 auto;
+  line-height: 1.6;
+}
+
+/* Features */
+.section-title {
+  text-align: center;
+  font-size: 2rem;
+  margin-bottom: 40px;
+  font-weight: bold;
+}
+
+.unique-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 30px;
+  margin-bottom: 60px;
+}
+
+.unique-card {
+  background: #fff;
+  border-radius: 12px;
+  padding: 25px;
+  text-align: center;
+  box-shadow: 0px 3px 6px rgba(0,0,0,0.1);
+  
+}
+.unique-img {
+  width: 100%;
+  height: 180px;
+  object-fit: cover;
+  border-radius: 10px;
+  margin-bottom: 15px;
+}
+
+.unique-card h3 {
+  color: #2e7d32;
+  font-weight: bold;
+  margin-bottom: 10px;
+}
+
+/* Owner Section */
+.owner-section {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  background: #fdf9ee;
+  border-radius: 12px;
+  padding: 40px;
+  flex-wrap: wrap;
+  gap: 20px;
+}
+
+.owner-info {
+  flex: 1;
+  min-width: 300px;
+  margin-right: 20px;
+}
+
+.owner-info h2 {
+  font-size: 1.8rem;
+  margin-bottom: 15px;
+  font-weight: bold;
+}
+
+.owner-info p {
+  font-size: 1rem;
+  margin-bottom: 10px;
+  color: #333;
+}
+
+.location {
+  font-weight: bold;
+  color: #2e7d32;
+}
+
+.owner-photo, .location-photo {
+  width: 360px;   
+  height: 280px;
+  display: flex;
+  justify-content: right;
+}
+
+.owner-photo img, .location-photo img {
+  width: 280px;
+  height: auto;
+  border-radius: 15px;
+  box-shadow: 0px 4px 8px rgba(0,0,0,0.1);
+}
+
 /* ---------- Order Summary ---------- */
 
 .order-container {

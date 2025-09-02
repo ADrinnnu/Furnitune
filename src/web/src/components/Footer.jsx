@@ -40,7 +40,7 @@ export default function Footer() {
 
         <div className="ft-col">
           <div className="ft-title">COMPANY</div>
-          <LinkItem>About us</LinkItem>
+          <a href="/aboutus" className="link-item">About Us</a>
         </div>
 
         <div className="ft-col">
