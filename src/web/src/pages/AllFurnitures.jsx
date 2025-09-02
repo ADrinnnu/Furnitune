@@ -18,8 +18,6 @@ const TYPES_BY_ROOM = {
   outdoor: ["Chairs", "Tables", "Benches", "Ottomans"],
 };
 
-
-
 /* ---------- Materials (only Fabrics & Leather now) ---------- */
 const MATERIAL_LABELS = ["Fabrics", "Leather"];
 
@@ -123,11 +121,42 @@ function priceBucket(n) {
   return "15k+";
 }
 
-// storage path/gs:// -> https
+/* ---------- Storage URL resolver (Option A) ---------- */
+function objectPathFromAnyStorageUrl(u) {
+  if (!u || typeof u !== "string") return null;
+
+  // gs://BUCKET/path/to/file
+  if (/^gs:\/\//i.test(u)) {
+    const withoutScheme = u.replace(/^gs:\/\//i, "");
+    const firstSlash = withoutScheme.indexOf("/");
+    return firstSlash > -1 ? withoutScheme.slice(firstSlash + 1) : null;
+  }
+
+  // https://firebasestorage.googleapis.com/v0/b/BUCKET/o/ENCODED_PATH?....
+  if (u.includes("firebasestorage.googleapis.com")) {
+    const m = u.match(/\/o\/([^?]+)/);
+    return m ? decodeURIComponent(m[1]) : null;
+  }
+
+  // plain object path
+  if (!/^https?:\/\//i.test(u)) return u;
+
+  return null;
+}
+
+async function toDownloadUrl(val) {
+  if (!val) return "";
+  try {
+    const objPath = objectPathFromAnyStorageUrl(val);
+    if (objPath) return await getDownloadURL(ref(storage, objPath));
+    return val; // already https
+  } catch {
+    return "";
+  }
+}
+
 async function resolveImage(val) {
-  if (!val || typeof val !== "string") return "";
-  if (/^https?:\/\//i.test(val)) return val;
-  try { return await getDownloadURL(ref(storage, val)); } catch { return ""; }
+  return await toDownloadUrl(val);
 }
 
 /* ---------- main ---------- */
@@ -287,7 +316,7 @@ export default function AllFurnitures({
           ))}
         </div>
 
-        {/* ⛔️ Removed: Number of Seats & Product Shape, per your request */}
+        {/* Seats & Shape intentionally removed */}
       </div>
 
       <div className="product-grid">
