@@ -1,5 +1,7 @@
-import { firebaseProvider } from "./firebase/firebaseProvider";
-import { mockProvider } from "./mock/mockProvider";
+// src/admin/data/index.jsx
 
-const USE_FB = import.meta.env.VITE_USE_FIREBASE === "true";
-export const provider = USE_FB ? firebaseProvider : mockProvider;
+import { firebaseProvider } from "./firebase/firebaseProvider";
+
+export const provider = firebaseProvider;
+
+export * from "./firebase/firebaseProvider";

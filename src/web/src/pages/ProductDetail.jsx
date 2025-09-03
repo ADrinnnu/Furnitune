@@ -12,7 +12,6 @@ import {
 import { collection, query, where, getDocs } from "firebase/firestore";
 import "../ProductDetail.css";
 
-
 const FABRICS = [
   { id: "marble", label: "Marble", sw: "#d9d3c7" },
   { id: "terra", label: "Terracotta", sw: "#b86a52" },
@@ -20,9 +19,16 @@ const FABRICS = [
   { id: "harbour", label: "Harbour", sw: "#2c3e50" },
 ];
 
-// fallback sizes so all Chairs share same options
+// fallback sizes (used only if neither product nor category provides sizeOptions,
+// and nothing is found in sizePrices)
 const DEFAULT_SIZES_BY_TYPE = {
   Chairs: ["Standard", "Counter", "Bar"],
+  Sofas: ["2 Seater", "3 Seater", "4 Seater"],
+  Sectionals: ["3 seater", "5 seater", "6 seater", "7 seater"],
+  Tables: ["2 people", "4 people", "6 people", "8 people"],
+  Beds: ["Single", "Double", "Queen", "King"],
+  Ottomans: ["Standard", "Cube", "Footstool","Cocktail"],
+  Benches: ["2 seater", "3 seater", "4 seater"],
 };
 
 const slugify = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
@@ -35,7 +41,7 @@ function resolveCategorySlug(data) {
   return slugify(raw);
 }
 
-/* ---------- Storage URL resolver (Option A) ---------- */
+/* ---------- Storage URL resolver ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
 
@@ -106,9 +112,12 @@ export default function ProductDetail() {
         if (!snap.exists()) { setProduct(null); return; }
         const data = snap.data();
 
-        // images
-        const rawImgs = Array.isArray(data.images) && data.images.length
-          ? data.images : (data.image ? [data.image] : []);
+        // Prefer tokened https URLs if present (imageUrls), otherwise resolve images array
+        const rawImgs = Array.isArray(data.imageUrls) && data.imageUrls.length
+          ? data.imageUrls
+          : (Array.isArray(data.images) && data.images.length
+              ? data.images
+              : (data.image ? [data.image] : []));
         const resolved = (await Promise.all(rawImgs.map(resolveStorageUrl))).filter(Boolean);
         setImages(resolved);
         setActiveIdx(0);
@@ -126,7 +135,7 @@ export default function ProductDetail() {
           reviewsCount: Number(data.reviewsCount ?? 0),
         });
 
-        // sizes: product → category → default by type
+        // sizes: product → category → defaults
         const catSlug = resolveCategorySlug(data);
         let sizes = Array.isArray(data.sizeOptions) ? data.sizeOptions : null;
 
@@ -163,6 +172,13 @@ export default function ProductDetail() {
           }
         }
         setAbsPrices(priceMap);
+
+        // ✅ NEW: if we still have no sizes, derive them from the price docs
+        if ((!sizes || !sizes.length) && Object.keys(priceMap).length) {
+          const derived = Object.keys(priceMap).sort();
+          setSizeOptions(derived);
+          if (derived.length) setSize(derived[0]);
+        }
       } catch (err) {
         console.error("Error fetching product:", err);
         setProduct(null);
@@ -341,7 +357,7 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* CTA row — both buttons share the pill style */}
+            {/* CTA row */}
             <div className="rp-cta-row">
               <button type="button" className="price-pill"  onClick={() => navigate("/checkout")}>
                 {priceStr}
