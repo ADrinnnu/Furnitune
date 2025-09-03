@@ -4,7 +4,10 @@ import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useCart } from "../state/CartContext";
 import { auth } from "../firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
+import { useProductSearch } from "../hooks/useProductSearch";
 import "../ProfileMenu.css";
+
+const PRODUCT_ROUTE_PREFIX = "/product/"; // ⬅️ change to "/products/" if your route uses that
 
 export default function Navbar() {
   const { cartItems } = useCart();
@@ -15,11 +18,20 @@ export default function Navbar() {
   const menuRef = useRef(null);
   const nav = useNavigate();
 
+  // --- search state (logic only; UI unchanged) ---
+  const { search } = useProductSearch();
+  const [openSearch, setOpenSearch] = useState(false);
+  const [q, setQ] = useState("");
+  const [results, setResults] = useState([]);
+  const searchBoxRef = useRef(null);
+  const searchInputRef = useRef(null);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsub();
   }, []);
 
+  // close profile menu on outside click / ESC
   useEffect(() => {
     const click = (e) => {
       if (menuRef.current && !menuRef.current.contains(e.target)) setOpen(false);
@@ -33,6 +45,23 @@ export default function Navbar() {
     };
   }, []);
 
+  // close search popover on outside click / ESC
+  useEffect(() => {
+    function onDocClick(e) {
+      if (!searchBoxRef.current) return;
+      if (!searchBoxRef.current.contains(e.target)) setOpenSearch(false);
+    }
+    function onEsc(e) {
+      if (e.key === "Escape") setOpenSearch(false);
+    }
+    document.addEventListener("mousedown", onDocClick);
+    document.addEventListener("keydown", onEsc);
+    return () => {
+      document.removeEventListener("mousedown", onDocClick);
+      document.removeEventListener("keydown", onEsc);
+    };
+  }, []);
+
   const handleLogout = async () => {
     try {
       await signOut(auth);
@@ -42,6 +71,19 @@ export default function Navbar() {
       console.error(e);
     }
   };
+
+  async function onSearchChange(e) {
+    const v = e.target.value;
+    setQ(v);
+    setResults(await search(v));
+  }
+
+  function goToProduct(p) {
+    nav(`${PRODUCT_ROUTE_PREFIX}${p.id}`);
+    setOpenSearch(false);
+    setQ("");
+    setResults([]);
+  }
 
   const initials =
     (
@@ -62,7 +104,93 @@ export default function Navbar() {
         </Link>
 
         <div className="icons">
-          <span>🔍</span>
+          {/* 🔍 search icon + popover (keeps your icon row/position) */}
+          <div
+            ref={searchBoxRef}
+            style={{ position: "relative", display: "inline-block" }}
+          >
+            <button
+              className="icon-btn"
+              aria-label="Search"
+              title="Search"
+              onClick={() => {
+                setOpenSearch((s) => !s);
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }}
+            >
+              🔍
+            </button>
+
+            {openSearch && (
+              <div
+                style={{
+                  position: "absolute",
+                  right: 0,
+                  top: "100%",
+                  marginTop: 8,
+                  width: 320,
+                  background: "#f8f3e6",
+                  borderRadius: 14,
+                  boxShadow: "0 10px 24px rgba(0,0,0,0.18)",
+                  overflow: "hidden",
+                  zIndex: 50,
+                }}
+              >
+                <input
+                  ref={searchInputRef}
+                  value={q}
+                  onChange={onSearchChange}
+                  placeholder="Search products…"
+                  style={{
+                    width: "100%",
+                    display: "block",
+                    border: "none",
+                    outline: "none",
+                    padding: "10px 12px",
+                    background: "#f8f3e6",
+                    fontSize: 14,
+                    borderBottom: "1px solid rgba(0,0,0,0.2)",
+                    borderTopLeftRadius: 14,
+                    borderTopRightRadius: 14,
+                  }}
+                />
+
+                {q.length > 0 && (
+                  <div style={{ maxHeight: 320, overflowY: "auto" }}>
+                    {results.length === 0 ? (
+                      <div style={{ padding: "10px 12px", color: "#666", fontSize: 13 }}>
+                        No matches
+                      </div>
+                    ) : (
+                      results.map((p) => (
+                        <button
+                          key={p.id}
+                          onClick={() => goToProduct(p)}
+                          title={p.name}
+                          style={{
+                            width: "100%",
+                            display: "flex",
+                            alignItems: "center",
+                            gap: 8,
+                            padding: "8px 12px",
+                            background: "transparent",
+                            border: 0,
+                            textAlign: "left",
+                            cursor: "pointer",
+                          }}
+                          onMouseOver={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.06)")}
+                          onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                        >
+                          <span style={{ width: 18, textAlign: "center", opacity: 0.8 }}>🔍</span>
+                          <span style={{ fontSize: 14, color: "#222" }}>{p.name}</span>
+                        </button>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
 
           <div style={{ position: "relative", display: "inline-block" }}>
             <Link to="/cart" className="icon-btn" aria-label="Open cart">
@@ -114,7 +242,6 @@ export default function Navbar() {
                     <span>My Account</span>
                   </Link>
 
-                  {/* Use your real purchases route; you have /mypurchases in App.jsx */}
                   <Link to="/mypurchases" className="pd-item" onClick={() => setOpen(false)}>
                     <span className="pd-ic">🛒</span>
                     <span>My Purchases</span>
@@ -133,7 +260,6 @@ export default function Navbar() {
 
       <div className="menu-bar container">
         <nav className="categories">
-          {/* ✅ use NavLink + correct paths that exist in App.jsx */}
           <NavLink to="/all"          className={activeClass} end>ALL FURNITURES</NavLink>
           <NavLink to="/best-sellers" className={activeClass}>BEST SELLERS</NavLink>
           <NavLink to="/new-designs"  className={activeClass}>NEW DESIGNS</NavLink>
@@ -144,7 +270,6 @@ export default function Navbar() {
         </nav>
 
         <div className="actions">
-          {/* match your defined routes' casing */}
           <NavLink to="/Customization" className={activeClass}>CUSTOMIZE</NavLink>
           <span>|</span>
           <NavLink to="/Repair" className={activeClass}>REPAIR</NavLink>
