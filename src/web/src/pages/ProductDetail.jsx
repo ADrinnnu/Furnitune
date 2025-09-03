@@ -8,8 +8,11 @@ import {
   getDoc,
   ref,
   getDownloadURL,
+  collection,
+  query,
+  where,
+  getDocs,
 } from "../firebase";
-import { collection, query, where, getDocs } from "firebase/firestore";
 import "../ProductDetail.css";
 
 const FABRICS = [
@@ -19,19 +22,19 @@ const FABRICS = [
   { id: "harbour", label: "Harbour", sw: "#2c3e50" },
 ];
 
-// fallback sizes (used only if neither product nor category provides sizeOptions,
-// and nothing is found in sizePrices)
+// Fallbacks used only if neither product/category provides sizeOptions AND no rules exist
 const DEFAULT_SIZES_BY_TYPE = {
   Chairs: ["Standard", "Counter", "Bar"],
   Sofas: ["2 Seater", "3 Seater", "4 Seater"],
-  Sectionals: ["3 seater", "5 seater", "6 seater", "7 seater"],
+  Sectionals: ["3 Seater", "5 Seater", "6 Seater", "7 Seater"],
   Tables: ["2 people", "4 people", "6 people", "8 people"],
   Beds: ["Single", "Double", "Queen", "King"],
-  Ottomans: ["Standard", "Cube", "Footstool","Cocktail"],
-  Benches: ["2 seater", "3 seater", "4 seater"],
+  Ottomans: ["Standard", "Cube", "Footstool", "Cocktail"],
+  Benches: ["2 Seater", "3 Seater", "4 Seater"],
 };
 
-const slugify = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
+const norm = (s) => String(s || "").trim().toLowerCase();
+const slugify = (s) => norm(s).replace(/\s+/g, "-");
 const titleCase = (s) =>
   String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
@@ -44,34 +47,28 @@ function resolveCategorySlug(data) {
 /* ---------- Storage URL resolver ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
-
   if (/^gs:\/\//i.test(u)) {
     const withoutScheme = u.replace(/^gs:\/\//i, "");
     const firstSlash = withoutScheme.indexOf("/");
     return firstSlash > -1 ? withoutScheme.slice(firstSlash + 1) : null;
   }
-
   if (u.includes("firebasestorage.googleapis.com")) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-
   if (!/^https?:\/\//i.test(u)) return u;
-
   return null;
 }
-
 async function toDownloadUrl(val) {
   if (!val) return "";
   try {
     const objPath = objectPathFromAnyStorageUrl(val);
     if (objPath) return await getDownloadURL(ref(storage, objPath));
-    return val; // already https
+    return val;
   } catch {
     return "";
   }
 }
-
 async function resolveStorageUrl(val) {
   return await toDownloadUrl(val);
 }
@@ -85,6 +82,7 @@ function normalizeTypeLabel(data, catSlug) {
   if (t.includes("table") || c.includes("table")) return "Tables";
   if (t.includes("bench") || c.includes("bench")) return "Benches";
   if (t.includes("ottoman") || c.includes("ottoman")) return "Ottomans";
+  if (t.includes("sectional") || c.includes("sectional")) return "Sectionals";
   return titleCase(catSlug || t || "Furniture");
 }
 
@@ -96,89 +94,123 @@ export default function ProductDetail() {
   const [images, setImages] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // UI state
+  // UI state (unchanged)
   const [fabric, setFabric] = useState(FABRICS[0].id);
-  const [sizeOptions, setSizeOptions] = useState([]);
-  const [size, setSize] = useState("");
-  const [absPrices, setAbsPrices] = useState({}); // size -> absolute price
+  const [sizeOptions, setSizeOptions] = useState([]); // labels as displayed on chips
+  const [size, setSize] = useState("");               // selected display label
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
+  // ✅ New: pricing keys (logic only; no UI change)
+  const [priceByKey, setPriceByKey] = useState({}); // norm(label) -> absolute price
+  const [sizeKey, setSizeKey] = useState("");       // norm(selected label)
+
   useEffect(() => {
     if (!id) { setProduct(null); return; }
+
     (async () => {
       try {
         const snap = await getDoc(doc(firestore, "products", String(id)));
         if (!snap.exists()) { setProduct(null); return; }
         const data = snap.data();
 
-        // Prefer tokened https URLs if present (imageUrls), otherwise resolve images array
-        const rawImgs = Array.isArray(data.imageUrls) && data.imageUrls.length
-          ? data.imageUrls
-          : (Array.isArray(data.images) && data.images.length
-              ? data.images
-              : (data.image ? [data.image] : []));
+        // Images
+        const rawImgs =
+          Array.isArray(data.imageUrls) && data.imageUrls.length
+            ? data.imageUrls
+            : (Array.isArray(data.images) && data.images.length
+                ? data.images
+                : (data.image ? [data.image] : []));
         const resolved = (await Promise.all(rawImgs.map(resolveStorageUrl))).filter(Boolean);
         setImages(resolved);
         setActiveIdx(0);
 
-        // header/meta
+        // Meta
         const rawType = data.baseType ?? data.type ?? data.category ?? data.categorySlug ?? "";
         const displayType = rawType ? String(rawType).toUpperCase() : "FURNITURE";
+        const basePrice = Number(data.basePrice ?? 0);
         setProduct({
           id: snap.id,
           name: data.name || "Untitled Product",
           type: displayType,
           description: data.description || "",
-          basePrice: Number(data.basePrice ?? 0),
+          basePrice,
           ratingAvg: Number(data.ratingAvg ?? 0),
           reviewsCount: Number(data.reviewsCount ?? 0),
         });
 
-        // sizes: product → category → defaults
         const catSlug = resolveCategorySlug(data);
-        let sizes = Array.isArray(data.sizeOptions) ? data.sizeOptions : null;
+        const typeLabel = normalizeTypeLabel(data, catSlug);
 
-        if (!sizes && catSlug) {
+        // Start with any product/category sizes
+        let displaySizes = Array.isArray(data.sizeOptions) ? data.sizeOptions.slice() : null;
+        if (!displaySizes && catSlug) {
           try {
             const catDoc = await getDoc(doc(firestore, "categories", catSlug));
             if (catDoc.exists() && Array.isArray(catDoc.data().sizeOptions)) {
-              sizes = catDoc.data().sizeOptions;
+              displaySizes = catDoc.data().sizeOptions.slice();
             }
-          } catch {}
+          } catch { /* ignore */ }
+        }
+        if (!displaySizes || !displaySizes.length) {
+          displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
         }
 
-        const typeLabel = normalizeTypeLabel(data, catSlug);
-        if (!sizes || !sizes.length) sizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
-
-        sizes = Array.isArray(sizes) ? sizes : [];
-        setSizeOptions(sizes);
-        if (sizes.length) setSize(String(sizes[0]));
-
-        // prices by type -> filter to sizes we show
-        const priceMap = {};
+        // 👉 Read relative rules and compute absolute prices (no UI change)
+        const keyed = {};              // norm(label) -> price
         if (typeLabel) {
           try {
-            const qType = query(collection(firestore, "sizePrices"), where("type", "==", typeLabel));
-            const snapType = await getDocs(qType);
-            snapType.forEach((d) => {
-              const r = d.data();
-              const k = String(r?.size || "");
-              if (!k) return;
-              if (!sizes.length || sizes.includes(k)) priceMap[k] = Number(r.price || 0);
+            const qRules = query(
+              collection(firestore, "sizePriceRules"),
+              where("type", "==", typeLabel)
+            );
+            const snapRules = await getDocs(qRules);
+
+            // Build rule map keyed by normalized label
+            const byKey = new Map();
+            snapRules.forEach((d) => {
+              const r = d.data(); // { size, mode, value }
+              const k = norm(r.size);
+              const mode = String(r.mode || "delta").toLowerCase();
+              const v = Number(r.value || 0);
+              let abs = basePrice;
+              if (mode === "multiplier" || mode === "x" || mode === "mult") {
+                abs = Math.round(basePrice * (isNaN(v) ? 1 : v));
+              } else if (mode === "absolute") {
+                abs = isNaN(v) ? basePrice : v;
+              } else {
+                abs = basePrice + (isNaN(v) ? 0 : v); // delta
+              }
+              byKey.set(k, { label: String(r.size), price: abs });
             });
+
+            if (byKey.size) {
+              // Align any provided size labels to rule labels (case-insensitive)
+              const aligned = [];
+              for (const s of displaySizes) {
+                const hit = byKey.get(norm(s));
+                aligned.push(hit ? hit.label : s);
+              }
+              const labelsFromRules = Array.from(byKey.values()).map((x) => x.label);
+              displaySizes = aligned.filter(Boolean).length
+                ? [...new Set(aligned)]
+                : [...new Set(labelsFromRules)];
+
+              for (const [k, rec] of byKey) keyed[k] = rec.price;
+            }
           } catch (e) {
-            console.warn("sizePrices(type) read:", e?.code || e);
+            console.warn("sizePriceRules(type) read:", e?.code || e);
           }
         }
-        setAbsPrices(priceMap);
 
-        // ✅ NEW: if we still have no sizes, derive them from the price docs
-        if ((!sizes || !sizes.length) && Object.keys(priceMap).length) {
-          const derived = Object.keys(priceMap).sort();
-          setSizeOptions(derived);
-          if (derived.length) setSize(derived[0]);
-        }
+        // Finalize sizes and default selection
+        displaySizes = Array.isArray(displaySizes) ? displaySizes : [];
+        setSizeOptions(displaySizes);
+
+        const first = displaySizes[0] || "";
+        setSize(first);
+        setSizeKey(norm(first));
+        setPriceByKey(keyed);
       } catch (err) {
         console.error("Error fetching product:", err);
         setProduct(null);
@@ -186,11 +218,12 @@ export default function ProductDetail() {
     })();
   }, [id]);
 
+  // Compute price with normalized key; fallback to basePrice
   const unitPrice = useMemo(() => {
     if (!product) return 0;
-    if (size && absPrices[size] != null) return Number(absPrices[size]);
+    if (sizeKey && priceByKey[sizeKey] != null) return Number(priceByKey[sizeKey]);
     return Number(product.basePrice || 0);
-  }, [product, size, absPrices]);
+  }, [product, sizeKey, priceByKey]);
 
   const priceStr = `₱${Number(unitPrice || 0).toLocaleString()}`;
   const hero = images[activeIdx] || "/placeholder.jpg";
@@ -217,7 +250,7 @@ export default function ProductDetail() {
               src={hero}
               alt={product.name}
               className="pd-main contain"
-              onError={(e)=>{ e.currentTarget.src="/placeholder.jpg"; }}
+              onError={(e) => { e.currentTarget.src = "/placeholder.jpg"; }}
             />
           </div>
 
@@ -228,9 +261,9 @@ export default function ProductDetail() {
                   key={u + i}
                   className={`thumb ${i === activeIdx ? "active" : ""}`}
                   onClick={() => setActiveIdx(i)}
-                  aria-label={`Image ${i+1}`}
+                  aria-label={`Image ${i + 1}`}
                 >
-                  <img src={u} alt={`Thumb ${i+1}`} />
+                  <img src={u} alt={`Thumb ${i + 1}`} />
                 </button>
               ))}
             </div>
@@ -316,7 +349,11 @@ export default function ProductDetail() {
                           <button
                             key={s}
                             className={`chip ${size === s ? "active" : ""}`}
-                            onClick={() => setSize(String(s))}
+                            onClick={() => {
+                              const lbl = String(s);
+                              setSize(lbl);
+                              setSizeKey(norm(lbl)); // logic only; no style change
+                            }}
                           >
                             {s}
                           </button>
@@ -359,10 +396,18 @@ export default function ProductDetail() {
 
             {/* CTA row */}
             <div className="rp-cta-row">
-              <button type="button" className="price-pill"  onClick={() => navigate("/checkout")}>
+              <button
+                type="button"
+                className="price-pill"
+                onClick={() => navigate("/checkout")}
+              >
                 {priceStr}
               </button>
-              <button type="button" className="price-pill add-cart" onClick={handleAddToCart}>
+              <button
+                type="button"
+                className="price-pill add-cart"
+                onClick={handleAddToCart}
+              >
                 <span className="cart-ic" aria-hidden>🛒</span>
                 <span>ADD TO CART</span>
               </button>
