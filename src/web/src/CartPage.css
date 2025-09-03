@@ -1,0 +1,71 @@
+/* --- Cart layout & sizing --- */
+.cart-wrap.container { max-width: 1040px; margin: 0 auto; }
+
+.cart-toolbar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin: 8px 0 12px;
+}
+
+.cart-list { display: flex; flex-direction: column; gap: 12px; }
+
+.cart-card {
+  display: grid;
+  grid-template-columns: 24px 1fr auto auto; /* checkbox | main | price/remove | per-item checkout */
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  border: 1px solid #e8e3d9;
+  border-radius: 12px;
+  background: #f8f5ec;
+}
+
+.cart-check { display: flex; align-items: center; justify-content: center; }
+
+.cart-main .cart-line { display: flex; align-items: center; gap: 12px; }
+
+.cart-thumb {
+  width: 88px;
+  height: 66px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #ddd;
+  background: #fff;
+  flex: 0 0 auto;
+}
+
+.cart-info { display: flex; gap: 6px; flex-direction: column; }
+.cart-title { font-weight: 600; }
+.cart-sub .muted { color: #777; margin-right: 10px; font-size: .9rem; }
+
+.qty-row { display: flex; align-items: center; gap: 8px; }
+.qty-btn {
+  width: 24px; height: 24px; border-radius: 6px; border: 1px solid #cfc8ba;
+  background: #fff; line-height: 1; cursor: pointer;
+}
+.qty-val { min-width: 20px; text-align: center; }
+
+.cart-side {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 8px;
+  min-width: 96px;
+}
+.cart-price { font-weight: 700; }
+
+.icon-btn.danger {
+  background: none; border: 0; cursor: pointer; font-size: 18px;
+}
+
+.cart-action { display: flex; align-items: center; }
+.checkout-btn {
+  border: 0; border-radius: 999px; padding: 8px 14px;
+  background: #3b7d6a; color: #fff; font-weight: 600; cursor: pointer;
+}
+.checkout-btn:disabled { opacity: .5; cursor: default; }
+
+.cart-summary-bar {
+  display: flex; align-items: center; justify-content: space-between;
+  margin-top: 16px; padding: 12px 14px;
+  border: 1px solid #e8e3d9; border-radius: 12px; background: #f8f5ec;
+}
+.sum-total { font-weight: 700; margin-right: 10px; }
+
+.cart-main { min-width: 0; }
