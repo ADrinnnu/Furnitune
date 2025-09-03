@@ -2,7 +2,6 @@
 import * as React from "react";
 import { firestore, collection, getDocs } from "../firebase";
 
-// tiny cache so Firestore reads once
 let _cache = null;
 
 async function loadAllProducts() {

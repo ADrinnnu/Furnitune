@@ -7,7 +7,7 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useProductSearch } from "../hooks/useProductSearch";
 import "../ProfileMenu.css";
 
-const PRODUCT_ROUTE_PREFIX = "/product/"; // ⬅️ change to "/products/" if your route uses that
+const PRODUCT_ROUTE_PREFIX = "/product/"; 
 
 export default function Navbar() {
   const { cartItems } = useCart();

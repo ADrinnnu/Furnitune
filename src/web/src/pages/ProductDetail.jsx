@@ -22,7 +22,6 @@ const FABRICS = [
   { id: "harbour", label: "Harbour", sw: "#2c3e50" },
 ];
 
-// Fallbacks used only if neither product/category provides sizeOptions AND no rules exist
 const DEFAULT_SIZES_BY_TYPE = {
   Chairs: ["Standard", "Counter", "Bar"],
   Sofas: ["2 Seater", "3 Seater", "4 Seater"],
@@ -90,20 +89,18 @@ export default function ProductDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
 
-  const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
+  const [product, setProduct] = useState(undefined); 
   const [images, setImages] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // UI state (unchanged)
   const [fabric, setFabric] = useState(FABRICS[0].id);
-  const [sizeOptions, setSizeOptions] = useState([]); // labels as displayed on chips
-  const [size, setSize] = useState("");               // selected display label
+  const [sizeOptions, setSizeOptions] = useState([]); 
+  const [size, setSize] = useState("");               
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
-  // ✅ New: pricing keys (logic only; no UI change)
-  const [priceByKey, setPriceByKey] = useState({}); // norm(label) -> absolute price
-  const [sizeKey, setSizeKey] = useState("");       // norm(selected label)
+  const [priceByKey, setPriceByKey] = useState({}); 
+  const [sizeKey, setSizeKey] = useState("");       
 
   useEffect(() => {
     if (!id) { setProduct(null); return; }
@@ -156,8 +153,7 @@ export default function ProductDetail() {
           displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
         }
 
-        // 👉 Read relative rules and compute absolute prices (no UI change)
-        const keyed = {};              // norm(label) -> price
+        const keyed = {};              
         if (typeLabel) {
           try {
             const qRules = query(
@@ -166,10 +162,9 @@ export default function ProductDetail() {
             );
             const snapRules = await getDocs(qRules);
 
-            // Build rule map keyed by normalized label
             const byKey = new Map();
             snapRules.forEach((d) => {
-              const r = d.data(); // { size, mode, value }
+              const r = d.data(); 
               const k = norm(r.size);
               const mode = String(r.mode || "delta").toLowerCase();
               const v = Number(r.value || 0);
@@ -185,7 +180,7 @@ export default function ProductDetail() {
             });
 
             if (byKey.size) {
-              // Align any provided size labels to rule labels (case-insensitive)
+          
               const aligned = [];
               for (const s of displaySizes) {
                 const hit = byKey.get(norm(s));
@@ -203,7 +198,6 @@ export default function ProductDetail() {
           }
         }
 
-        // Finalize sizes and default selection
         displaySizes = Array.isArray(displaySizes) ? displaySizes : [];
         setSizeOptions(displaySizes);
 
@@ -218,7 +212,6 @@ export default function ProductDetail() {
     })();
   }, [id]);
 
-  // Compute price with normalized key; fallback to basePrice
   const unitPrice = useMemo(() => {
     if (!product) return 0;
     if (sizeKey && priceByKey[sizeKey] != null) return Number(priceByKey[sizeKey]);
