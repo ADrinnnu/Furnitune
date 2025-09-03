@@ -8,34 +8,33 @@ import {
   getDoc,
   ref,
   getDownloadURL,
-  collection,
-  query,
-  where,
-  getDocs,
+  collection, query, where, getDocs,
 } from "../firebase";
+import { useCart } from "../state/CartContext";
+import { setCheckoutItems } from "../utils/checkoutSelection";
 import "../ProductDetail.css";
 
 const FABRICS = [
   { id: "marble", label: "Marble", sw: "#d9d3c7" },
-  { id: "terra", label: "Terracotta", sw: "#b86a52" },
+  { id: "terra",  label: "Terracotta", sw: "#b86a52" },
   { id: "cement", label: "Cement", sw: "#6f6f6f" },
-  { id: "harbour", label: "Harbour", sw: "#2c3e50" },
+  { id: "harbour",label: "Harbour", sw: "#2c3e50" },
 ];
 
+// Fallbacks used only if neither product/category has sizeOptions AND no rules found
 const DEFAULT_SIZES_BY_TYPE = {
-  Chairs: ["Standard", "Counter", "Bar"],
-  Sofas: ["2 Seater", "3 Seater", "4 Seater"],
+  Chairs:     ["Standard", "Counter", "Bar"],
+  Sofas:      ["2 Seater", "3 Seater", "4 Seater"],
   Sectionals: ["3 Seater", "5 Seater", "6 Seater", "7 Seater"],
-  Tables: ["2 people", "4 people", "6 people", "8 people"],
-  Beds: ["Single", "Double", "Queen", "King"],
-  Ottomans: ["Standard", "Cube", "Footstool", "Cocktail"],
-  Benches: ["2 Seater", "3 Seater", "4 Seater"],
+  Tables:     ["2 people", "4 people", "6 people", "8 people"],
+  Beds:       ["Single", "Double", "Queen", "King"],
+  Ottomans:   ["Standard", "Cube", "Footstool", "Cocktail"],
+  Benches:    ["2 Seater", "3 Seater", "4 Seater"],
 };
 
-const norm = (s) => String(s || "").trim().toLowerCase();
-const slugify = (s) => norm(s).replace(/\s+/g, "-");
-const titleCase = (s) =>
-  String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const norm     = (s) => String(s || "").trim().toLowerCase();
+const slugify  = (s) => norm(s).replace(/\s+/g, "-");
+const titleCase= (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 function resolveCategorySlug(data) {
   if (data.categorySlug) return String(data.categorySlug).trim().toLowerCase();
@@ -68,19 +67,17 @@ async function toDownloadUrl(val) {
     return "";
   }
 }
-async function resolveStorageUrl(val) {
-  return await toDownloadUrl(val);
-}
+async function resolveStorageUrl(val) { return await toDownloadUrl(val); }
 
 function normalizeTypeLabel(data, catSlug) {
   const t = (data.baseType || data.type || "").toLowerCase();
   const c = String(catSlug || "").toLowerCase();
-  if (t.includes("chair") || c.includes("chair")) return "Chairs";
-  if (t.includes("sofa") || t.includes("couch") || c.includes("sofa")) return "Sofas";
-  if (t.includes("bed") || c.includes("bed")) return "Beds";
-  if (t.includes("table") || c.includes("table")) return "Tables";
-  if (t.includes("bench") || c.includes("bench")) return "Benches";
-  if (t.includes("ottoman") || c.includes("ottoman")) return "Ottomans";
+  if (t.includes("chair")     || c.includes("chair"))     return "Chairs";
+  if (t.includes("sofa")      || t.includes("couch") || c.includes("sofa")) return "Sofas";
+  if (t.includes("bed")       || c.includes("bed"))       return "Beds";
+  if (t.includes("table")     || c.includes("table"))     return "Tables";
+  if (t.includes("bench")     || c.includes("bench"))     return "Benches";
+  if (t.includes("ottoman")   || c.includes("ottoman"))   return "Ottomans";
   if (t.includes("sectional") || c.includes("sectional")) return "Sectionals";
   return titleCase(catSlug || t || "Furniture");
 }
@@ -88,23 +85,22 @@ function normalizeTypeLabel(data, catSlug) {
 export default function ProductDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
+  const { addToCart } = useCart(); // from your CartContext
 
-  const [product, setProduct] = useState(undefined); 
+  const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
   const [images, setImages] = useState([]);
   const [activeIdx, setActiveIdx] = useState(0);
 
+  // UI state
   const [fabric, setFabric] = useState(FABRICS[0].id);
-  const [sizeOptions, setSizeOptions] = useState([]); 
-  const [size, setSize] = useState("");               
+  const [sizeOptions, setSizeOptions] = useState([]); // display labels
+  const [size, setSize] = useState("");               // selected display label
+  const [absPrices, setAbsPrices] = useState({});     // display label -> absolute price
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
-  const [priceByKey, setPriceByKey] = useState({}); 
-  const [sizeKey, setSizeKey] = useState("");       
-
   useEffect(() => {
     if (!id) { setProduct(null); return; }
-
     (async () => {
       try {
         const snap = await getDoc(doc(firestore, "products", String(id)));
@@ -112,17 +108,14 @@ export default function ProductDetail() {
         const data = snap.data();
 
         // Images
-        const rawImgs =
-          Array.isArray(data.imageUrls) && data.imageUrls.length
-            ? data.imageUrls
-            : (Array.isArray(data.images) && data.images.length
-                ? data.images
-                : (data.image ? [data.image] : []));
+        const rawImgs = Array.isArray(data.imageUrls) && data.imageUrls.length
+          ? data.imageUrls
+          : (Array.isArray(data.images) && data.images.length ? data.images : (data.image ? [data.image] : []));
         const resolved = (await Promise.all(rawImgs.map(resolveStorageUrl))).filter(Boolean);
         setImages(resolved);
         setActiveIdx(0);
 
-        // Meta
+        // Header/meta
         const rawType = data.baseType ?? data.type ?? data.category ?? data.categorySlug ?? "";
         const displayType = rawType ? String(rawType).toUpperCase() : "FURNITURE";
         const basePrice = Number(data.basePrice ?? 0);
@@ -139,7 +132,7 @@ export default function ProductDetail() {
         const catSlug = resolveCategorySlug(data);
         const typeLabel = normalizeTypeLabel(data, catSlug);
 
-        // Start with any product/category sizes
+        // Start with any product/category sizes (display labels)
         let displaySizes = Array.isArray(data.sizeOptions) ? data.sizeOptions.slice() : null;
         if (!displaySizes && catSlug) {
           try {
@@ -149,62 +142,52 @@ export default function ProductDetail() {
             }
           } catch { /* ignore */ }
         }
-        if (!displaySizes || !displaySizes.length) {
-          displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
-        }
+        if (!displaySizes || !displaySizes.length) displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
 
-        const keyed = {};              
+        // 👉 Read relative rules and compute absolute prices
+        const priceMap = {};                   // display label -> absolute price
         if (typeLabel) {
           try {
-            const qRules = query(
-              collection(firestore, "sizePriceRules"),
-              where("type", "==", typeLabel)
-            );
+            const qRules = query(collection(firestore, "sizePriceRules"), where("type", "==", typeLabel));
             const snapRules = await getDocs(qRules);
+            const rules = [];
+            snapRules.forEach((d) => rules.push(d.data())); // {size, mode, value}
 
+            // Build index of rules by normalized label
             const byKey = new Map();
-            snapRules.forEach((d) => {
-              const r = d.data(); 
-              const k = norm(r.size);
+            for (const r of rules) {
+              const key = norm(r.size);
               const mode = String(r.mode || "delta").toLowerCase();
               const v = Number(r.value || 0);
               let abs = basePrice;
-              if (mode === "multiplier" || mode === "x" || mode === "mult") {
-                abs = Math.round(basePrice * (isNaN(v) ? 1 : v));
-              } else if (mode === "absolute") {
-                abs = isNaN(v) ? basePrice : v;
-              } else {
-                abs = basePrice + (isNaN(v) ? 0 : v); // delta
-              }
-              byKey.set(k, { label: String(r.size), price: abs });
-            });
+              if (mode === "multiplier" || mode === "x" || mode === "mult") abs = Math.round(basePrice * (isNaN(v) ? 1 : v));
+              else if (mode === "absolute") abs = isNaN(v) ? basePrice : v;
+              else abs = basePrice + (isNaN(v) ? 0 : v); // delta
+              byKey.set(key, { label: r.size, price: abs });
+            }
 
+            // Align display sizes to rule labels (case-insensitive)
             if (byKey.size) {
-          
               const aligned = [];
-              for (const s of displaySizes) {
+              for (const s of (displaySizes || [])) {
                 const hit = byKey.get(norm(s));
                 aligned.push(hit ? hit.label : s);
               }
-              const labelsFromRules = Array.from(byKey.values()).map((x) => x.label);
-              displaySizes = aligned.filter(Boolean).length
-                ? [...new Set(aligned)]
-                : [...new Set(labelsFromRules)];
+              displaySizes = aligned.length ? [...new Set(aligned)] : [...new Set(rules.map(r => String(r.size)))];
 
-              for (const [k, rec] of byKey) keyed[k] = rec.price;
+              // Build price map for all known rule labels
+              for (const [, rec] of byKey) priceMap[rec.label] = rec.price;
             }
           } catch (e) {
             console.warn("sizePriceRules(type) read:", e?.code || e);
           }
         }
 
+        // Finalize size choices and price map
         displaySizes = Array.isArray(displaySizes) ? displaySizes : [];
         setSizeOptions(displaySizes);
-
-        const first = displaySizes[0] || "";
-        setSize(first);
-        setSizeKey(norm(first));
-        setPriceByKey(keyed);
+        if (!displaySizes.includes(size)) setSize(displaySizes[0] || "");
+        setAbsPrices(priceMap);
       } catch (err) {
         console.error("Error fetching product:", err);
         setProduct(null);
@@ -214,24 +197,49 @@ export default function ProductDetail() {
 
   const unitPrice = useMemo(() => {
     if (!product) return 0;
-    if (sizeKey && priceByKey[sizeKey] != null) return Number(priceByKey[sizeKey]);
+    if (size && absPrices[size] != null) return Number(absPrices[size]);
     return Number(product.basePrice || 0);
-  }, [product, sizeKey, priceByKey]);
+  }, [product, size, absPrices]);
 
   const priceStr = `₱${Number(unitPrice || 0).toLocaleString()}`;
   const hero = images[activeIdx] || "/placeholder.jpg";
 
-  const handleAddToCart = () => {
-    alert(
-      `Added: ${product.name}` +
-      (size ? ` — ${size}` : "") +
-      (fabric ? ` (${fabric})` : "") +
-      ` @ ${priceStr}`
-    );
-  };
+  // ---------- NEW: build item + actions (UI unchanged) ----------
+  const buildLineItem = (qty = 1) => ({
+    productId: product.id,
+    id: product.id,                       // CartPage expects .id
+    title: product.name,                  // CartPage shows .title
+    name: product.name,
+    qty: Number(qty || 1),
+    price: Number(unitPrice || 0),        // CartPage shows .price
+    size: size || null,
+    notes: notes || "",
+    thumb: images?.[0] || "/placeholder.jpg", // CartPage shows .thumb
+    image: images?.[0] || "/placeholder.jpg",
+  });
+
+  function handleBuyNow() {
+    const item = buildLineItem(1);
+    setCheckoutItems([item]);            // used by Checkout to render summary
+    navigate("/checkout");
+  }
+
+  function handleAddToCart() {
+    const item = buildLineItem(1);
+    try {
+      if (typeof addToCart === "function") {
+        addToCart(item);
+      }
+      navigate("/cart");
+    } catch (e) {
+      console.error("addToCart failed:", e);
+      alert("Could not add to cart. Please try again.");
+    }
+  }
+  // --------------------------------------------------------------
 
   if (product === undefined) return <div className="pd-loading">Loading…</div>;
-  if (product === null) return <div className="pd-loading">Product not found.</div>;
+  if (product === null)      return <div className="pd-loading">Product not found.</div>;
 
   return (
     <div className="pd-wrap">
@@ -243,7 +251,7 @@ export default function ProductDetail() {
               src={hero}
               alt={product.name}
               className="pd-main contain"
-              onError={(e) => { e.currentTarget.src = "/placeholder.jpg"; }}
+              onError={(e)=>{ e.currentTarget.src="/placeholder.jpg"; }}
             />
           </div>
 
@@ -254,9 +262,9 @@ export default function ProductDetail() {
                   key={u + i}
                   className={`thumb ${i === activeIdx ? "active" : ""}`}
                   onClick={() => setActiveIdx(i)}
-                  aria-label={`Image ${i + 1}`}
+                  aria-label={`Image ${i+1}`}
                 >
-                  <img src={u} alt={`Thumb ${i + 1}`} />
+                  <img src={u} alt={`Thumb ${i+1}`} />
                 </button>
               ))}
             </div>
@@ -342,11 +350,7 @@ export default function ProductDetail() {
                           <button
                             key={s}
                             className={`chip ${size === s ? "active" : ""}`}
-                            onClick={() => {
-                              const lbl = String(s);
-                              setSize(lbl);
-                              setSizeKey(norm(lbl)); // logic only; no style change
-                            }}
+                            onClick={() => setSize(String(s))}
                           >
                             {s}
                           </button>
@@ -387,20 +391,12 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* CTA row */}
+            {/* CTA row (UI unchanged) */}
             <div className="rp-cta-row">
-              <button
-                type="button"
-                className="price-pill"
-                onClick={() => navigate("/checkout")}
-              >
+              <button type="button" className="price-pill" onClick={handleBuyNow}>
                 {priceStr}
               </button>
-              <button
-                type="button"
-                className="price-pill add-cart"
-                onClick={handleAddToCart}
-              >
+              <button type="button" className="price-pill add-cart" onClick={handleAddToCart}>
                 <span className="cart-ic" aria-hidden>🛒</span>
                 <span>ADD TO CART</span>
               </button>

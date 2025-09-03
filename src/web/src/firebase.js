@@ -4,10 +4,12 @@ import { getAuth } from "firebase/auth";
 import {
   getFirestore,
   collection, query, where, getDocs,
-  doc, getDoc,            
+  orderBy, startAt, endAt, limit,   // <-- add these
+  doc, getDoc,                      // <-- ensure these too
 } from "firebase/firestore";
 import { getStorage, ref, getDownloadURL } from "firebase/storage";
 
+// (your existing config)
 const firebaseConfig = {
   apiKey: "AIzaSyCYHjH1hIdCFyyOgCzjwxMf3KsZ0yXtHSM",
   authDomain: "furnitune-64458.firebaseapp.com",
@@ -20,11 +22,15 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-// Services
+// services
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);
-export const db = firestore; // alias if you prefer
-
 export const storage = getStorage(app, "gs://furnitune-64458.firebasestorage.app");
 
-export { collection, query, where, getDocs, doc, getDoc, ref, getDownloadURL };
+// re-exports so the rest of the app can `import { ... } from "../firebase"`
+export {
+  collection, query, where, getDocs,
+  orderBy, startAt, endAt, limit,
+  doc, getDoc,
+  ref, getDownloadURL,
+};

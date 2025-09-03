@@ -7,7 +7,6 @@ import {
   useNavigate,
   Navigate,
 } from "react-router-dom";
-import Recommender from "./pages/Recommender";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
 
@@ -15,7 +14,6 @@ import { auth } from "./firebase";
 import Navbar from "./components/Navbar.jsx";
 import Footer from "./components/Footer.jsx";
 import FloatingRobot from "./components/FloatingRobot";
-
 
 /* Public pages */
 import Landing from "./pages/Landing.jsx";
@@ -32,8 +30,6 @@ import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
 
-
-
 /* Other */
 import AppAdmin from "./admin/AppAdmin";
 import Notification from "./pages/Notification.jsx";
@@ -44,10 +40,11 @@ import MyPurchases from "./pages/MyPurchases.jsx";
 import VisitUs from "./pages/VisitUs.jsx";
 import AboutUs from "./pages/AboutUs.jsx";
 
-/* Optional tabbed hub (you can keep or remove) */
+/* Optional tabbed hub */
 import FurnitureHub from "./pages/FurnitureHub";
+import Recommender from "./pages/Recommender";
 
-/** Auth routes you want to treat specially (no public navbar/footer) */
+/** Routes that should NOT show the public navbar/footer */
 const AUTH_PREFIXES = [
   "/login",
   "/create-account",
@@ -72,7 +69,7 @@ export default function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
 
-  // Auth state + verify-email redirect (but don't hijack admin/auth pages)
+  // Auth state + verify-email redirect (skip admin/auth pages)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u || null);
@@ -102,7 +99,7 @@ export default function App() {
         {/* Home */}
         <Route path="/" element={<Landing />} />
 
-        {/* ✅ One reusable page per topnav item (filter panel appears on each) */}
+        {/* Category pages */}
         <Route path="/all"          element={<AllFurnitures pageTitle="ALL FURNITURES" />} />
         <Route path="/best-sellers" element={<AllFurnitures collection="best-sellers" pageTitle="BEST SELLERS" />} />
         <Route path="/new-designs"  element={<AllFurnitures collection="new-designs"  pageTitle="NEW DESIGNS"  />} />
@@ -121,9 +118,9 @@ export default function App() {
         {/* Other public pages */}
         <Route path="/Repair" element={<Repair />} />
         <Route path="/Customization" element={<Customization />} />
-
-        {/* Optional: the single-page tabbed hub at /furniture */}
         <Route path="/furniture" element={<FurnitureHub />} />
+        <Route path="/recommender" element={<Recommender />} />
+        <Route path="/chatbot" element={<div>ChatBot coming soon</div>} />
 
         {/* Auth pages */}
         <Route path="/login" element={<Login />} />
@@ -141,17 +138,14 @@ export default function App() {
         <Route path="/visitus" element={<VisitUs />} />
         <Route path="/aboutus" element={<AboutUs />} />
 
-
-        {/* Admin app (has its own layout; no public navbar/footer) */}
+        {/* Admin app (has its own layout) */}
         <Route path="/admin/*" element={<AppAdmin />} />
-        <Route path="/recommender" element={<Recommender />} />
-        <Route path="/chatbot" element={<div>ChatBot coming soon</div>} />
 
         {/* Fallback */}
         <Route path="*" element={<Navigate to="/all" replace />} />
       </Routes>
-      <FloatingRobot />
 
+      <FloatingRobot />
       {!hideNavAndFooter && <Footer />}
     </>
   );
