@@ -1,5 +1,9 @@
 import React from "react";
 import { useNavigate } from "react-router-dom";
+import cpnImg from "../assets/cpn.jpeg";
+import cusImg from "../assets/cust.jpg"
+import recsImg from "../assets/recs.jpg"
+import repsImg from "../assets/qual.jpg"
 
 const features = [
   {
@@ -7,7 +11,7 @@ const features = [
     description:
       "Bring your vision to life with our customization feature—make your own piece in your own way.",
     button: "Click to start customizing your furniture",
-    image: "/images/map.png",
+    image: cusImg,
     path: "/Customization" 
   },
   {
@@ -15,7 +19,7 @@ const features = [
     description:
       "Give your furniture a second life—restore what matters, using our repair service.",
     button: "Send your furniture request.",
-    image: "/images/customize.png",
+    image: repsImg,
     path: "/Repair" 
   },
   {
@@ -23,7 +27,7 @@ const features = [
     description:
       "Discover furniture that fits your style with our smart recommendation system.",
     button: "Take a short quiz to get a suggestion",
-    image: "/images/recommendation.png",
+    image: recsImg,
     path: "" 
   }
 ];
@@ -66,7 +70,7 @@ export default function VisitUs() {
 
         <div className="store-map">
           <img
-            src="/map-sample.jpg"
+            src={cpnImg}
             alt="Store Location Map"
           />
         </div>

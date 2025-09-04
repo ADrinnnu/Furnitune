@@ -39,6 +39,7 @@ import OrderSummary from "./pages/OrderSummary.jsx";
 import MyPurchases from "./pages/MyPurchases.jsx";
 import VisitUs from "./pages/VisitUs.jsx";
 import AboutUs from "./pages/AboutUs.jsx";
+import Collections from "./pages/Collections.jsx";
 
 /* Optional tabbed hub */
 import FurnitureHub from "./pages/FurnitureHub";
@@ -137,6 +138,8 @@ export default function App() {
         <Route path="/mypurchases" element={<MyPurchases />} />
         <Route path="/visitus" element={<VisitUs />} />
         <Route path="/aboutus" element={<AboutUs />} />
+        <Route path="/collections" element={<Collections />} />
+
 
         {/* Admin app (has its own layout) */}
         <Route path="/admin/*" element={<AppAdmin />} />

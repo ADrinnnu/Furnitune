@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
-import { Link } from "react-router-dom";
+import { Link, useLocation  } from "react-router-dom";
 import { getDownloadURL, ref } from "firebase/storage";
 import "../AllFurnitures.css";
 
@@ -167,6 +167,19 @@ export default function AllFurnitures({
 }) {
   const [products, setProducts] = useState([]);
   const [filters, setFilters] = useState(makeEmptyFilters);
+
+  const location = useLocation();
+
+  useEffect(() => {
+    const params = new URLSearchParams(location.search);
+    const category = params.get("category");
+    if (category) {
+      setFilters((prev) => ({
+        ...prev,
+        type: new Set([category]) 
+      }));
+    }
+  }, [location.search]);
 
   // Which Type labels to display for this page
   const allowedTypeLabels = useMemo(() => {

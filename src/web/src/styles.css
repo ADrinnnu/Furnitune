@@ -47,6 +47,12 @@ h2 { font-size:clamp(20px,3vw,28px); font-weight:800 }
 .btn.ghost { background:transparent; color:var(--accent); border:2px solid var(--accent) }
 
 /* ---------- Navbar ---------- */
+nav .active {
+  color: #3b5f3f;       
+  font-weight: bold;    
+  border-bottom: 2px solid #3b5f3f; 
+  padding-bottom: 4px;  
+}
 header.nav {
   position:sticky; top:0; z-index:40;
   background:var(--bg);
@@ -195,18 +201,19 @@ header.nav .container {
 .chip-image-box {
   width: 135%;
   height: 100px;
-  background-color: #6e9d91;
+  background-color: white;
   border-radius: 16px;
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 10px;
+  overflow: hidden; 
 }
 
 .chip-image {
-  max-width: 100%;
-  max-height: 100%;
-  object-fit: contain;
+  width: 100%;
+  height: 100%;
+  object-fit: cover; 
+  border-radius: 16px; 
 }
 
 .chip-label {
@@ -218,6 +225,7 @@ header.nav .container {
   color: #000;
   text-align: center;
 }
+
 
 .homepage { 
   font-family: 'Arial', sans-serif;
@@ -924,7 +932,8 @@ textarea {
 }
 
 .store-map img {
-  width: 350px;
+  width: 390px;
+  height: 390px;
   border-radius: 8px;
   object-fit: cover;
 }
@@ -1014,7 +1023,6 @@ textarea {
   font-size: 14px;
 }
 
-/* Footer */
 .order-footer {
   margin-top: 12px;
   display: flex;
@@ -1055,6 +1063,97 @@ textarea {
 .order-actions .cancel {
   background: #fff;
   border: 1px solid #444;
+}
+/* ---------- Collections ---------- */
+
+.collection {
+  padding: 30px;
+  background: #f7f5ed;
+  font-family: Arial, sans-serif;
+}
+
+.collection-title {
+   text-align: center;  
+  font-size: 2.3rem;
+  font-weight: 800;
+  margin-bottom: 30px;
+  letter-spacing: 15px; 
+}
+
+.collection-description {
+  font-size: 0.95rem;
+  line-height: 1.5;
+  margin-bottom: 30px;
+  color: #333;
+}
+
+.section-heading {
+  font-size: 1.3rem;
+  font-weight: bold;
+  margin: 20px 0;
+  color: #333;
+}
+
+.product-grids {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr); 
+  gap: 15px;
+  margin-top: 20px;
+}
+
+.product-cards {
+  background: #ffffff;
+  border-radius: 8px;
+  overflow: hidden;
+  text-align: left;
+  padding: 15px;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  transition: transform 0.2s ease;
+}
+
+.product-imgs {
+  width: 100%;
+  height: 160px;
+  object-fit: contain;
+  margin-bottom: 10px;
+  background: #dfe5dd;
+  border-radius: 6px;
+}
+
+.product-titles {
+  font-weight: bold;
+  font-size: 1.1rem;
+  margin: 5px 0;
+}
+
+.product-prices {
+  font-size: 0.9rem;
+  color: #6b4226;
+}
+
+.ratings {
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.ratings span {
+  color: #f5a623;
+  font-size: 1rem;
+}
+
+.ratings p {
+  margin: 0;
+  font-size: 0.85rem;
+  color: #555;
+}
+.collection-banner {
+  width: 100%;
+  height: 280px;   /* adjust for big image */
+  object-fit: cover;
+  border-radius: 10px;
+  margin: 20px 0;
 }
 
 /* ---------- About Us ---------- */
@@ -1170,6 +1269,7 @@ textarea {
   border-radius: 15px;
   box-shadow: 0px 4px 8px rgba(0,0,0,0.1);
 }
+
 
 /* ---------- Order Summary ---------- */
 

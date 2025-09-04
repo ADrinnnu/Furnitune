@@ -15,9 +15,9 @@ export default function Landing(){
 
   const collections = [
     { id:1, title:'Comfort Core Collection', img:'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?w=800' },
-    { id:2, title:'Social Sitting Collection', img:'https://images.unsplash.com/photo-1484101403633-562f891dc89a?w=800' },
-    { id:3, title:'Rest & Recharge', img:'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=800' },
-    { id:4, title:'Sit & Stay', img:'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800' },
+    { id:2, title:'Social Sitting Collection', img:'https://images.unsplash.com/photo-1484101403633-562f891dc89a?w=800'},
+    { id:3, title:'Rest & Recharge', img:'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=800'  },
+    { id:4, title:'Sit & Stay', img:'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800' }
   ];
 
   return (
