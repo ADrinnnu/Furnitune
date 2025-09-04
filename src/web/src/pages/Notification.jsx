@@ -1,7 +1,7 @@
-// src/pages/Notification.jsx  (adjust the path if your file lives elsewhere)
+// src/pages/Notification.jsx  
 import React, { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../firebase"; // ✅ keep your firebase.js untouched
+import { auth } from "../firebase"; 
 import {
   getFirestore, collection, query, where, orderBy, limit,
   onSnapshot, startAfter, getDocs, updateDoc, doc, serverTimestamp
@@ -10,14 +10,11 @@ import { useNavigate } from "react-router-dom";
 import "../Notification.css";
 
 export default function Notification() {
-  // ✅ get the Firestore instance from the same app as your exported auth
   const db = useMemo(() => getFirestore(auth.app), []);
   const navigate = useNavigate();
 
-  // auth
   const [uid, setUid] = useState(null);
 
-  // ui state
   const [items, setItems] = useState([]);
   const [filter, setFilter] = useState("all"); // "all" | "unread"
   const [cursor, setCursor] = useState(null);
@@ -29,13 +26,11 @@ export default function Notification() {
     return unsub;
   }, []);
 
-  // base collection under the signed-in user
   const baseCol = useMemo(
     () => (uid ? collection(db, "users", uid, "notifications") : null),
     [db, uid]
   );
 
-  // live subscription
   useEffect(() => {
     if (!baseCol) {
       setItems([]);
