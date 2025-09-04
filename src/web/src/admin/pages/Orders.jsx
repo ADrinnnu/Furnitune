@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { auth } from "../../firebase";
-import { provider } from "../data";               // keep firebase.js untouched
+import { provider } from "../data";               
 import { getFirestore, doc, updateDoc, serverTimestamp } from "firebase/firestore";
 import "../Orders.css";
 
