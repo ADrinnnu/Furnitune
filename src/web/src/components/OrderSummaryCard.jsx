@@ -8,6 +8,7 @@ import {
 } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 
+/* ---------- helpers ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
   if (/^gs:\/\//i.test(u)) {
@@ -29,8 +30,9 @@ async function resolveStorageUrl(val) {
     return val;
   } catch { return ""; }
 }
-const peso = (v) => `₱${Number(v || 0).toLocaleString()}`;
+const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 
+/* ---------- component ---------- */
 export default function OrderSummaryCard({
   items: passedItems,
   orderId,
@@ -40,11 +42,16 @@ export default function OrderSummaryCard({
   discount = 0,
   shippingFee = 0,
   totalOverride,
+
+  // Order Summary–only bits
+  showAddress = false,      // controls Delivery Address render
+  shippingAddress = null,   // optional address (still gated by showAddress)
+  showSupport = true,       // NEW: controls the “Need Assistance?” box
 }) {
   const [order, setOrder] = useState(undefined);
   const [items, setItems] = useState([]);
 
-  // If items are provided (Buy Now / Cart checkout)
+  // If items are provided (Checkout flow)
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
@@ -59,7 +66,7 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems]);
 
-  // Otherwise load one order or latest for user (no composite index needed)
+  // Otherwise load one order or latest for user
   useEffect(() => {
     if (passedItems) return;
     let mounted = true;
@@ -130,23 +137,33 @@ export default function OrderSummaryCard({
     return Math.max(0, subtotal - disc + ship);
   }, [order, passedItems, subtotal, disc, ship, totalOverride]);
 
+  const addr = useMemo(() => shippingAddress || order?.shippingAddress || null, [order, shippingAddress]);
+
+  /* ---- states ---- */
   if (order === undefined) {
     return (
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
-        <div className="cart-item"><img src="/placeholder.jpg" alt="Loading" /><div><p>Loading…</p><span>—</span></div></div>
+        <div className="cart-item">
+          <img src="/placeholder.jpg" alt="Loading" />
+          <div className="cart-info"><p>Loading…</p><span>Qty: —</span></div>
+          <span className="price">—</span>
+        </div>
         <div className="summary-totals">
           <div><span>Subtotal</span><span>—</span></div>
           <div><span>Discount</span><span>—</span></div>
           <div><span>Shipping &amp; Handling</span><span>—</span></div>
-          <div className="summary-total"><span>TOTAL</span><span>—</span></div>
         </div>
-        <div className="support-box">
-          <h4>NEED ASSISTANCE?</h4>
-          <p>💬 Live Chat: Offline now</p>
-          <p>📞 Call: 123-325-312</p>
-          <p>✉️ Email: Furnitune@jserwj.com</p>
-        </div>
+        <div className="summary-total"><strong>TOTAL</strong><strong>—</strong></div>
+
+        {showSupport && (
+          <div className="support-box">
+            <h4>NEED ASSISTANCE?</h4>
+            <p>💬 Live Chat: Offline now</p>
+            <p>📞 Call: 123-325-312</p>
+            <p>✉️ Email: Furnitune@jserwj.com</p>
+          </div>
+        )}
       </div>
     );
   }
@@ -154,44 +171,75 @@ export default function OrderSummaryCard({
     return (
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
-        <div className="cart-item"><img src="/placeholder.jpg" alt="No order" /><div><p>No order</p><span>—</span></div></div>
+        <div className="cart-item">
+          <img src="/placeholder.jpg" alt="No order" />
+          <div className="cart-info"><p>No order</p><span>Qty: —</span></div>
+          <span className="price">—</span>
+        </div>
       </div>
     );
   }
 
   const lineItems = items.length ? items : (order.items || []);
+  const count = lineItems.reduce((s, it) => s + (Number(it.qty || 1)), 0);
 
   return (
     <div className={`checkout-summary ${className}`}>
       <h3>{title}</h3>
 
-      {lineItems.map((it, i) => (
-        <div className="cart-item" key={(it.id || it.productId || i) + ""}>
-          <img
-            src={it.imageUrl || it.image || "/placeholder.jpg"}
-            alt={it.name || "Product"}
-            onError={(e) => { e.currentTarget.src = "/placeholder.jpg"; }}
-          />
-          <div>
-            <p>{it.name || it.title || `Item #${i + 1}`}</p>
-            <span>{it.size ? it.size : (it.variant || "TBD")}</span>
+      <div className="cart-header">🛒 Cart ({count})</div>
+
+      {lineItems.map((it, i) => {
+        const name = it.name || it.title || `Item #${i + 1}`;
+        const qty  = Number(it.qty || 1);
+        const price = Number(it.price || 0);
+        return (
+          <div className="cart-item" key={(it.id || it.productId || i) + ""}>
+            <img
+              src={it.imageUrl || it.image || "/placeholder.jpg"}
+              alt={name}
+              onError={(e) => { e.currentTarget.src = "/placeholder.jpg"; }}
+            />
+            <div className="cart-info">
+              <p>{name}</p>
+              <span>Qty: {qty}</span>
+            </div>
+            <span className="price">{peso(price)}</span>
           </div>
+        );
+      })}
+
+      {showAddress && addr && (
+        <div className="delivery-section">
+          <h4>DELIVERY ADDRESS</h4>
+          <p>{addr.fullName || [addr.firstName, addr.lastName].filter(Boolean).join(" ")}</p>
+          {addr.phone && <p>{addr.phone}</p>}
+          <p>
+            {[addr.line1, addr.line2, addr.city, addr.province, addr.zip]
+              .filter(Boolean)
+              .join(" ")}
+          </p>
         </div>
-      ))}
+      )}
 
       <div className="summary-totals">
         <div><span>Subtotal</span><span>{peso(subtotal)}</span></div>
         <div><span>Discount</span><span>-{peso(disc)}</span></div>
         <div><span>Shipping &amp; Handling</span><span>{peso(ship)}</span></div>
-        <div className="summary-total"><span>TOTAL</span><span>{peso(total)}</span></div>
+      </div>
+      <div className="summary-total">
+        <strong>TOTAL</strong>
+        <strong>{peso(total)}</strong>
       </div>
 
-      <div className="support-box">
-        <h4>NEED ASSISTANCE?</h4>
-        <p>💬 Live Chat: Offline now</p>
-        <p>📞 Call: 123-325-312</p>
-        <p>✉️ Email: Furnitune@jserwj.com</p>
-      </div>
+      {showSupport && (
+        <div className="support-box">
+          <h4>NEED ASSISTANCE?</h4>
+          <p>💬 Live Chat: Offline now</p>
+          <p>📞 Call: 123-325-312</p>
+          <p>✉️ Email: Furnitune@jserwj.com</p>
+        </div>
+      )}
     </div>
   );
 }
