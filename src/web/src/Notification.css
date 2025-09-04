@@ -1,0 +1,150 @@
+/* ---------- Notifications ---------- */
+
+.notifications-container {
+  max-width: 1200px;
+  margin: 30px auto;
+  background: #fff;
+  border-radius: 12px;
+  padding: 20px;
+  box-shadow: 0 2px 10px rgba(0,0,0,0.08);
+}
+
+/* Header */
+.notifications-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 16px;
+}
+
+.notifications-header h2 {
+  margin: 0;
+  font-size: 20px;
+  letter-spacing: 1px;
+}
+
+/* Filter buttons */
+.filter-buttons {
+  display: flex;
+  gap: 8px;
+}
+
+.filter-buttons button {
+  border: 1px solid #cfd8d3;
+  background: #f7faf9;
+  color: #2c5f4a;
+  padding: 8px 16px;
+  border-radius: 20px;
+  cursor: pointer;
+  font-weight: 600;
+}
+
+.filter-buttons button.active {
+  background: #2c5f4a;
+  color: #ffffff;
+  border-color: #2c5f4a;
+}
+
+/* List */
+.notifications-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* Item */
+.notification-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border: 1px solid #e8ecea;
+  border-radius: 10px;
+  padding: 12px;
+  background: #ffffff;
+  cursor: pointer;
+  transition: transform .06s ease, box-shadow .06s ease, background .06s ease;
+}
+
+.notification-item:hover {
+  box-shadow: 0 2px 8px rgba(0,0,0,0.06);
+  transform: translateY(-1px);
+}
+
+/* Unread highlight */
+.notification-item.unread {
+  background: #f5fbf8;
+}
+.notification-item.unread h3::after {
+  content: " •";
+  color: #2c5f4a;
+}
+
+/* Thumbnail */
+.notification-item img,
+.notification-item .thumb {
+  width: 80px;
+  height: 60px;
+  object-fit: cover;
+  border-radius: 8px;
+  background: #ececec;
+}
+
+/* Text */
+.notification-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.notification-text h3 {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 700;
+  color: #1b1b1b;
+}
+
+.notification-text p {
+  margin: 0;
+  font-size: 14px;
+  color: #404040;
+}
+
+.muted {
+  opacity: 0.7;
+  font-size: 12px;
+}
+
+/* Empty state */
+.notifications-empty {
+  padding: 40px 12px;
+  text-align: center;
+  color: #647067;
+}
+
+/* Footer / Load more */
+.notifications-footer {
+  margin-top: 16px;
+  text-align: center;
+}
+
+.notifications-footer button {
+  padding: 10px 20px;
+  border: none;
+  background: #2c5f4a;
+  color: white;
+  border-radius: 10px;
+  cursor: pointer;
+  min-width: 280px;
+  font-weight: 700;
+}
+
+/* Simple skeletons */
+.notification-item.skeleton { opacity: .6; pointer-events: none; }
+.notification-item.skeleton .line {
+  height: 12px;
+  background: #efefef;
+  border-radius: 3px;
+  width: 60%;
+}
+.notification-item.skeleton .line.wide { width: 90%; margin-top: 6px; }
