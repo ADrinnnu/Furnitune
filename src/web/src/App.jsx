@@ -43,7 +43,6 @@ import Collections from "./pages/Collections.jsx";
 
 /* Optional tabbed hub */
 import FurnitureHub from "./pages/FurnitureHub";
-import Recommender from "./pages/Recommender";
 
 /** Routes that should NOT show the public navbar/footer */
 const AUTH_PREFIXES = [
@@ -120,7 +119,6 @@ export default function App() {
         <Route path="/Repair" element={<Repair />} />
         <Route path="/Customization" element={<Customization />} />
         <Route path="/furniture" element={<FurnitureHub />} />
-        <Route path="/recommender" element={<Recommender />} />
         <Route path="/chatbot" element={<div>ChatBot coming soon</div>} />
 
         {/* Auth pages */}
