@@ -1,7 +1,7 @@
-// src/pages/Notification.jsx  
+// src/pages/Notification.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../firebase"; 
+import { auth } from "../firebase";
 import {
   getFirestore, collection, query, where, orderBy, limit,
   onSnapshot, startAfter, getDocs, updateDoc, doc, serverTimestamp
@@ -14,29 +14,19 @@ export default function Notification() {
   const navigate = useNavigate();
 
   const [uid, setUid] = useState(null);
-
   const [items, setItems] = useState([]);
-  const [filter, setFilter] = useState("all"); // "all" | "unread"
-  const [cursor, setCursor] = useState(null);
+  const [filter, setFilter] = useState("all"); // 'all' | 'unread'
   const [initialLoading, setInitialLoading] = useState(true);
   const [moreLoading, setMoreLoading] = useState(false);
+  const [cursor, setCursor] = useState(null);
 
+  useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid || false)), []);
+
+  const baseCol = useMemo(() => (uid ? collection(db, "users", uid, "notifications") : null), [db, uid]);
+
+  // live list
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUid(u?.uid || null));
-    return unsub;
-  }, []);
-
-  const baseCol = useMemo(
-    () => (uid ? collection(db, "users", uid, "notifications") : null),
-    [db, uid]
-  );
-
-  useEffect(() => {
-    if (!baseCol) {
-      setItems([]);
-      setInitialLoading(false);
-      return;
-    }
+    if (!baseCol) return;
     setInitialLoading(true);
 
     const constraints = [orderBy("createdAt", "desc"), limit(10)];
@@ -86,31 +76,29 @@ export default function Notification() {
     return (
       <div className="notifications-container">
         <div className="notifications-header"><h2>NOTIFICATIONS</h2></div>
-        <div className="notifications-empty"><p>Please log in to see your notifications.</p></div>
+        <div className="notifications-empty"><p>Please sign in to view notifications.</p></div>
       </div>
     );
   }
-
-  const unreadCount = items.filter((n) => !n.read).length;
 
   return (
     <div className="notifications-container">
       <div className="notifications-header">
         <h2>NOTIFICATIONS</h2>
-        <div className="filter-buttons">
+        <div className="notifications-tabs">
           <button
             className={filter === "all" ? "active" : ""}
             onClick={() => setFilter("all")}
             type="button"
           >
-            ALL
+            All
           </button>
           <button
             className={filter === "unread" ? "active" : ""}
             onClick={() => setFilter("unread")}
             type="button"
           >
-            UNREAD {unreadCount ? `(${unreadCount})` : ""}
+            Unread
           </button>
         </div>
       </div>
@@ -145,11 +133,13 @@ export default function Notification() {
               >
                 {n.image ? <img src={n.image} alt="" /> : <div className="thumb" />}
                 <div className="notification-text">
-                  <h3>{n.title}</h3>
-                  <p>{n.body}</p>
-                  <small className="muted">
-                    {n.createdAt?.toDate ? n.createdAt.toDate().toLocaleString() : ""}
-                  </small>
+                  <h3>{n.title || "Notification"}</h3>
+                  {n.body && <p>{n.body}</p>}
+                  {n.createdAt?.toDate ? (
+                    <small className="muted">
+                      {n.createdAt.toDate().toLocaleString()}
+                    </small>
+                  ) : null}
                 </div>
               </div>
             ))}

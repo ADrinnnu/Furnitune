@@ -7,7 +7,10 @@ import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useProductSearch } from "../hooks/useProductSearch";
 import "../ProfileMenu.css";
 
-const PRODUCT_ROUTE_PREFIX = "/product/"; 
+// 🔔 NEW: firestore bits for unread count
+import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
+
+const PRODUCT_ROUTE_PREFIX = "/product/";
 
 export default function Navbar() {
   const { cartItems } = useCart();
@@ -26,10 +29,25 @@ export default function Navbar() {
   const searchBoxRef = useRef(null);
   const searchInputRef = useRef(null);
 
+  // 🔔 NEW: unread notifications count
+  const [unread, setUnread] = useState(0);
+
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsub();
   }, []);
+
+  // 🔔 NEW: subscribe to unread notifications for current user
+  useEffect(() => {
+    if (!user) { setUnread(0); return; }
+    const db = getFirestore(auth.app);
+    const qRef = query(
+      collection(db, "users", user.uid, "notifications"),
+      where("read", "==", false)
+    );
+    const stop = onSnapshot(qRef, (snap) => setUnread(snap.size), () => setUnread(0));
+    return stop;
+  }, [user]);
 
   // close profile menu on outside click / ESC
   useEffect(() => {
@@ -192,6 +210,7 @@ export default function Navbar() {
             )}
           </div>
 
+          {/* Cart with existing badge */}
           <div style={{ position: "relative", display: "inline-block" }}>
             <Link to="/cart" className="icon-btn" aria-label="Open cart">
               🛒
@@ -215,9 +234,34 @@ export default function Navbar() {
             )}
           </div>
 
-          <Link to="/notifications" className="icon-btn" aria-label="Notification">
-            🔔
-          </Link>
+          {/* 🔔 NEW: notifications with unread badge (same wrapper as cart, so no layout shift) */}
+          <div style={{ position: "relative", display: "inline-block" }}>
+            <Link
+              to="/notifications"
+              className="icon-btn"
+              aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}
+              title="Notifications"
+            >
+              🔔
+            </Link>
+            {unread > 0 && (
+              <span
+                style={{
+                  position: "absolute",
+                  top: -6,
+                  right: -10,
+                  background: "crimson",
+                  color: "#fff",
+                  borderRadius: "50%",
+                  fontSize: "0.7rem",
+                  padding: "2px 6px",
+                  fontWeight: 700,
+                }}
+              >
+                {unread > 99 ? "99+" : unread}
+              </span>
+            )}
+          </div>
 
           {!user ? (
             <Link to="/login" className="icon-btn" aria-label="Login or Profile">

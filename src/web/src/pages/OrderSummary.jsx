@@ -1,101 +1,193 @@
 // src/pages/OrderSummary.jsx
-import React, { useEffect, useState } from "react";
-import { useParams } from "react-router-dom";
+import React, { useEffect, useMemo, useState } from "react";
+import { useParams, useLocation } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
 import "../OrderSummary.css";
 
-import { auth, firestore, collection, query, where, getDocs, doc, getDoc } from "../firebase";
+import {
+  auth,
+  firestore,
+  collection,
+  query,
+  where,
+  getDocs,
+  doc,
+  getDoc,
+} from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { onSnapshot, orderBy, limit } from "firebase/firestore";
 
 const STEPS = [
   { key: "processing", label: "PROCESSING ORDER", icon: "📄" },
-  { key: "preparing",  label: "PREPARING",        icon: "🛠️" },
-  { key: "to_ship",    label: "TO SHIP",          icon: "🚚" },
-  { key: "to_receive", label: "TO RECEIVE",       icon: "📦" },
-  { key: "to_rate",    label: "TO RATE",          icon: "⭐" },
+  { key: "preparing", label: "PREPARING", icon: "🛠️" },
+  { key: "to_ship", label: "TO SHIP", icon: "🚚" },
+  { key: "to_receive", label: "TO RECEIVE", icon: "📦" },
+  { key: "to_rate", label: "TO RATE", icon: "⭐" },
 ];
+
 const normalizeStatus = (s) => {
   const x = String(s || "").toLowerCase();
-  if (["processing","pending"].includes(x) || !x) return "processing";
-  if (["prepare","preparing","packaging","for packaging"].includes(x)) return "preparing";
-  if (["to_ship","shipping","shipped","in_transit"].includes(x)) return "to_ship";
-  if (["to_receive","out_for_delivery","delivered"].includes(x)) return "to_receive";
-  if (["to_rate","completed","done"].includes(x)) return "to_rate";
+  if (["processing", "pending"].includes(x) || !x) return "processing";
+  if (["prepare", "preparing", "packaging", "for packaging"].includes(x))
+    return "preparing";
+  if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x))
+    return "to_ship";
+  if (["to_receive", "out_for_delivery", "delivered"].includes(x))
+    return "to_receive";
+  if (["to_rate", "completed", "done"].includes(x)) return "to_rate";
   return "processing";
 };
+
 const messages = {
-  processing: "Your order has been approved and is now in production. This step usually takes 2–4 days. We'll keep you updated.",
-  preparing:  "We’re preparing and packaging your order. We’ll notify you once it’s ready to ship.",
-  to_ship:    "Your package is queued for pickup. You’ll receive tracking details after dispatch.",
-  to_receive: "Your package is on the way. Expect delivery soon—watch for courier updates.",
-  to_rate:    "Order received! We’d love your feedback—rate your experience when you’re ready.",
+  processing:
+    "Your order has been approved and is now in production. This step usually takes 2–4 days. We'll keep you updated.",
+  preparing:
+    "We’re preparing and packaging your order. We’ll notify you once it’s ready to ship.",
+  to_ship:
+    "Your package is queued for pickup. You’ll receive tracking details after dispatch.",
+  to_receive:
+    "Your package is on the way. Expect delivery soon—watch for courier updates.",
+  to_rate:
+    "Order received! We’d love your feedback—rate your experience when you’re ready.",
 };
 
 export default function OrderSummary() {
   const { orderId: orderIdParam } = useParams();
+  const location = useLocation();
+  const qsOrderId = useMemo(
+    () => new URLSearchParams(location.search).get("orderId"),
+    [location.search]
+  );
+  const orderId = orderIdParam || qsOrderId || null;
+
   const [uid, setUid] = useState(null);
   const [order, setOrder] = useState(undefined);
 
-  useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid || null)), []);
+  // track auth
+  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
 
+  // If we have a specific orderId (from /ordersummary/:id or ?orderId=),
+  // listen to that document in real time.
   useEffect(() => {
-    let alive = true;
-    async function run() {
-      if (orderIdParam) {
-        const snap = await getDoc(doc(firestore, "orders", orderIdParam));
-        if (!alive) return;
+    if (!orderId) return;
+    const ref = doc(firestore, "orders", orderId);
+    const stop = onSnapshot(
+      ref,
+      (snap) => {
         setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-        return;
-      }
-      if (!uid) { setOrder(null); return; }
-      const qRef = query(collection(firestore, "orders"), where("userId", "==", uid));
-      const snap = await getDocs(qRef);
-      const list = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      list.sort((a, b) => {
-        const ta = a.createdAt?.toMillis?.() ? a.createdAt.toMillis() : 0;
-        const tb = b.createdAt?.toMillis?.() ? b.createdAt.toMillis() : 0;
-        return tb - ta; // newest first
-      });
-      setOrder(list[0] || null);
-    }
-    run().catch(() => setOrder(null));
-    return () => { alive = false; };
-  }, [uid, orderIdParam]);
+      },
+      () => setOrder(null)
+    );
+    return stop;
+  }, [orderId]);
+
+  // Otherwise, listen to the user's most recent order in real time.
+  useEffect(() => {
+    if (orderId || !uid) return;
+    const qRef = query(
+      collection(firestore, "orders"),
+      where("userId", "==", uid),
+      orderBy("createdAt", "desc"),
+      limit(1)
+    );
+    const stop = onSnapshot(
+      qRef,
+      (snap) => {
+        const d = snap.docs[0];
+        setOrder(d ? { id: d.id, ...d.data() } : null);
+      },
+      () => setOrder(null)
+    );
+    return stop;
+  }, [uid, orderId]);
 
   const currentKey = normalizeStatus(order?.status);
-  const currentIdx = Math.max(0, STEPS.findIndex(s => s.key === currentKey));
+  const currentIdx = Math.max(
+    0,
+    STEPS.findIndex((s) => s.key === currentKey)
+  );
   const note = messages[currentKey];
 
   return (
     <div className="os-page">
-      {/* LEFT: summary card with items + address, NO left support box */}
+      {/* LEFT: summary card */}
       <div className="os-left">
         <OrderSummaryCard
           title="ORDER SUMMARY"
-          orderId={order?.id || orderIdParam}
+          orderId={order?.id || orderId}
           showAddress
-          showSupport={false}   // << hide the left “Need Assistance?” here
+          showSupport={false}
+          order={order}
         />
       </div>
 
-      {/* RIGHT: details + tracker + right help box */}
+      {/* RIGHT: order details with horizontal stepper */}
       <div className="os-right">
-        <div className="os-card">
-          <h3 className="os-title">ORDER DETAILS</h3>
+        <div className="os-card os-status">
+          <h4>ORDER DETAILS</h4>
 
-          <div className="os-tracker">
-            {STEPS.map((s, i) => {
-              const state = i < currentIdx ? "done" : i === currentIdx ? "active" : "idle";
-              return (
-                <div key={s.key} className={`os-step ${state}`}>
-                  <div className="os-step-icon" aria-hidden>{s.icon}</div>
-                  <div className="os-step-label">{s.label}</div>
-                </div>
-              );
-            })}
+          {/* Top: bordered bar containing the steps — forced horizontal layout via inline style */}
+          <div
+            className="os-steps-bar"
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: "12px 16px",
+              background: "#fff",
+            }}
+          >
+            <div
+              className="os-stepper"
+              style={{
+                display: "flex",
+                flexDirection: "row",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 24,
+              }}
+            >
+              {STEPS.map((s, i) => {
+                const done = i <= currentIdx;
+                return (
+                  <div
+                    key={s.key}
+                    className={`os-step${done ? " done" : ""}`}
+                    style={{
+                      display: "flex",
+                      flexDirection: "column",
+                      alignItems: "center",
+                      textAlign: "center",
+                      minWidth: 90,
+                    }}
+                  >
+                    <div
+                      className="os-step-icon"
+                      aria-hidden="true"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        lineHeight: "36px",
+                        borderRadius: "50%",
+                        border: done ? "3px solid #2e7d32" : "3px solid #d1d5db",
+                        fontSize: 18,
+                        userSelect: "none",
+                      }}
+                    >
+                      {s.icon}
+                    </div>
+                    <div className="os-step-label" style={{ marginTop: 6 }}>
+                      {s.label}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           </div>
 
-          <p className="os-note">{note}</p>
+          {/* Reserve space so the steps never jump when text length changes */}
+          <p className="os-note" style={{ minHeight: 56, marginTop: 12 }}>
+            {note}
+          </p>
         </div>
 
         <div className="os-card os-help">
