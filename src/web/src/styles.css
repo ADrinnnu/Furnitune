@@ -29,7 +29,7 @@ img { max-width:100%; display:block }
 a { color:inherit; text-decoration:none }
 h1,h2,h3 { margin:0 0 .4em 0; line-height:1.2 }
 h1 { font-size:clamp(28px,4vw,44px); font-weight:800 }
-h2 { font-size:clamp(20px,3vw,28px); font-weight:800 }
+h2 { font-size:clamp(20px,3vw,28px); font-weight:800}
 .muted { color:var(--muted) }
 .container { width:min(1180px,92%); margin-inline:auto }
 .section { padding-block:28px }
@@ -235,7 +235,7 @@ header.nav .container {
 
 .features-section h2 {
   text-align: center;
-  font-size: 1.8rem;
+  font-size: 1.9rem;
   margin-bottom: 2rem;
 }
 
@@ -245,7 +245,8 @@ header.nav .container {
 
 .features-section .highlight {
   color: #2d5b4f;
-  font-weight: bold;
+  font-weight: bolder;
+  font-size: 2.3rem;
 }
 
 .cards-container {

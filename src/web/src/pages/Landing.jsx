@@ -31,12 +31,12 @@ export default function Landing(){
       </section>
 
       <section id="best-sellers" className="container section">
-        <h2>Our <span className="muted">Best</span> Sellers!</h2>
+        <h2>Our <span className="muteds">Best </span>Sellers!</h2>
         <CardCarousel items={bestSellers} type="product" />
       </section>
 
       <section id="collections" className="container section">
-        <h2>Our <span className="muted">Collection</span>!</h2>
+        <h2>Our <span className="muteds">Collections</span>!</h2>
         <CardCarousel items={collections} type="collection" />
       </section>
 
