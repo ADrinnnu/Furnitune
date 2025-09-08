@@ -6,8 +6,9 @@ import { auth } from "../firebase";
 import { onAuthStateChanged, signOut } from "firebase/auth";
 import { useProductSearch } from "../hooks/useProductSearch";
 import "../ProfileMenu.css";
+import { useIsAdmin } from "../hooks/useIsAdmin";
 
-// 🔔 NEW: firestore bits for unread count
+// 🔔 Firestore bits for unread count
 import { getFirestore, collection, query, where, onSnapshot } from "firebase/firestore";
 
 const PRODUCT_ROUTE_PREFIX = "/product/";
@@ -29,15 +30,18 @@ export default function Navbar() {
   const searchBoxRef = useRef(null);
   const searchInputRef = useRef(null);
 
-  // 🔔 NEW: unread notifications count
+  // 🔔 unread notifications count
   const [unread, setUnread] = useState(0);
+
+  // ✅ admin flag from Firestore users/{uid}.role
+  const { isAdmin } = useIsAdmin();
 
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => setUser(u));
     return () => unsub();
   }, []);
 
-  // 🔔 NEW: subscribe to unread notifications for current user
+  // subscribe to unread notifications for current user
   useEffect(() => {
     if (!user) { setUnread(0); return; }
     const db = getFirestore(auth.app);
@@ -234,7 +238,7 @@ export default function Navbar() {
             )}
           </div>
 
-          {/* 🔔 NEW: notifications with unread badge (same wrapper as cart, so no layout shift) */}
+          {/* 🔔 notifications with unread badge */}
           <div style={{ position: "relative", display: "inline-block" }}>
             <Link
               to="/notifications"
@@ -290,6 +294,14 @@ export default function Navbar() {
                     <span className="pd-ic">🛒</span>
                     <span>My Purchases</span>
                   </Link>
+
+                  {/* ✅ Show Admin link only for admins (no layout/CSS changes) */}
+                  {user && isAdmin && (
+                    <Link to="/admin" className="pd-item" onClick={() => setOpen(false)}>
+                      <span className="pd-ic">🛡️</span>
+                      <span>Admin Dashboard</span>
+                    </Link>
+                  )}
 
                   <button className="pd-item danger" onClick={handleLogout}>
                     <span className="pd-ic">🚪</span>

@@ -1,8 +1,9 @@
+// src/admin/data/auth/adminGuard.jsx
 import React, { useEffect, useState } from "react";
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
+import { getFirestore, doc, onSnapshot } from "firebase/firestore";
 import { auth } from "../../../firebase";
-import { isAdminEmail } from "./rbac";
 
 export default function AdminGuard({ children }) {
   const [ready, setReady] = useState(false);
@@ -10,11 +11,37 @@ export default function AdminGuard({ children }) {
   const location = useLocation();
 
   useEffect(() => {
-    const off = onAuthStateChanged(auth, (u) => {
-      setAllowed(!!u && isAdminEmail(u?.email || ""));
-      setReady(true);
+    const db = getFirestore(auth.app);
+    let stopUserDoc = null;
+
+    const stopAuth = onAuthStateChanged(auth, (u) => {
+      // not signed in → not allowed
+      if (!u) {
+        if (stopUserDoc) stopUserDoc();
+        setAllowed(false);
+        setReady(true);
+        return;
+      }
+
+      // listen to users/{uid} and check role
+      stopUserDoc = onSnapshot(
+        doc(db, "users", u.uid),
+        (snap) => {
+          const role = snap.exists() ? snap.data()?.role : null;
+          setAllowed(role === "admin");
+          setReady(true);
+        },
+        () => {
+          setAllowed(false);
+          setReady(true);
+        }
+      );
     });
-    return () => off();
+
+    return () => {
+      stopAuth();
+      if (stopUserDoc) stopUserDoc();
+    };
   }, []);
 
   if (!ready) return <div className="admin-gate">Loading…</div>;
@@ -24,7 +51,7 @@ export default function AdminGuard({ children }) {
       <Navigate
         to="/admin/login"
         replace
-        state={{ from: location }}     
+        state={{ from: location }}
       />
     );
   }

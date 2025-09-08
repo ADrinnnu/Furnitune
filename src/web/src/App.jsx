@@ -29,6 +29,7 @@ import CreateAccount from "./pages/CreateAccount.jsx";
 import ForgotPassword from "./pages/ForgotPassword.jsx";
 import VerifyEmail from "./pages/VerifyEmail.jsx";
 import Account from "./pages/Account.jsx";
+import { ensureUserDoc } from "./utils/ensureUserDoc";
 
 /* Other */
 import AppAdmin from "./admin/AppAdmin";
@@ -73,6 +74,12 @@ export default function App() {
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u || null);
+
+      // 🔥 Auto-create/refresh users/{uid} profile doc
+      if (u) {
+        // no await needed; safe to run in background
+        ensureUserDoc(u).catch(console.error);
+      }
 
       const path = location.pathname;
       const isAdmin = path.startsWith("/admin");
@@ -138,8 +145,7 @@ export default function App() {
         <Route path="/aboutus" element={<AboutUs />} />
         <Route path="/collections" element={<Collections />} />
 
-
-        {/* Admin app (has its own layout) */}
+        {/* Admin app */}
         <Route path="/admin/*" element={<AppAdmin />} />
 
         {/* Fallback */}

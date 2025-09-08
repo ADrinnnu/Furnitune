@@ -1,7 +1,13 @@
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
-import { createUserWithEmailAndPassword, updateProfile, sendEmailVerification, signOut } from "firebase/auth";
+import {
+  createUserWithEmailAndPassword,
+  updateProfile,
+  sendEmailVerification,
+  signOut,
+} from "firebase/auth";
 import { auth } from "../firebase";
+import { ensureUserDoc } from "../utils/ensureUserDoc";
 import "../auth.css";
 import "../CreateAccount.css";
 
@@ -27,7 +33,14 @@ export default function CreateAccount() {
     try {
       setSaving(true);
       const cred = await createUserWithEmailAndPassword(auth, email, pw);
+
+      // Set display name
       await updateProfile(cred.user, { displayName: `${first.trim()} ${last.trim()}` });
+
+      // 🔥 Ensure users/{uid} exists with default role: "user"
+      await ensureUserDoc(cred.user);
+
+      // Normal verify-email flow
       await sendEmailVerification(cred.user);
       await signOut(auth);
       nav("/verify-email", { replace: true, state: { from: "/create-account" } });
@@ -77,7 +90,9 @@ export default function CreateAccount() {
             {error && <div className="error">{error}</div>}
 
             <div className="signup-actions">
-              <button type="submit" className="btn" disabled={saving}>{saving ? "Creating…" : "CREATE"}</button>
+              <button type="submit" className="btn" disabled={saving}>
+                {saving ? "Creating…" : "CREATE"}
+              </button>
               <p className="muted small">
                 Already have an account?{" "}
                 <Link to="/login" replace state={{ from: "/create-account" }} className="link-strong">
