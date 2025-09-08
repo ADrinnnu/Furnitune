@@ -152,7 +152,7 @@ export default function App() {
         <Route path="*" element={<Navigate to="/all" replace />} />
       </Routes>
 
-      <FloatingRobot />
++      {!isAuthPage && <FloatingRobot />}
       {!hideNavAndFooter && <Footer />}
     </>
   );
