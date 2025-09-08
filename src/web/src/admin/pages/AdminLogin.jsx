@@ -21,7 +21,7 @@ export default function AdminLogin({ message = "" }) {
       console.log("[admin login] projectId:", auth.app.options.projectId, "uid:", uid);
       const snap = await getDoc(doc(db, "users", uid));
       const role = snap.exists() ? snap.data()?.role : null;
-      console.log("[admin login] role from users/%s:", uid, role);
+      console.log("[admin loginadad] role from users/%s:", uid, role);
       return role === "admin";
     } catch (e) {
       console.warn("[admin login] getDoc failed:", e);
