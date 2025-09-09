@@ -1,11 +1,7 @@
 // src/utils/ensureUserDoc.js
 import { auth } from "../firebase";
 import {
-  getFirestore,
-  doc,
-  getDoc,
-  setDoc,
-  serverTimestamp,
+  getFirestore, doc, getDoc, setDoc, serverTimestamp,
 } from "firebase/firestore";
 
 /** Create users/{uid} if missing (defaults role to "user"). */
@@ -25,6 +21,7 @@ export async function ensureUserDoc(u) {
   if (!snap.exists()) {
     await setDoc(ref, { ...base, role: "user", createdAt: serverTimestamp() });
   } else {
-    await setDoc(ref, base, { merge: true }); // won’t overwrite role
+    // merge so you never overwrite role
+    await setDoc(ref, base, { merge: true });
   }
 }

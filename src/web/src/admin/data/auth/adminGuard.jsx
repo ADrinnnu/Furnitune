@@ -15,15 +15,12 @@ export default function AdminGuard({ children }) {
     let stopUserDoc = null;
 
     const stopAuth = onAuthStateChanged(auth, (u) => {
-      // not signed in → not allowed
       if (!u) {
         if (stopUserDoc) stopUserDoc();
         setAllowed(false);
         setReady(true);
         return;
       }
-
-      // listen to users/{uid} and check role
       stopUserDoc = onSnapshot(
         doc(db, "users", u.uid),
         (snap) => {
@@ -45,16 +42,8 @@ export default function AdminGuard({ children }) {
   }, []);
 
   if (!ready) return <div className="admin-gate">Loading…</div>;
-
   if (!allowed) {
-    return (
-      <Navigate
-        to="/admin/login"
-        replace
-        state={{ from: location }}
-      />
-    );
+    return <Navigate to="/admin/login" replace state={{ from: location }} />;
   }
-
   return children || <Outlet />;
 }
