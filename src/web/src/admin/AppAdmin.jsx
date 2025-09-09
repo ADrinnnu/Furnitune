@@ -1,3 +1,4 @@
+// src/admin/AppAdmin.jsx
 import React from "react";
 import { Routes, Route, Navigate } from "react-router-dom";
 import AdminLogin from "./pages/AdminLogin";
@@ -17,8 +18,6 @@ export default function AppAdmin() {
     <React.Suspense fallback={<div className="admin-gate">Loading…</div>}>
       <Routes>
         <Route path="login" element={<AdminLogin />} />
-
-        {/* Protected area */}
         <Route element={<AdminGuard />}>
           <Route element={<AdminLayout />}>
             <Route index element={<Dashboard />} />
@@ -30,7 +29,6 @@ export default function AppAdmin() {
             <Route path="audit"     element={<AuditLog />} />
           </Route>
         </Route>
-
         <Route path="*" element={<Navigate to="/admin" replace />} />
       </Routes>
     </React.Suspense>
