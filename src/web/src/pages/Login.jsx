@@ -9,6 +9,8 @@ import { auth } from "../firebase";
 import "../Login.css";
 import "../auth.css";
 import googleIcon from "../assets/Google.png";
+import log from "../assets/log.png"
+
 
 const AUTH_PAGES = ["/create-account", "/forgot-password", "/verify-email", "/login"];
 
@@ -153,10 +155,13 @@ export default function Login() {
       </section>
 
       <section className="login-right">
-        <div className="welcome">
-          <div className="welcome-sub">WELCOME!</div>
-          <div className="welcome-brand">FURNITUNE</div>
-        </div>
+        <div className="login-right">
+        <img src={log} alt="Login background" className="login-bg" />
+        <div className="welcome-text">
+        <div className="welcome-sub">WELCOME!</div>
+        <div className="welcome-brand">FURNITUNE</div>
+  </div>
+  </div>
       </section>
     </main>
   );

@@ -43,7 +43,7 @@
 .field-row{
   display:grid;
   grid-template-columns: 1fr 1fr;
-  gap:12px;
+  gap:20px;
 }
 .field{ display:flex; flex-direction:column; }
 .field-label{ font-size:.9rem; font-weight:600; color:#2f3d35; margin:4px 0; }
@@ -65,33 +65,53 @@
 }
 
 /* RIGHT hero panel (teal wall + floor + lights) */
-.signup-right{
-  position:relative;
-  overflow:hidden;
-  background: radial-gradient(1200px 800px at 70% 60%, rgba(0,0,0,.10), transparent 60%),
-              #0e4b4d;
+.signin-right{
+  position: relative;
+  width: 100%;
+  height: 100vh; 
+  overflow: hidden;
 }
-.signup-right::before{
-  content:""; position:absolute; inset:auto 0 0 0; height:28%;
-  background: linear-gradient(#e8d9be, #e3d1af);
+.signin-bg {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  position: absolute;
+  top: 0;
+  left: 0;
+  z-index: 0;
 }
-.signup-right::after{
-  content:""; position:absolute; left:14%; top:4%;
-  width:520px; height:520px; pointer-events:none;
-  background:
-    radial-gradient(circle at 25% 18%, #2b2b2b 0 58px, transparent 60px),
-    radial-gradient(circle at 65% 0%,  #2b2b2b 0 58px, transparent 60px),
-    radial-gradient(circle at 55% 40%, #2b2b2b 0 58px, transparent 60px);
-  mix-blend-mode: multiply; opacity:.35;
+.welcome-text {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  color: #fff;
+  text-align: center;
+  z-index: 1;
+}
+.form-container {
+  background: #fff;
+  padding: 24px 28px;
+  border-radius: 12px;
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.08);
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.welcome-sub {
+  font-size: 25px !important;
+  font-weight: 500;
+  margin-bottom: 10px;
+  opacity: 0.9;
+  letter-spacing: 0.2em;
 }
 
-.welcome{
-  position:absolute; left:56%; top:22%;
-  transform:translateX(-50%);
-  color:#fff; text-align:center; letter-spacing:.3em;
+.welcome-brand {
+  font-size: 55px !important;  /* bigger */
+  font-weight: 900; /* bolder */
+  text-shadow: 0 3px 6px rgba(0, 0, 0, 0.5);
+  letter-spacing: 0.05em;
 }
-.welcome-sub{ font-size:14px; margin-bottom:8px; opacity:.9; }
-.welcome-brand{ font-size:36px; font-weight:800; text-shadow:0 2px 0 rgba(0,0,0,.25); }
 
 /* Responsive */
 @media (max-width: 980px){

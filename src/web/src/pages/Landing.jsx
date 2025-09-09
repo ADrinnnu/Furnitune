@@ -4,6 +4,11 @@ import FeatureStrip from '../components/FeatureStrip.jsx';
 import CategoryChips from '../components/CategoryChips.jsx';
 import CardCarousel from '../components/CardCarousel.jsx';
 import HomepageSections from '../components/HomepageSections.jsx';
+import comImg from "../assets/Com.png"
+import sitImg from "../assets/sit.png"
+import restImg from "../assets/rest.png"
+import soctImg from "../assets/socsit.png"
+
 
 export default function Landing(){
   const bestSellers = [
@@ -14,10 +19,10 @@ export default function Landing(){
   ];
 
   const collections = [
-    { id:1, title:'Comfort Core Collection', img:'https://images.unsplash.com/photo-1501045661006-fcebe0257c3f?w=800' },
-    { id:2, title:'Social Sitting Collection', img:'https://images.unsplash.com/photo-1484101403633-562f891dc89a?w=800'},
-    { id:3, title:'Rest & Recharge', img:'https://images.unsplash.com/photo-1519710164239-da123dc03ef4?w=800'  },
-    { id:4, title:'Sit & Stay', img:'https://images.unsplash.com/photo-1524758631624-e2822e304c36?w=800' }
+    { id:1, title:'Comfort Core Collection', img:comImg,  description: 'Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.'  },
+    { id:2, title:'Social Sitting Collection', img:soctImg, description: 'Perfect for gatherings, this collection offers stylish seating that brings people together.' },
+    { id:3, title:'Rest & Recharge', img:restImg, description: 'Beds and loungers made for ultimate rest, giving you the energy to face each day refreshed.'  },
+    { id:4, title:'Sit & Stay', img:sitImg, description: 'Durable and versatile chairs and benches built for long-lasting comfort and style.'  }
   ];
 
   return (
