@@ -143,7 +143,9 @@ export default function App() {
         <Route path="/mypurchases" element={<MyPurchases />} />
         <Route path="/visitus" element={<VisitUs />} />
         <Route path="/aboutus" element={<AboutUs />} />
-        <Route path="/collections" element={<Collections />} />
+        <Route path="/collections/:slug" element={<Collections />} />
+
+
 
         {/* Admin app */}
         <Route path="/admin/*" element={<AppAdmin />} />
