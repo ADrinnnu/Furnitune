@@ -1,11 +1,11 @@
-// src/FloatingRobot.jsx
+
 import React, { useState, useEffect, useRef } from "react";
 import { Link, useLocation } from "react-router-dom";
 import "../FloatingRobot.css";
 
 const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 
-/* scoped panel styles */
+
 const PANEL_CSS = `
 .mini-panel{position:fixed;right:22px;bottom:84px;width:420px;max-width:calc(100vw - 24px);
   height:620px;max-height:calc(100vh - 120px);background:#f8f5ee;border:1px solid #dcd5c7;border-radius:22px;overflow:hidden;
@@ -43,11 +43,11 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-/* chat bubbles */
+
 const BotBubble = ({ children }) => <div className="msg bot"><div className="bubble bot">{children}</div></div>;
 const UserBubble = ({ children }) => <div className="msg user"><div className="bubble user">{children}</div></div>;
 
-/* guided flow (bed sizes updated; no Twin/Full) */
+
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 const TYPE_QUESTIONS = {
   Bed: [
@@ -85,7 +85,7 @@ const TYPE_QUESTIONS = {
   ],
 };
 
-/* simple type-matching heuristics */
+
 const TYPE_ALIASES = {
   bed: ["bed","beds"],
   sofa: ["sofa","sofas","couch","couches"],
@@ -106,7 +106,7 @@ function itemLooksLikeType(item, type) {
 }
 
 export default function FloatingRobot() {
-  /* FAB */
+ 
   const [open, setOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const wrapRef = useRef(null);
@@ -127,33 +127,33 @@ export default function FloatingRobot() {
     return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onEsc); };
   }, [open]);
 
-  /* Recommender state */
+ 
   const [recoOpen, setRecoOpen] = useState(false);
   const [recoInitialized, setRecoInitialized] = useState(false);
   const [recoHealth, setRecoHealth] = useState(null);
   const [recoBusy, setRecoBusy] = useState(false);
   const [recoError, setRecoError] = useState("");
-  const [recoMessages, setRecoMessages] = useState([]); // {role, text, chips?, imageUrl?, product?, cards?}
-  const [recoImage, setRecoImage] = useState(null);     // {file,url}
+  const [recoMessages, setRecoMessages] = useState([]); 
+  const [recoImage, setRecoImage] = useState(null);     
   const [recoType, setRecoType] = useState("");
   const [recoAnswers, setRecoAnswers] = useState({});
   const [recoQIndex, setRecoQIndex] = useState(0);
   const recoFileRef = useRef(null);
   const recoScrollRef = useRef(null);
 
-  /* FAQ state */
+ 
   const [faqOpen, setFaqOpen] = useState(false);
   const [faqMessages, setFaqMessages] = useState([]);
   const [faqInput, setFaqInput] = useState("");
   const faqScrollRef = useRef(null);
 
-  /* programmatic FAQ open */
+ 
   useEffect(() => {
     window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v=>!v) };
     return () => { delete window.FurnituneFAQ; };
   }, []);
 
-  /* reco: health + intro */
+ 
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
@@ -171,7 +171,7 @@ export default function FloatingRobot() {
     ]);
   }, [recoOpen, recoInitialized]);
 
-  /* autoscroll */
+ 
   useEffect(() => {
     if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight;
   }, [recoMessages, recoError, recoBusy]);
@@ -179,14 +179,14 @@ export default function FloatingRobot() {
     if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight;
   }, [faqMessages]);
 
-  /* helpers */
+ 
   const addRecoMsg = (m) => setRecoMessages(prev => [...prev, m]);
   function recoAskType(){ addRecoMsg({ role:"bot", text:"What type of furniture do you want?", chips:TYPES }); }
   function recoAskNext(type, idx){ const q=(TYPE_QUESTIONS[type]||[])[idx]; if(q) addRecoMsg({ role:"bot", text:q.prompt, chips:q.options }); }
   function recoBuildQuery(type, a){ const bits=[type, ...Object.values(a)]; return bits.join(", "); }
   const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
-  /* core recommend */
+ 
   async function recommendBest(type, allAnswers) {
     if (recoHealth && recoHealth !== "ok") { addRecoMsg({ role:"bot", text:"Hmm, the recommender service looks offline right now. Please try again later." }); return; }
     setRecoError(""); setRecoBusy(true);
@@ -202,16 +202,16 @@ export default function FloatingRobot() {
       const data = await res.json();
       let items = Array.isArray(data.results) ? data.results : [];
 
-      /* keep same-type only */
+     
       let sameType = items.filter(it => itemLooksLikeType(it, type));
 
-      /* choose best exact if any; otherwise show related same-type cards */
+     
       if (sameType.length > 0) {
         const exact = sameType[0];
         addRecoMsg({ role:"bot", text:"Here’s the best match from our catalog:" });
         addRecoMsg({ role:"bot", product: exact });
       } else {
-        /* retry with type-only to fetch some same-type items */
+       
         const res2 = await fetch(`${API_BASE}/recommend`, {
           method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ k: 6, text: type })
         });
@@ -234,7 +234,7 @@ export default function FloatingRobot() {
     }
   }
 
-  /* chip handler */
+ 
   function onRecoChipClick(label){
     if (label === "Change type"){ setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); addRecoMsg({role:"bot", text:"Okay—what type would you like?"}); recoAskType(); return; }
     if (label === "Start over"){
@@ -279,7 +279,7 @@ export default function FloatingRobot() {
     recoAskType();
   }
 
-  /* FAQ mini */
+ 
   const CONTACT = { phone:"123-323-312", email:"Furnitune@jameyl.com", live:"Offline now" };
   const FAQS = [
     { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
@@ -288,7 +288,7 @@ export default function FloatingRobot() {
     { q:"Do you accept furniture repair requests?", a:"Yes—even for items not purchased from us. Submit photos and details for assessment.", tags:["repairs"] },
   ];
   function faqBoot(){ setFaqMessages([{role:"bot",text:"Hi! I’m your Furnitune assistant. What can I help you with?"},{role:"bot",text:"Pick a quick question below, or type your own:",chips:FAQS.map(x=>x.q)}]); }
-  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen]); // eslint-disable-line
+  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen]); 
   function answerFor(s0){ const s=s0.trim().toLowerCase(); if(/call|phone|number|contact/.test(s)) return `You can call us at ${CONTACT.phone}.`; if(/email|mail/.test(s)) return `You can email us at ${CONTACT.email}.`; if(/chat|live/.test(s)) return `Live Chat is ${CONTACT.live}.`; const d=FAQS.find(f=>f.q.toLowerCase()===s); if(d) return d.a; const c=FAQS.find(f=> (f.q+" "+(f.tags||[]).join(" ")).toLowerCase().includes(s)); return c?c.a:"I’m not sure yet. Try one of the quick questions above.";}
   function onFaqChip(q){ setFaqMessages(p=>[...p,{role:"user",text:q},{role:"bot",text:answerFor(q)}]); }
   function onSendFaq(){ const msg=faqInput.trim(); if(!msg) return; setFaqInput(""); setFaqMessages(p=>[...p,{role:"user",text:msg},{role:"bot",text:answerFor(msg)}]); }
