@@ -301,7 +301,7 @@ export default function AllFurnitures({
 
         {/* Materials (only Fabrics & Leather) */}
         <div className="filter-group">
-          <h3>Materials</h3>
+          <h3>Cover Material</h3>
           {MATERIAL_LABELS.map((lbl) => (
             <label key={lbl}>
               <input

@@ -88,8 +88,17 @@ export default function HomepageSections() {
                 <h3>{f.title}</h3>
                 <p>{f.description}</p>
 
-                {/* Button navigates to the page specified in f.path */}
-                <button onClick={() => navigate(f.path)}>{f.button}</button>
+                <button
+                onClick={() => {
+                   if (f.title.includes("ASK FURNITURE SUGGESTION")) {
+                     window.FurnituneReco?.open();
+                   } else {
+                     navigate(f.path);
+                   }
+                 }}
+               >
+                 {f.button}
+               </button>
               </div>
             </div>
           ))}

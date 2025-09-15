@@ -1,7 +1,9 @@
 import React from "react";
 
-const LinkItem = ({ children, href = "#" }) => (
-  <a className="ft-link" href={href}>{children}</a>
+const LinkItem = ({ children, href = "#", onClick }) => (
+  <a className="ft-link" href={href} onClick={onClick}>
+    {children}
+  </a>
 );
 
 const Icon = ({ name }) => {
@@ -35,8 +37,17 @@ export default function Footer() {
 
         <div className="ft-col">
           <div className="ft-title">SUPPORT</div>
-          <LinkItem>FAQs</LinkItem>
-        </div>
+  <LinkItem 
+    href="#" 
+    onClick={(e) => {
+      e.preventDefault();           
+      if (window.FurnituneFAQ) {
+        window.FurnituneFAQ.open(); 
+      }
+    }}> AI Chatbot
+  </LinkItem>
+</div>
+
 
         <div className="ft-col">
           <div className="ft-title">COMPANY</div>

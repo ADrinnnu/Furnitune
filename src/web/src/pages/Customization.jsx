@@ -34,21 +34,7 @@ export default function Customization() {
   
         <div className="right-side">
           <div className="option">
-            <h3 className="option-title">1 CHOOSE TYPE OF FURNITURE</h3>
-            <div className="buttons-grid">
-              <button>Sofa</button>
-              <button>Chair</button>
-              <button>Bed</button>
-              <button>Table</button>
-              <button>Benches</button>
-              <button>Ottomans</button>
-              <button>Sectionals</button>
-            </div>
-          </div>
-             <hr />
-      
-          <div className="option">
-            <h3 className="option-title">2 CHOOSE SIZE</h3>
+            <h3 className="option-title">1 CHOOSE SIZE</h3>
             <div className="buttons-row">
               <button>S</button>
               <button>M</button>
@@ -59,7 +45,7 @@ export default function Customization() {
             <hr />
  
           <div className="option">
-            <h3 className="option-title">3 CHOOSE COLOR</h3>
+            <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
             <div className="colors">
               <div className="color-box" style={{ background: "#D3C6B3" }}></div>
               <div className="color-box" style={{ background: "#A29B89" }}></div>
@@ -70,7 +56,7 @@ export default function Customization() {
 
             <hr />
           <div className="option">
-            <h3 className="option-title">4 CHOOSE MATERIAL</h3>
+            <h3 className="option-title">3 CHOOSE MATERIAL</h3>
             <div className="buttons-row">
               <button>Wood</button>
               <button>Leather</button>
@@ -80,7 +66,7 @@ export default function Customization() {
 
             <hr />
           <div className="option">
-            <h3 className="option-title">5 ADDITIONALS</h3>
+            <h3 className="option-title">4 ADDITIONALS</h3>
             <textarea placeholder="Write here..."></textarea>
           </div>
 
