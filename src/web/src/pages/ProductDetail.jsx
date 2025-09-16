@@ -304,7 +304,7 @@ export default function ProductDetail() {
                 aria-expanded={open[1]}
               >
                 <span className="rp-num">1</span>
-                <span className="rp-label">CHOOSE FABRIC</span>
+                <span className="rp-label">CHOOSE COVER COLOR</span>
                 <span className={`chev ${open[1] ? "open" : ""}`}>▾</span>
               </button>
 

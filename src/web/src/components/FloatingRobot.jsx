@@ -154,6 +154,23 @@ export default function FloatingRobot() {
   }, []);
 
  
+   useEffect(() => {
+    window.FurnituneReco = {
+      open: () => {
+        setRecoOpen(true);
+        setRecoInitialized(false);
+        setRecoType("");
+        setRecoAnswers({});
+        setRecoQIndex(0);
+        setRecoImage(null);
+        setRecoMessages([]);
+      },
+      close: () => setRecoOpen(false),
+      toggle: () => setRecoOpen(v => !v)};
+    return () => { delete window.FurnituneReco; };
+  }, []);
+
+
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
