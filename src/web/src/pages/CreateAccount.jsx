@@ -1,4 +1,4 @@
-// src/pages/CreateAccount.jsx
+
 import React, { useState } from "react";
 import { Link, useNavigate, useLocation } from "react-router-dom";
 import {
@@ -43,21 +43,21 @@ function CreateAccount() {
     try {
       setSaving(true);
 
-      // 1) Create auth user
+      
       const cred = await createUserWithEmailAndPassword(auth, email, pw);
 
-      // 2) Set display name
+      
       const displayName = `${first.trim()} ${last.trim()}`.trim();
       if (displayName) await updateProfile(cred.user, { displayName });
 
-      // 3) Ensure Firestore profile exists (users/{uid}, role: "user")
+      
       await ensureUserDoc(cred.user);
 
-      // 4) Verify email + sign out
+      
       await sendEmailVerification(cred.user);
       await signOut(auth);
 
-      // 5) Go to verify-email page
+      
       nav("/verify-email", { replace: true, state: { from: "/create-account" } });
     } catch (err) {
       setError(err?.message || "Failed to create account.");

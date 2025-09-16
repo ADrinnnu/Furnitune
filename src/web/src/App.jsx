@@ -42,10 +42,8 @@ import VisitUs from "./pages/VisitUs.jsx";
 import AboutUs from "./pages/AboutUs.jsx";
 import Collections from "./pages/Collections.jsx";
 
-/* Optional tabbed hub */
 import FurnitureHub from "./pages/FurnitureHub";
 
-/** Routes that should NOT show the public navbar/footer */
 const AUTH_PREFIXES = [
   "/login",
   "/create-account",
@@ -70,14 +68,11 @@ export default function App() {
   const navigate = useNavigate();
   const [user, setUser] = useState(null);
 
-  // Auth state + verify-email redirect (skip admin/auth pages)
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
       setUser(u || null);
 
-      // 🔥 Auto-create/refresh users/{uid} profile doc
       if (u) {
-        // no await needed; safe to run in background
         ensureUserDoc(u).catch(console.error);
       }
 
