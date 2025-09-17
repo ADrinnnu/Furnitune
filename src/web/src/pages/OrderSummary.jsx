@@ -28,60 +28,46 @@ const STEPS = [
 const normalizeStatus = (s) => {
   const x = String(s || "").toLowerCase();
   if (["processing", "pending"].includes(x) || !x) return "processing";
-  if (["prepare", "preparing", "packaging", "for packaging"].includes(x))
-    return "preparing";
-  if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x))
-    return "to_ship";
-  if (["to_receive", "out_for_delivery", "delivered"].includes(x))
-    return "to_receive";
+  if (["prepare", "preparing", "packaging", "for packaging"].includes(x)) return "preparing";
+  if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x)) return "to_ship";
+  if (["to_receive", "out_for_delivery", "delivered"].includes(x)) return "to_receive";
   if (["to_rate", "completed", "done"].includes(x)) return "to_rate";
   return "processing";
 };
 
 const messages = {
-  processing:
-    "Your order has been approved and is now in production. This step usually takes 2–4 days. We'll keep you updated.",
-  preparing:
-    "We’re preparing and packaging your order. We’ll notify you once it’s ready to ship.",
-  to_ship:
-    "Your package is queued for pickup. You’ll receive tracking details after dispatch.",
-  to_receive:
-    "Your package is on the way. Expect delivery soon—watch for courier updates.",
-  to_rate:
-    "Order received! We’d love your feedback—rate your experience when you’re ready.",
+  processing: "Your order has been approved and is now in production. This step usually takes 2–4 days. We'll keep you updated.",
+  preparing: "We’re preparing and packaging your order. We’ll notify you once it’s ready to ship.",
+  to_ship: "Your package is queued for pickup. You’ll receive tracking details after dispatch.",
+  to_receive: "Your package is on the way. Expect delivery soon—watch for courier updates.",
+  to_rate: "Order received! We’d love your feedback—rate your experience when you’re ready.",
 };
 
 export default function OrderSummary() {
   const { orderId: orderIdParam } = useParams();
   const location = useLocation();
-  const qsOrderId = useMemo(
-    () => new URLSearchParams(location.search).get("orderId"),
-    [location.search]
-  );
+  const qsOrderId = useMemo(() => new URLSearchParams(location.search).get("orderId"), [location.search]);
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
-  const [order, setOrder] = useState(undefined);
+  const [order, setOrder] = useState(undefined); // undefined = loading
 
   // track auth
   useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
 
-  // If we have a specific orderId (from /ordersummary/:id or ?orderId=),
-  // listen to that document in real time.
+  // If we have a specific orderId, listen to that doc
   useEffect(() => {
     if (!orderId) return;
     const ref = doc(firestore, "orders", orderId);
     const stop = onSnapshot(
       ref,
-      (snap) => {
-        setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null);
-      },
+      (snap) => setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null),
       () => setOrder(null)
     );
     return stop;
   }, [orderId]);
 
-  // Otherwise, listen to the user's most recent order in real time.
+  // Otherwise, listen to the user's most recent order
   useEffect(() => {
     if (orderId || !uid) return;
     const qRef = query(
@@ -102,23 +88,31 @@ export default function OrderSummary() {
   }, [uid, orderId]);
 
   const currentKey = normalizeStatus(order?.status);
-  const currentIdx = Math.max(
-    0,
-    STEPS.findIndex((s) => s.key === currentKey)
-  );
+  const currentIdx = Math.max(0, STEPS.findIndex((s) => s.key === currentKey));
   const note = messages[currentKey];
 
   return (
     <div className="os-page">
       {/* LEFT: summary card */}
       <div className="os-left">
-        <OrderSummaryCard
-          title="ORDER SUMMARY"
-          orderId={order?.id || orderId}
-          showAddress
-          showSupport={false}
-          order={order}
-        />
+        {order === undefined ? (
+          // Skeleton for the summary card
+          <div className="os-card skeleton" role="status" aria-busy="true" style={{ padding: 20 }}>
+            <div style={{ height: 20, width: 220, background: "#eee", marginBottom: 12, borderRadius: 6 }} />
+            <div style={{ height: 12, width: 120, background: "#eee", marginBottom: 8, borderRadius: 6 }} />
+            <div style={{ height: 12, width: "100%", background: "#eee", margin: "12px 0", borderRadius: 6 }} />
+            <div style={{ height: 8, width: "60%", background: "#eee", marginTop: 6, borderRadius: 6 }} />
+            <div style={{ height: 8, width: "40%", background: "#eee", marginTop: 10, borderRadius: 6 }} />
+          </div>
+        ) : (
+          <OrderSummaryCard
+            title="ORDER SUMMARY"
+            orderId={order?.id || orderId}
+            showAddress
+            showSupport={false}
+            order={order}
+          />
+        )}
       </div>
 
       {/* RIGHT: order details with horizontal stepper */}
@@ -126,39 +120,22 @@ export default function OrderSummary() {
         <div className="os-card os-status">
           <h4>ORDER DETAILS</h4>
 
-          {/* Top: bordered bar containing the steps — forced horizontal layout via inline style */}
+          {/* Top: bordered bar containing the steps */}
           <div
             className="os-steps-bar"
-            style={{
-              border: "1px solid #e5e7eb",
-              borderRadius: 12,
-              padding: "12px 16px",
-              background: "#fff",
-            }}
+            style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", background: "#fff" }}
           >
             <div
               className="os-stepper"
-              style={{
-                display: "flex",
-                flexDirection: "row",
-                alignItems: "center",
-                justifyContent: "space-between",
-                gap: 24,
-              }}
+              style={{ display: "flex", flexDirection: "row", alignItems: "center", justifyContent: "space-between", gap: 24 }}
             >
               {STEPS.map((s, i) => {
-                const done = i <= currentIdx;
+                const done = order !== undefined && i <= currentIdx;
                 return (
                   <div
                     key={s.key}
                     className={`os-step${done ? " done" : ""}`}
-                    style={{
-                      display: "flex",
-                      flexDirection: "column",
-                      alignItems: "center",
-                      textAlign: "center",
-                      minWidth: 90,
-                    }}
+                    style={{ display: "flex", flexDirection: "column", alignItems: "center", textAlign: "center", minWidth: 90 }}
                   >
                     <div
                       className="os-step-icon"
@@ -186,7 +163,11 @@ export default function OrderSummary() {
 
           {/* Reserve space so the steps never jump when text length changes */}
           <p className="os-note" style={{ minHeight: 56, marginTop: 12 }}>
-            {note}
+            {order === undefined ? (
+              <span className="line skeleton" style={{ display: "block", height: 14, width: "70%", background: "#eee" }} />
+            ) : (
+              note
+            )}
           </p>
         </div>
 

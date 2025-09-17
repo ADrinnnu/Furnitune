@@ -59,12 +59,13 @@ async function toDownloadUrl(val) {
 
 export default function Landing() {
   const [bestSellers, setBestSellers] = useState([]);
+  const [loadingBest, setLoadingBest] = useState(true); // NEW
 
   useEffect(() => {
     (async () => {
+      setLoadingBest(true);
       try {
         const snap = await FS.getDocs(FS.collection(firestore, "products"));
-
         let items = await Promise.all(
           snap.docs.map(async (doc) => {
             const data = doc.data() || {};
@@ -97,52 +98,18 @@ export default function Landing() {
       } catch (err) {
         console.error("[landing] best-sellers load failed:", err);
         setBestSellers([]);
+      } finally {
+        setLoadingBest(false);
       }
     })();
   }, []);
 
   // ✅ add `to` so each collection card routes to its page
   const collections = [
-    {
-      id: 1,
-      title: "Comfort Core Collection",
-      img: comImg,
-      description:
-        "Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.",
-      to: "/collections/comfort-core",
-      link: "/collections/comfort-core",
-      href: "/collections/comfort-core",
-    },
-    {
-      id: 2,
-      title: "Social Sitting Collection",
-      img: soctImg,
-      description:
-        "Perfect for gatherings, this collection offers stylish seating that brings people together.",
-      to: "/collections/social-sitting",
-      link: "/collections/social-sitting",
-      href: "/collections/social-sitting",
-    },
-    {
-      id: 3,
-      title: "Rest & Recharge",
-      img: restImg,
-      description:
-        "Beds and loungers made for ultimate rest, giving you the energy to face each day refreshed.",
-      to: "/collections/rest-recharge",
-      link: "/collections/rest-recharge",
-      href: "/collections/rest-recharge",
-    },
-    {
-      id: 4,
-      title: "Sit & Stay",
-      img: sitImg,
-      description:
-        "Durable and versatile chairs and benches built for long-lasting comfort and style.",
-      to: "/collections/sit-stay",
-      link: "/collections/sit-stay",
-      href: "/collections/sit-stay",
-    },
+    { id: 1, title: "Comfort Core Collection", img: comImg, description: "Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.", to: "/collections/comfort-core", link: "/collections/comfort-core", href: "/collections/comfort-core" },
+    { id: 2, title: "Social Sitting Collection", img: soctImg, description: "Perfect for gatherings, this collection offers stylish seating that brings people together.", to: "/collections/social-sitting", link: "/collections/social-sitting", href: "/collections/social-sitting" },
+    { id: 3, title: "Rest & Recharge", img: restImg, description: "Beds and loungers made for ultimate rest, giving you the energy to face each day refreshed.", to: "/collections/rest-recharge", link: "/collections/rest-recharge", href: "/collections/rest-recharge" },
+    { id: 4, title: "Sit & Stay", img: sitImg, description: "Durable and versatile chairs and benches built for long-lasting comfort and style.", to: "/collections/sit-stay", link: "/collections/sit-stay", href: "/collections/sit-stay" },
   ];
 
   return (
@@ -159,7 +126,21 @@ export default function Landing() {
         <h2>
           Our <span className="muteds">Best </span>Sellers!
         </h2>
-        <CardCarousel items={bestSellers} type="product" />
+
+        {loadingBest ? (
+          // Skeleton carousel area (keeps same spacing)
+          <div className="card-carousel skeleton" role="status" aria-busy="true" style={{ display: "flex", gap: 12, overflow: "hidden" }}>
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="card-skel" style={{ width: 220 }}>
+                <div style={{ height: 140, background: "#eee", borderRadius: 6 }} />
+                <div style={{ height: 14, marginTop: 8, background: "#eee", borderRadius: 4 }} />
+                <div style={{ height: 12, marginTop: 6, width: "50%", background: "#eee", borderRadius: 4 }} />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <CardCarousel items={bestSellers} type="product" />
+        )}
       </section>
 
       <section id="collections" className="container section">

@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState, useCallback } from "react";
 import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
-import { Link, useLocation  } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import { getDownloadURL, ref } from "firebase/storage";
 import "../AllFurnitures.css";
 
@@ -121,7 +121,7 @@ function priceBucket(n) {
   return "15k+";
 }
 
-/* ---------- Storage URL resolver (Option A) ---------- */
+/* ---------- Storage URL resolver ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
 
@@ -167,6 +167,7 @@ export default function AllFurnitures({
 }) {
   const [products, setProducts] = useState([]);
   const [filters, setFilters] = useState(makeEmptyFilters);
+  const [loading, setLoading] = useState(true); // <-- skeleton toggle
 
   const location = useLocation();
 
@@ -176,7 +177,7 @@ export default function AllFurnitures({
     if (category) {
       setFilters((prev) => ({
         ...prev,
-        type: new Set([category]) 
+        type: new Set([category])
       }));
     }
   }, [location.search]);
@@ -193,6 +194,7 @@ export default function AllFurnitures({
 
   useEffect(() => {
     const fetchProducts = async () => {
+      setLoading(true); // start skeleton
       try {
         const snap = await FS.getDocs(FS.collection(firestore, "products"));
         let list = await Promise.all(
@@ -227,7 +229,7 @@ export default function AllFurnitures({
           list = list.filter((p) => p._departments.includes(key));
         }
 
-        // scope by collection (if you use it)
+        // scope by collection
         if (coll) {
           const c = slug(coll);
           list = list.filter((p) => (p._collections || []).includes(c));
@@ -236,6 +238,8 @@ export default function AllFurnitures({
         setProducts(list);
       } catch (error) {
         console.error("Error fetching products:", error);
+      } finally {
+        setLoading(false); // stop skeleton
       }
     };
 
@@ -333,7 +337,16 @@ export default function AllFurnitures({
       </div>
 
       <div className="product-grid">
-        {filtered.length > 0 ? (
+        {loading ? (
+          // skeleton grid matches structure of product cards so layout doesn't jump
+          [...Array(8)].map((_, i) => (
+            <div key={i} className="product-card skeleton" role="status" aria-busy="true">
+              <div className="product-image" style={{ height: 160, background: "#eee", borderRadius: 6 }} />
+              <h3 className="product-title line" style={{ height: 18, marginTop: 12 }} />
+              <p className="product-price line" style={{ width: 80, height: 16 }} />
+            </div>
+          ))
+        ) : filtered.length > 0 ? (
           filtered.map((product) => (
             <div key={product.id} className="product-card">
               <Link to={`/product/${product.id}`}>
@@ -342,15 +355,15 @@ export default function AllFurnitures({
                   alt={product.title}
                   className="product-image"
                 />
-               {/* Title */}
-          <h3 className="product-title">
-            {product.title || "Untitled"}
-          </h3>
+                {/* Title */}
+                <h3 className="product-title">
+                  {product.title || "Untitled"}
+                </h3>
 
-          {/* Price */}
-          <p className="product-price">
-            ₱{product.price ? product.price.toLocaleString() : "N/A"}
-          </p>
+                {/* Price */}
+                <p className="product-price">
+                  ₱{product.price ? product.price.toLocaleString() : "N/A"}
+                </p>
               </Link>
               <div className="rating">
                 <span>{"⭐".repeat(Math.floor(product.ratingAvg))}</span>
