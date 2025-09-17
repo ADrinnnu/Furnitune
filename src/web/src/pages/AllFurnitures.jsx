@@ -21,6 +21,8 @@ const TYPES_BY_ROOM = {
 /* ---------- Materials (only Fabrics & Leather now) ---------- */
 const MATERIAL_LABELS = ["Fabrics", "Leather"];
 
+const FRAME_LABELS = ["Metal", "Wood"];
+
 /* ---------- Price filter buckets ---------- */
 const PRICE_ITEMS = [
   { code: "<5k", label: "Under ₱5,000" },
@@ -34,6 +36,7 @@ const makeEmptyFilters = () => ({
   type: new Set(),
   materials: new Set(),
   price: new Set(),
+  frame: new Set(), 
 });
 
 /* ---------- product field normalizers ---------- */
@@ -72,6 +75,13 @@ function normalizeMaterials(d) {
   return Array.from(out);
 }
 
+function normalizeFrameMaterial(d) { 
+  const hay = [d.name, d.material, ...(d.tags || [])].join(" ").toLowerCase();
+  const out = new Set();
+  if (hay.includes("metal")) out.add("Metal");
+  if (hay.includes("wood")) out.add("Wood");
+  return Array.from(out);
+}
 function normalizeDepartments(d) {
   const candidates = [
     d.departments,
@@ -215,6 +225,7 @@ export default function AllFurnitures({
 
               _type: normalizeType(data),
               _materials: normalizeMaterials(data),
+               _frame: normalizeFrameMaterial(data),
               _departments: normalizeDepartments(data),
               _collections: normalizeCollections(data),
             };
@@ -261,6 +272,10 @@ export default function AllFurnitures({
       // Materials (Fabrics/Leather)
       if (filters.materials.size) {
         const has = p._materials?.some((m) => filters.materials.has(m));
+        if (!has) return false;
+      }
+       if (filters.frame.size) {
+        const has = p._frame?.some((m) => filters.frame.has(m));
         if (!has) return false;
       }
       // Price
@@ -328,6 +343,19 @@ export default function AllFurnitures({
             </label>
           ))}
         </div>
+<div className="filter-group"> 
+          <h3>Frame Material</h3> 
+          {FRAME_LABELS.map((lbl) => ( 
+            <label key={lbl}> 
+              <input
+                type="checkbox"
+                checked={filters.frame.has(lbl)}
+                onChange={() => toggleFilter("frame", lbl)}
+              />{" "}
+              {lbl}
+            </label>
+          ))} 
+        </div> 
 
         {/* Seats & Shape intentionally removed */}
       </div>

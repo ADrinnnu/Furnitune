@@ -1074,12 +1074,13 @@ textarea {
   font-size: 0.85rem;
   color: #555;
 }
-.collection-banner {
-  width: 100%;
-  height: 280px;   /* adjust for big image */
-  object-fit: cover;
-  border-radius: 10px;
-  margin: 20px 0;
+.collection-banners {
+  width: 100%;     
+  height: 400px;      
+  object-fit: cover;   
+  display: block;
+  margin: 20px 0;      
+  border-radius: 8px;   
 }
 
 /* ---------- About Us ---------- */
