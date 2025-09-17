@@ -8,7 +8,6 @@ import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 
-/* ---------------- helpers ---------------- */
 
 const norm = (s) =>
   String(s || "")
@@ -76,7 +75,6 @@ const COLLECTION_META = {
   },
 };
 
-/* --------------- Firestore fetch with synonyms across multiple fields --------------- */
 async function fetchProductsByCollection(metaKey, meta) {
   const titles = uniq([meta.title, ...(meta.synonyms || []), metaKey]);
   const slugVals = uniq(titles.map(norm));
@@ -236,7 +234,6 @@ export default function Collections() {
 
   return (
     <div className="collection">
-      {/* Kicker (small label above title) */}
       <div
         style={{
           marginTop: 6,
@@ -253,10 +250,8 @@ export default function Collections() {
 
       <h1 className="collection-title">{meta.title}</h1>
 
-      {/* Banner */}
       <img src={meta.banner} alt={meta.title} className="collection-banners" />
 
-      {/* “DESCRIPTION” label */}
       <div
         style={{
           marginTop: 18,

@@ -21,7 +21,6 @@ const FABRICS = [
   { id: "harbour",label: "Harbour", sw: "#2c3e50" },
 ];
 
-// Fallbacks used only if neither product/category has sizeOptions AND no rules found
 const DEFAULT_SIZES_BY_TYPE = {
   Chairs:     ["Standard", "Counter", "Bar"],
   Sofas:      ["2 Seater", "3 Seater", "4 Seater"],
@@ -32,9 +31,9 @@ const DEFAULT_SIZES_BY_TYPE = {
   Benches:    ["2 Seater", "3 Seater", "4 Seater"],
 };
 
-const norm     = (s) => String(s || "").trim().toLowerCase();
-const slugify  = (s) => norm(s).replace(/\s+/g, "-");
-const titleCase= (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+const norm = (s) => String(s || "").trim().toLowerCase();
+const slugify = (s) => norm(s).replace(/\s+/g, "-");
+const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 function resolveCategorySlug(data) {
   if (data.categorySlug) return String(data.categorySlug).trim().toLowerCase();
@@ -85,7 +84,7 @@ function normalizeTypeLabel(data, catSlug) {
 export default function ProductDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
-  const { addToCart } = useCart(); // from your CartContext
+  const { addToCart } = useCart();
 
   const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
   const [images, setImages] = useState([]);
@@ -145,7 +144,7 @@ export default function ProductDetail() {
         if (!displaySizes || !displaySizes.length) displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
 
         // 👉 Read relative rules and compute absolute prices
-        const priceMap = {};                   // display label -> absolute price
+        const priceMap = {};
         if (typeLabel) {
           try {
             const qRules = query(collection(firestore, "sizePriceRules"), where("type", "==", typeLabel));
@@ -153,7 +152,6 @@ export default function ProductDetail() {
             const rules = [];
             snapRules.forEach((d) => rules.push(d.data())); // {size, mode, value}
 
-            // Build index of rules by normalized label
             const byKey = new Map();
             for (const r of rules) {
               const key = norm(r.size);
@@ -166,7 +164,6 @@ export default function ProductDetail() {
               byKey.set(key, { label: r.size, price: abs });
             }
 
-            // Align display sizes to rule labels (case-insensitive)
             if (byKey.size) {
               const aligned = [];
               for (const s of (displaySizes || [])) {
@@ -174,8 +171,6 @@ export default function ProductDetail() {
                 aligned.push(hit ? hit.label : s);
               }
               displaySizes = aligned.length ? [...new Set(aligned)] : [...new Set(rules.map(r => String(r.size)))];
-
-              // Build price map for all known rule labels
               for (const [, rec] of byKey) priceMap[rec.label] = rec.price;
             }
           } catch (e) {
@@ -183,9 +178,7 @@ export default function ProductDetail() {
           }
         }
 
-        // Finalize size choices and price map
-        displaySizes = Array.isArray(displaySizes) ? displaySizes : [];
-        setSizeOptions(displaySizes);
+        setSizeOptions(Array.isArray(displaySizes) ? displaySizes : []);
         if (!displaySizes.includes(size)) setSize(displaySizes[0] || "");
         setAbsPrices(priceMap);
       } catch (err) {
@@ -204,42 +197,83 @@ export default function ProductDetail() {
   const priceStr = `₱${Number(unitPrice || 0).toLocaleString()}`;
   const hero = images[activeIdx] || "/placeholder.jpg";
 
-  // ---------- NEW: build item + actions (UI unchanged) ----------
+  const { addToCart: ctxAddToCart } = { addToCart };
   const buildLineItem = (qty = 1) => ({
     productId: product.id,
-    id: product.id,                       // CartPage expects .id
-    title: product.name,                  // CartPage shows .title
+    id: product.id,
+    title: product.name,
     name: product.name,
     qty: Number(qty || 1),
-    price: Number(unitPrice || 0),        // CartPage shows .price
+    price: Number(unitPrice || 0),
     size: size || null,
     notes: notes || "",
-    thumb: images?.[0] || "/placeholder.jpg", // CartPage shows .thumb
+    thumb: images?.[0] || "/placeholder.jpg",
     image: images?.[0] || "/placeholder.jpg",
   });
 
   function handleBuyNow() {
     const item = buildLineItem(1);
-    setCheckoutItems([item]);            // used by Checkout to render summary
+    setCheckoutItems([item]);
     navigate("/checkout");
   }
 
   function handleAddToCart() {
     const item = buildLineItem(1);
     try {
-      if (typeof addToCart === "function") {
-        addToCart(item);
-      }
+      if (typeof ctxAddToCart === "function") ctxAddToCart(item);
       navigate("/cart");
     } catch (e) {
       console.error("addToCart failed:", e);
       alert("Could not add to cart. Please try again.");
     }
   }
-  // --------------------------------------------------------------
 
-  if (product === undefined) return <div className="pd-loading">Loading…</div>;
-  if (product === null)      return <div className="pd-loading">Product not found.</div>;
+  // ---------- SKELETON: mirrors layout so nothing shifts ----------
+  if (product === undefined) {
+    return (
+      <div className="pd-wrap">
+        <div className="pd-grid">
+          <section className="pd-left">
+            <div className="pd-stage light skeleton" role="status" aria-busy="true" style={{ minHeight: 300 }}>
+              <div style={{ width: "100%", height: 320, background: "#eee", borderRadius: 8 }} />
+            </div>
+            <div style={{ display: "flex", gap: 8, marginTop: 12 }}>
+              {[0,1,2].map(i => <div key={i} style={{ width: 64, height: 48, background: "#eee", borderRadius: 6 }} />)}
+            </div>
+            <div className="pd-desc slab" style={{ marginTop: 18 }}>
+              <h3 style={{ height: 22, width: 180, background: "#eee", borderRadius: 6 }} />
+              <p style={{ height: 60, width: "100%", background: "#eee", borderRadius: 6, marginTop: 8 }} />
+            </div>
+          </section>
+
+          <div className="pd-right-col">
+            <aside className="pd-card right-pane skeleton" style={{ padding: 18 }}>
+              <div style={{ height: 18, width: 140, background: "#eee", borderRadius: 6 }} />
+              <div style={{ height: 20, width: "100%", background: "#eee", marginTop: 10, borderRadius: 6 }} />
+              <div style={{ height: 12, width: "50%", background: "#eee", marginTop: 10, borderRadius: 6 }} />
+              <div style={{ marginTop: 16 }}>
+                <div style={{ height: 10, width: "100%", background: "#eee", borderRadius: 6, marginBottom: 8 }} />
+                <div style={{ height: 10, width: "70%", background: "#eee", borderRadius: 6, marginBottom: 8 }} />
+                <div style={{ height: 10, width: "80%", background: "#eee", borderRadius: 6 }} />
+              </div>
+              <div className="rp-cta-row" style={{ marginTop: 18, display: "flex", gap: 12 }}>
+                <div style={{ height: 44, width: 110, background: "#eee", borderRadius: 8 }} />
+                <div style={{ height: 44, width: 140, background: "#eee", borderRadius: 8 }} />
+              </div>
+            </aside>
+
+            <div className="pd-help help-box outside" style={{ marginTop: 12 }}>
+              <h4 style={{ height: 18, width: 120, background: "#eee", borderRadius: 6 }} />
+              <p style={{ height: 12, width: "60%", background: "#eee", borderRadius: 6, marginTop: 8 }} />
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+  // ---------------------------------------------------------------
+
+  if (product === null) return <div className="pd-loading">Product not found.</div>;
 
   return (
     <div className="pd-wrap">
@@ -298,11 +332,7 @@ export default function ProductDetail() {
 
             {/* Step 1 */}
             <div className="rp-step">
-              <button
-                className="rp-step-h"
-                onClick={() => setOpen((o) => ({ ...o, 1: !o[1] }))}
-                aria-expanded={open[1]}
-              >
+              <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 1: !o[1] }))} aria-expanded={open[1]}>
                 <span className="rp-num">1</span>
                 <span className="rp-label">CHOOSE COVER COLOR</span>
                 <span className={`chev ${open[1] ? "open" : ""}`}>▾</span>
@@ -331,11 +361,7 @@ export default function ProductDetail() {
 
             {/* Step 2 */}
             <div className="rp-step">
-              <button
-                className="rp-step-h"
-                onClick={() => setOpen((o) => ({ ...o, 2: !o[2] }))}
-                aria-expanded={open[2]}
-              >
+              <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 2: !o[2] }))} aria-expanded={open[2]}>
                 <span className="rp-num">2</span>
                 <span className="rp-label">CHOOSE SIZE</span>
                 <span className={`chev ${open[2] ? "open" : ""}`}>▾</span>
@@ -368,11 +394,7 @@ export default function ProductDetail() {
 
             {/* Step 3 */}
             <div className="rp-step">
-              <button
-                className="rp-step-h"
-                onClick={() => setOpen((o) => ({ ...o, 3: !o[3] }))}
-                aria-expanded={open[3]}
-              >
+              <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 3: !o[3] }))} aria-expanded={open[3]}>
                 <span className="rp-num">3</span>
                 <span className="rp-label">DESCRIPTION</span>
                 <span className={`chev ${open[3] ? "open" : ""}`}>▾</span>
@@ -391,7 +413,7 @@ export default function ProductDetail() {
               )}
             </div>
 
-            {/* CTA row (UI unchanged) */}
+            {/* CTA row */}
             <div className="rp-cta-row">
               <button type="button" className="price-pill" onClick={handleBuyNow}>
                 {priceStr}

@@ -4,7 +4,10 @@
   "description": "",
   "main": "index.js",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently -k -n CHAT,RECO,UI -c green,cyan,magenta \"npm:dev:chatbot\" \"npm:dev:reco\" \"npm:dev:vite\"",
+    "dev:vite": "wait-on tcp:7861 tcp:5000 && vite",
+    "dev:chatbot": "node ./scripts/dev-chat.js ../backend/chatbot",
+    "dev:reco": "node ./scripts/dev-reco.js ../backend/recommender",
     "build": "vite build",
     "preview": "vite preview",
     "seed:rules": "node ./scripts/seed-size-rules.mjs"
@@ -21,6 +24,9 @@
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^5.0.1",
-    "vite": "^7.1.2"
+    "concurrently": "^9.2.1",
+    "cross-env": "^7.0.3",
+    "vite": "^7.1.2",
+    "wait-on": "^8.0.5"
   }
 }
