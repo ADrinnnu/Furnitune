@@ -2,7 +2,7 @@
 import app, { db, auth } from "./firebaseCore";
 import {
   collection, getDocs, addDoc, doc, updateDoc, deleteDoc,
-  serverTimestamp, query, orderBy, where
+  serverTimestamp, query, orderBy, where, getDoc // <-- added getDoc
 } from "firebase/firestore";
 import {
   getStorage, ref, uploadBytesResumable, getDownloadURL
@@ -13,18 +13,29 @@ import { onAuthStateChanged } from "firebase/auth";
 
 const col = (name) => collection(db, name);
 
-// wait for current user (or null)
+// wait for current user (or null), then read role from Firestore
 function currentUser() {
   return new Promise((resolve) => {
-    const unsub = onAuthStateChanged(auth, (u) => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
       unsub();
       if (!u) return resolve(null);
-      // If you later add custom claims/role checks, read them here.
+
+      let role = "user";
+      try {
+        // Aligns with AdminGuard: read users/{uid}.role === "admin"
+        const snap = await getDoc(doc(db, "users", u.uid));
+        if (snap.exists()) {
+          role = snap.data()?.role || "user";
+        }
+      } catch (e) {
+        console.error("Failed to read user role", e);
+      }
+
       resolve({
         uid: u.uid,
         email: u.email ?? undefined,
         emailVerified: !!u.emailVerified,
-        role: "admin", // keep simple; rules remain unchanged
+        role,
       });
     });
   });
