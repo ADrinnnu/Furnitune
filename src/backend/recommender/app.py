@@ -8,6 +8,14 @@ import firebase_admin
 from firebase_admin import credentials, firestore, storage
 
 from model import RecommenderModel
+import os, sys
+if os.name == "nt":
+    try:
+        sys.stdout.reconfigure(encoding="utf-8")
+        sys.stderr.reconfigure(encoding="utf-8")
+    except Exception:
+        pass
+    
 
 # -------------------- Flask --------------------
 app = Flask(__name__)
@@ -26,7 +34,7 @@ if not firebase_admin._apps:
 
 db = firestore.client()
 bucket = storage.bucket()
-print(f"🔧 Using Storage bucket: {bucket.name}")
+print(f" Using Storage bucket: {bucket.name}")
 
 # -------------------- Model --------------------
 recommender = RecommenderModel()
@@ -67,7 +75,7 @@ def load_products():
             url = pick_first_image_url(str(p["slug"]))
 
         if not url:
-            print(f"⚠️ no image for {d.id} (slug={p.get('slug')})")
+            print(f"no image for {d.id} (slug={p.get('slug')})")
             continue
 
         p["images"] = [url]
@@ -75,7 +83,7 @@ def load_products():
         ids.append(d.id)
         urls.append(url)
 
-    print(f"✅ Loaded {len(products)} products with valid images")
+    print(f" Loaded {len(products)} products with valid images")
     return products, ids, urls
 
 # -------------------- Build index once --------------------

@@ -1,10 +1,14 @@
-
+// src/web/components/FloatingRobot.jsx
 import React, { useState, useEffect, useRef } from "react";
-import { Link, useLocation } from "react-router-dom";
+import { useLocation } from "react-router-dom";
 import "../FloatingRobot.css";
 
-const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
+import { onAuthStateChanged } from "firebase/auth";
+import { auth } from "../firebase"; 
 
+const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
+const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
+const RECO_URL = (import.meta.env.VITE_RECO_URL || "/recommender").replace(/\/+$/, "");
 
 const PANEL_CSS = `
 .mini-panel{position:fixed;right:22px;bottom:84px;width:420px;max-width:calc(100vw - 24px);
@@ -43,10 +47,8 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-
 const BotBubble = ({ children }) => <div className="msg bot"><div className="bubble bot">{children}</div></div>;
 const UserBubble = ({ children }) => <div className="msg user"><div className="bubble user">{children}</div></div>;
-
 
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 const TYPE_QUESTIONS = {
@@ -85,7 +87,6 @@ const TYPE_QUESTIONS = {
   ],
 };
 
-
 const TYPE_ALIASES = {
   bed: ["bed","beds"],
   sofa: ["sofa","sofas","couch","couches"],
@@ -104,9 +105,11 @@ function itemLooksLikeType(item, type) {
   ].filter(Boolean).map(str).join(" ");
   return want.some(w => hay.includes(w));
 }
+function wantsReco(s) {
+  return /\b(recommend|recommendation|suggest|best|which|pick|choose|fit|suit|ideas?)\b/i.test(s || "");
+}
 
 export default function FloatingRobot() {
- 
   const [open, setOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const wrapRef = useRef(null);
@@ -127,34 +130,60 @@ export default function FloatingRobot() {
     return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onEsc); };
   }, [open]);
 
- 
+  // 👤 current user (or Guest)
+  const [me, setMe] = useState(null);
+  const [meName, setMeName] = useState("Guest");
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, (u) => {
+      if (!u) {
+        setMe(null);
+        setMeName("Guest");
+        return;
+      }
+      const fallback = u.email ? u.email.split("@")[0] : "Guest";
+      const nice = (u.displayName && u.displayName.trim()) || fallback || "Guest";
+      setMe(u);
+      setMeName(nice);
+    });
+    return () => unsub();
+  }, []);
+
+  // Recommender state
   const [recoOpen, setRecoOpen] = useState(false);
   const [recoInitialized, setRecoInitialized] = useState(false);
   const [recoHealth, setRecoHealth] = useState(null);
   const [recoBusy, setRecoBusy] = useState(false);
   const [recoError, setRecoError] = useState("");
-  const [recoMessages, setRecoMessages] = useState([]); 
-  const [recoImage, setRecoImage] = useState(null);     
+  const [recoMessages, setRecoMessages] = useState([]);
+  const [recoImage, setRecoImage] = useState(null);
   const [recoType, setRecoType] = useState("");
   const [recoAnswers, setRecoAnswers] = useState({});
   const [recoQIndex, setRecoQIndex] = useState(0);
   const recoFileRef = useRef(null);
   const recoScrollRef = useRef(null);
 
- 
+  // FAQ (BizChat backend)
   const [faqOpen, setFaqOpen] = useState(false);
   const [faqMessages, setFaqMessages] = useState([]);
   const [faqInput, setFaqInput] = useState("");
+  const [faqBusy, setFaqBusy] = useState(false);
+  const [faqError, setFaqError] = useState("");
   const faqScrollRef = useRef(null);
 
- 
+  // stable session id for conversation memory
+  const [bizSid] = useState(() => {
+    const key = "bizchat.sid";
+    let v = localStorage.getItem(key);
+    if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(key, v); }
+    return v;
+  });
+
   useEffect(() => {
     window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v=>!v) };
     return () => { delete window.FurnituneFAQ; };
   }, []);
 
- 
-   useEffect(() => {
+  useEffect(() => {
     window.FurnituneReco = {
       open: () => {
         setRecoOpen(true);
@@ -169,7 +198,6 @@ export default function FloatingRobot() {
       toggle: () => setRecoOpen(v => !v)};
     return () => { delete window.FurnituneReco; };
   }, []);
-
 
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
@@ -188,26 +216,22 @@ export default function FloatingRobot() {
     ]);
   }, [recoOpen, recoInitialized]);
 
- 
   useEffect(() => {
     if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight;
   }, [recoMessages, recoError, recoBusy]);
   useEffect(() => {
     if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight;
-  }, [faqMessages]);
+  }, [faqMessages, faqBusy, faqError]);
 
- 
   const addRecoMsg = (m) => setRecoMessages(prev => [...prev, m]);
   function recoAskType(){ addRecoMsg({ role:"bot", text:"What type of furniture do you want?", chips:TYPES }); }
   function recoAskNext(type, idx){ const q=(TYPE_QUESTIONS[type]||[])[idx]; if(q) addRecoMsg({ role:"bot", text:q.prompt, chips:q.options }); }
   function recoBuildQuery(type, a){ const bits=[type, ...Object.values(a)]; return bits.join(", "); }
   const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
- 
   async function recommendBest(type, allAnswers) {
     if (recoHealth && recoHealth !== "ok") { addRecoMsg({ role:"bot", text:"Hmm, the recommender service looks offline right now. Please try again later." }); return; }
     setRecoError(""); setRecoBusy(true);
-
     addRecoMsg({ role:"bot", text:"Got it! Let me find the best match for you…" });
 
     try {
@@ -219,26 +243,20 @@ export default function FloatingRobot() {
       const data = await res.json();
       let items = Array.isArray(data.results) ? data.results : [];
 
-     
       let sameType = items.filter(it => itemLooksLikeType(it, type));
 
-     
       if (sameType.length > 0) {
         const exact = sameType[0];
         addRecoMsg({ role:"bot", text:"Here’s the best match from our catalog:" });
         addRecoMsg({ role:"bot", product: exact });
       } else {
-       
         const res2 = await fetch(`${API_BASE}/recommend`, {
           method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ k: 6, text: type })
         });
         const data2 = await res2.json();
         sameType = (Array.isArray(data2.results) ? data2.results : []).filter(it => itemLooksLikeType(it, type));
 
-        addRecoMsg({
-          role:"bot",
-          text:`I couldn’t find a perfect ${type.toLowerCase()} that fits those preferences. Here are some related ${type.toLowerCase()}s:`
-        });
+        addRecoMsg({ role:"bot", text:`I couldn’t find a perfect ${type.toLowerCase()} that fits those preferences. Here are some related ${type.toLowerCase()}s:` });
         addRecoMsg({ role:"bot", cards: sameType.slice(0, 4) });
       }
 
@@ -251,7 +269,6 @@ export default function FloatingRobot() {
     }
   }
 
- 
   function onRecoChipClick(label){
     if (label === "Change type"){ setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); addRecoMsg({role:"bot", text:"Okay—what type would you like?"}); recoAskType(); return; }
     if (label === "Start over"){
@@ -262,7 +279,6 @@ export default function FloatingRobot() {
       ]);
       return;
     }
-
     if (label === "📷 Upload photo"){
       addRecoMsg({ role:"user", text:"Upload photo" });
       addRecoMsg({ role:"bot", text:"Choose a photo from your device, or tap Skip for now.", chips:["📷 Upload photo","Skip for now"] });
@@ -296,7 +312,7 @@ export default function FloatingRobot() {
     recoAskType();
   }
 
- 
+  // fallback content if backend fails / doesn't know
   const CONTACT = { phone:"123-323-312", email:"Furnitune@jameyl.com", live:"Offline now" };
   const FAQS = [
     { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
@@ -304,11 +320,81 @@ export default function FloatingRobot() {
     { q:"What can I customize?", a:"Request custom furniture (dimensions, materials, colors) and add reference images.", tags:["customization"] },
     { q:"Do you accept furniture repair requests?", a:"Yes—even for items not purchased from us. Submit photos and details for assessment.", tags:["repairs"] },
   ];
-  function faqBoot(){ setFaqMessages([{role:"bot",text:"Hi! I’m your Furnitune assistant. What can I help you with?"},{role:"bot",text:"Pick a quick question below, or type your own:",chips:FAQS.map(x=>x.q)}]); }
-  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen]); 
-  function answerFor(s0){ const s=s0.trim().toLowerCase(); if(/call|phone|number|contact/.test(s)) return `You can call us at ${CONTACT.phone}.`; if(/email|mail/.test(s)) return `You can email us at ${CONTACT.email}.`; if(/chat|live/.test(s)) return `Live Chat is ${CONTACT.live}.`; const d=FAQS.find(f=>f.q.toLowerCase()===s); if(d) return d.a; const c=FAQS.find(f=> (f.q+" "+(f.tags||[]).join(" ")).toLowerCase().includes(s)); return c?c.a:"I’m not sure yet. Try one of the quick questions above.";}
-  function onFaqChip(q){ setFaqMessages(p=>[...p,{role:"user",text:q},{role:"bot",text:answerFor(q)}]); }
-  function onSendFaq(){ const msg=faqInput.trim(); if(!msg) return; setFaqInput(""); setFaqMessages(p=>[...p,{role:"user",text:msg},{role:"bot",text:answerFor(msg)}]); }
+  function faqBoot(){
+    const hi = meName ? `Hi ${meName}!` : "Hi Guest!";
+    setFaqMessages([
+      { role:"bot", text:`${hi} I’m your Furnitune assistant. How can I help you today?` },
+      { role:"bot", text:"Pick a quick question below, or type your own:", chips:FAQS.map(x=>x.q) }
+    ]);
+  }
+  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen, meName]);
+
+  function answerFor(s0){
+    const s=s0.trim().toLowerCase();
+    if(/call|phone|number|contact/.test(s)) return `You can call us at ${CONTACT.phone}.`;
+    if(/email|mail/.test(s)) return `You can email us at ${CONTACT.email}.`;
+    if(/chat|live/.test(s)) return `Live Chat is ${CONTACT.live}.`;
+    const d=FAQS.find(f=>f.q.toLowerCase()===s); if(d) return d.a;
+    const c=FAQS.find(f=> (f.q+" "+(f.tags||[]).join(" ")).toLowerCase().includes(s));
+    return c?c.a:`I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`;
+  }
+
+  // --- BizChat call (backend) ---
+  async function askBiz(question){
+    setFaqBusy(true);
+    setFaqError("");
+    try{
+      const payload = {
+        question,
+        sessionId: bizSid,
+        user: me ? { id: me.uid, name: meName, email: me.email || "" } : { id: "guest", name: "Guest", email: "" }
+      };
+
+      const res = await fetch(`${BIZCHAT_BASE}/ask`, {
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
+      });
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = await res.json(); // { answer }
+
+      const raw = (data.answer || "").trim();
+      const stripped = raw.replace(/[.\s]/g,"");
+      const safeAnswer = stripped.length < 3
+        ? `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`
+        : raw;
+
+      const chips = wantsReco(question) ? ["Open Recommender"] : undefined;
+
+      setFaqMessages(p => [...p, { role:"bot", text: safeAnswer, ...(chips ? { chips } : {}) }]);
+    } catch(e){
+      setFaqMessages(p => [...p, { role:"bot", text: answerFor(question) }]);
+      setFaqError(e.message || "BizChat failed");
+    } finally{
+      setFaqBusy(false);
+    }
+  }
+
+  function onFaqChip(q){
+    if (q === "Open Recommender"){
+      if (window.FurnituneReco?.open) {
+        window.FurnituneReco.open();
+        setFaqOpen(false);
+      } else {
+        window.location.href = RECO_URL;
+      }
+      return;
+    }
+    setFaqMessages(p=>[...p,{role:"user",text:q}]);
+    askBiz(q);
+  }
+
+  function onSendFaq(){
+    const msg=faqInput.trim(); if(!msg) return;
+    setFaqInput("");
+    setFaqMessages(p=>[...p,{role:"user",text:msg}]);
+    askBiz(msg);
+  }
 
   return (
     <>
@@ -321,9 +407,8 @@ export default function FloatingRobot() {
           <div id="fab-menu" className="fab-menu" role="menu">
             <button type="button" className="fab-item" role="menuitem" title="FAQ Chatbot" onClick={()=>{setFaqOpen(true);setOpen(false);}}>💬</button>
             <button type="button" className="fab-item" role="menuitem" title="Recommender" onClick={()=>{
-              setRecoOpen(true); setOpen(false);
-              setRecoInitialized(false); setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
-              setRecoImage(null); setRecoMessages([]);
+              if (window.FurnituneReco?.open) window.FurnituneReco.open();
+              setOpen(false);
             }}>✨</button>
           </div>
         )}
@@ -341,6 +426,8 @@ export default function FloatingRobot() {
                 {m.chips?.length ? <div className="chips">{m.chips.map(c=><button key={c} className="chip" onClick={()=>onFaqChip(c)}>{c}</button>)}</div> : null}
               </BotBubble>
           )}
+          {faqBusy && <BotBubble><span className="muted">Thinking…</span></BotBubble>}
+          {faqError && <BotBubble><span style={{color:"crimson"}}>{faqError}</span></BotBubble>}
         </div>
         <div className="compose">
           <input className="input" value={faqInput} placeholder="Ask a question…" onChange={(e)=>setFaqInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&onSendFaq()}/>
