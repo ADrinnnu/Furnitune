@@ -72,7 +72,15 @@ export default function Footer() {
           </div>
 
           <div className="socials">
-            <a className="icon-circle" aria-label="Facebook" href="#"><Icon name="facebook" /></a>
+<a
+  className="icon-circle"
+  aria-label="Facebook"
+  href="https://www.facebook.com/people/Furnitune/61581022593293"
+  target="_blank"
+  rel="noopener noreferrer"
+>
+  <Icon name="facebook" />
+</a>
             <a className="icon-circle" aria-label="Instagram" href="#"><Icon name="instagram" /></a>
           </div>
         </div>
