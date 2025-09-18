@@ -536,22 +536,23 @@ header.nav .container {
 
 .payment-container {
   display: flex;
-  justify-content: space-between;
+  gap: 20px;
+  margin: 20px auto;
   max-width: 1100px;
-  margin: 30px auto;
-  gap: 40px;
-  padding: 20px;
 }
 
-/* Left Payment Form */
+/* LEFT SIDE - Payment Form */
 .payment-form {
   flex: 1.5;
-  height: 350px;
   background: #fff;
   padding: 30px;
   border-radius: 8px;
   box-shadow: 0 2px 6px rgba(0,0,0,0.1);
 
+  display: flex;
+  flex-direction: column;
+  align-items: center;   /* center QR and buttons */
+  text-align: center;
 }
 
 .payment-form h3 {
@@ -566,36 +567,43 @@ header.nav .container {
   border-top: 1px solid #ccc;
 }
 
+.payment-form p {
+  font-size: 14px;
+  margin-bottom: 15px;
+}
+
+.payment-form img {
+  max-width: 220px;  /* keeps QR smaller */
+  height: auto;
+  margin: 12px 0 20px;
+  display: block;
+  border-radius: 8px;
+}
+
 .payment-form label {
   display: block;
   margin-bottom: 6px;
   font-size: 14px;
   font-weight: bold;
+  text-align: left;   /* keep label left aligned */
+  width: 100%;
 }
 
-.payment-form input {
+.payment-form input[type="file"] {
   width: 100%;
   padding: 10px;
-  margin-bottom: 15px;
+  margin-bottom: 20px;
   border: 1px solid #ccc;
   border-radius: 6px;
-}
-
-.payment-icons {
-  display: flex;
-  gap: 10px;
-  margin-bottom: 20px;
-}
-
-.payment-icons img {
-  width: 40px;
-  height: auto;
+  background: #f9f9f9;
 }
 
 .form-actions {
   display: flex;
   justify-content: center;
   gap: 15px;
+  width: 100%;
+  margin-top: 10px;
 }
 
 .back-btn {
@@ -614,6 +622,16 @@ header.nav .container {
   border-radius: 20px;
   cursor: pointer;
 }
+
+/* RIGHT SIDE - Order Summary */
+.order-summary {
+  flex: 1;
+  background: #fff;
+  padding: 30px;
+  border-radius: 8px;
+  box-shadow: 0 2px 6px rgba(0,0,0,0.1);
+}
+
 
 /* Right Order Summary */
 .order-summary {

@@ -16,6 +16,7 @@ import "../Orders.css";
 
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing" },
+  { value: "preparing", label: "Preparing" },   
   { value: "to_ship", label: "To Ship" },
   { value: "to_receive", label: "To Receive" },
   { value: "completed", label: "Completed" },
@@ -206,6 +207,33 @@ export default function Orders() {
                         <summary>View</summary>
 
                         <div className="details-grid">
+                          {(o?.paymentProofUrl) && (
+  <div className="span-2">
+    <h4>Payment Proof</h4>
+    <a href={o.paymentProofUrl} target="_blank" rel="noreferrer">
+      <img src={o.paymentProofUrl} alt="Payment Proof" style={{ maxWidth: 200, borderRadius: 8 }} />
+    </a>
+  </div>
+)}
+
+<div className="span-2">
+  <h4>Payment Status</h4>
+  <select
+    className="status-select"
+    value={o.paymentStatus || "pending"}
+    onChange={async (e) => {
+      const db = getFirestore(auth.app);
+      await updateDoc(doc(db, "orders", o.id), {
+        paymentStatus: e.target.value,
+      });
+    }}
+  >
+    <option value="pending">Pending</option>
+    <option value="paid">Paid</option>
+    <option value="rejected">Rejected</option>
+  </select>
+</div>
+
                           <div>
                             <div className="kv">
                               <label>Status</label>
