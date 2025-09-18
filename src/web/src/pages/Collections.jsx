@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
 
-import repsImg from "../assets/qual.jpg"; 
+import repsImg from "../assets/pano.png"; 
 
 import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
@@ -47,7 +47,7 @@ const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
 const COLLECTION_META = {
   "comfort-core": {
     title: "COMFORT CORE COLLECTION",
-    banner: repsImg,
+    banner: repsImg, 
     description:
       "Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.",
     synonyms: ["Comfort Core", "Comfort Core Collection"],
