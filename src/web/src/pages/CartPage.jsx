@@ -1,9 +1,9 @@
+// src/pages/CartPage.jsx
 import React, { useMemo, useState } from "react";
 import { useNavigate, Link } from "react-router-dom";
 import { useCart } from "../state/CartContext";
 import { setCheckoutItems } from "../utils/checkoutSelection";
 import "../CartPage.css";
-
 
 const peso = (n) => `₱${Number(n || 0).toLocaleString()}`;
 
@@ -17,15 +17,9 @@ export default function CartPage() {
     clearCart,
   } = useCart();
 
-  // key we’ll use to identify a line (docId if present, else productId+size)
   const keyFor = (it) => it.docId || `${it.productId || it.id}__${it.size || "default"}`;
 
-  // selection state
-  const [selected, setSelected] = useState(() => {
-    // default: nothing selected
-    return new Set();
-  });
-
+  const [selected, setSelected] = useState(() => new Set());
   const allKeys = useMemo(() => cartItems.map(keyFor), [cartItems]);
 
   const allSelected = allKeys.length > 0 && allKeys.every((k) => selected.has(k));
@@ -34,29 +28,24 @@ export default function CartPage() {
   const toggleOne = (k) => {
     setSelected((cur) => {
       const next = new Set(cur);
-      if (next.has(k)) next.delete(k);
-      else next.add(k);
+      next.has(k) ? next.delete(k) : next.add(k);
       return next;
     });
   };
-
   const toggleAll = () => {
-    setSelected((cur) => {
-      if (allSelected) return new Set(); // deselect all
-      return new Set(allKeys); // select all
-    });
+    setSelected((cur) => (allSelected ? new Set() : new Set(allKeys)));
   };
 
   const selectedItems = useMemo(
     () => cartItems.filter((it) => selected.has(keyFor(it))),
     [cartItems, selected]
   );
-
   const selectedTotal = useMemo(
-    () => selectedItems.reduce((sum, it) => sum + Number(it.price || 0) * Number(it.qty || 1), 0),
+    () => selectedItems.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 1), 0),
     [selectedItems]
   );
 
+  // ⬇️ No removal here; just store items and go to checkout
   const handleCheckoutSelected = () => {
     if (!selectedItems.length) return alert("Please select at least one item to check out.");
     const items = selectedItems.map((it) => ({
@@ -72,14 +61,16 @@ export default function CartPage() {
   };
 
   const handleCheckoutSingle = (item) => {
-    const items = [{
-      productId: item.productId || item.id || "",
-      name: item.name || item.title || "Item",
-      qty: Number(item.qty || 1),
-      price: Number(item.price ?? item.unitPrice ?? item.basePrice ?? 0),
-      size: item.size || null,
-      image: item.image || item.thumb || "",
-    }];
+    const items = [
+      {
+        productId: item.productId || item.id || "",
+        name: item.name || item.title || "Item",
+        qty: Number(item.qty || 1),
+        price: Number(item.price ?? item.unitPrice ?? item.basePrice ?? 0),
+        size: item.size || null,
+        image: item.image || item.thumb || "",
+      },
+    ];
     setCheckoutItems(items);
     navigate("/checkout");
   };
@@ -95,7 +86,6 @@ export default function CartPage() {
 
   return (
     <div className="cart-wrap container">
-      {/* Top row: select-all + clear */}
       <div className="cart-toolbar">
         <label className="select-all">
           <input type="checkbox" checked={allSelected} onChange={toggleAll} />
@@ -104,14 +94,12 @@ export default function CartPage() {
         <button className="link danger" onClick={clearCart}>Clear cart</button>
       </div>
 
-      {/* Cart list */}
       <div className="cart-list">
         {cartItems.map((it) => {
           const k = keyFor(it);
           const isChecked = selected.has(k);
           return (
             <div className="cart-card" key={k}>
-              {/* left checkbox */}
               <div className="cart-check">
                 <input
                   type="checkbox"
@@ -121,7 +109,6 @@ export default function CartPage() {
                 />
               </div>
 
-              {/* product block */}
               <div className="cart-main">
                 <div className="cart-line">
                   <img
@@ -137,17 +124,27 @@ export default function CartPage() {
                       <span className="muted">Qty: {it.qty}</span>
                     </div>
 
-                    {/* qty controls (kept minimal; remove if your UI shouldn't show them) */}
                     <div className="qty-row">
-                      <button className="qty-btn" onClick={() => decrementQuantity(it.docId || it.id)} aria-label="Decrease quantity">−</button>
+                      <button
+                        className="qty-btn"
+                        onClick={() => decrementQuantity(it.docId || it.id)}
+                        aria-label="Decrease quantity"
+                      >
+                        −
+                      </button>
                       <span className="qty-val">{it.qty}</span>
-                      <button className="qty-btn" onClick={() => incrementQuantity(it.docId || it.id)} aria-label="Increase quantity">+</button>
+                      <button
+                        className="qty-btn"
+                        onClick={() => incrementQuantity(it.docId || it.id)}
+                        aria-label="Increase quantity"
+                      >
+                        +
+                      </button>
                     </div>
                   </div>
                 </div>
               </div>
 
-              {/* price + remove */}
               <div className="cart-side">
                 <div className="cart-price">{peso((it.price || 0) * (it.qty || 1))}</div>
                 <button
@@ -160,12 +157,8 @@ export default function CartPage() {
                 </button>
               </div>
 
-              {/* per-item checkout (matches your mock where button is near each card) */}
               <div className="cart-action">
-                <button
-                  className="checkout-btn"
-                  onClick={() => handleCheckoutSingle(it)}
-                >
+                <button className="checkout-btn" onClick={() => handleCheckoutSingle(it)}>
                   CHECK OUT
                 </button>
               </div>
@@ -174,7 +167,6 @@ export default function CartPage() {
         })}
       </div>
 
-      {/* Bottom summary + checkout selected */}
       <div className="cart-summary-bar">
         <div className="summary-left">
           <span className="muted">

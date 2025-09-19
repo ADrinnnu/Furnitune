@@ -8,7 +8,7 @@ const DEFAULT_FIREBASE_CONFIG = {
   apiKey: "AIzaSyCYHjH1hIdCFyyOgCzjwxMf3KsZ0yXtHSM",
   authDomain: "furnitune-64458.firebaseapp.com",
   projectId: "furnitune-64458",
-  storageBucket: "furnitune-64458.firebasestorage.app", // ✅ correct (was .com)
+  storageBucket: "furnitune-64458.firebasestorage.app", 
   messagingSenderId: "533053483607",
   appId: "1:533053483607:web:1b745e49e508aa438a1112",
   measurementId: "G-GE7DYZWPW7",

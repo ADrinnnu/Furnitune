@@ -1,15 +1,58 @@
-// src/Checkout.jsx
-import React, { useMemo, useState } from "react";
-import { useNavigate } from "react-router-dom";
+// src/pages/Checkout.jsx
+import React, { useEffect, useMemo, useState } from "react";
+import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
-import { getCheckoutItems, clearCheckoutItems } from "../utils/checkoutSelection";
+import { getCheckoutItems } from "../utils/checkoutSelection";
 import { auth, firestore } from "../firebase";
-import { addDoc, collection, serverTimestamp } from "firebase/firestore";
+import { doc, getDoc } from "firebase/firestore";
 import { signInAnonymously } from "firebase/auth";
+
+const PENDING_KEY = "PENDING_CHECKOUT";
 
 export default function Checkout() {
   const navigate = useNavigate();
-  const items = getCheckoutItems(); // items selected from Buy Now / Cart
+  const [params] = useSearchParams();
+  const repairId = params.get("repairId"); // from Repair flow
+
+  // Right-side list (cart/buy-now or single repair item)
+  const [items, setItems] = useState(getCheckoutItems());
+
+  // If Repair flow, load that one repair as a line item for preview
+  useEffect(() => {
+    if (!repairId) return;
+    (async () => {
+      try {
+        const snap = await getDoc(doc(firestore, "repairs", repairId));
+        if (!snap.exists()) return;
+        const r = snap.data();
+        const title = `Repair — ${r.typeLabel || r.typeId || "Furniture"}`;
+        const price =
+          Number(
+            r.total ??
+              ((r.typePrice || 0) +
+                (r.coverMaterialPrice || 0) +
+                (r.frameMaterialPrice || 0))
+          ) || 0;
+        const image = Array.isArray(r.images) && r.images[0] ? r.images[0] : null;
+
+        setItems([
+          {
+            id: `repair-${repairId}`,
+            productId: `repair-${repairId}`,
+            name: title,
+            title,
+            qty: 1,
+            price,
+            image,
+            imageUrl: image,
+            meta: { repairId },
+          },
+        ]);
+      } catch (e) {
+        console.error("Failed to load repair for checkout:", e);
+      }
+    })();
+  }, [repairId]);
 
   // Form state
   const [email, setEmail] = useState("");
@@ -23,7 +66,7 @@ export default function Checkout() {
   const [zip, setZip] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Totals to mirror your screenshot
+  // Totals (preview only; the real order will be created on Payment)
   const shippingFee = 510;
   const discount = 69;
   const subtotal = useMemo(
@@ -36,71 +79,55 @@ export default function Checkout() {
   );
   const total = subtotal - discount + shippingFee;
 
-  // Create order then go to payment
   const handleContinueToPay = async () => {
     if (!items || items.length === 0) {
       alert("Your order is empty.");
       return;
     }
-    if (!email || !first || !last || !street || !city || !stateProv || !zip) {
+    if (!email || !first || !last || !street || !city || !stateProv || !zip || !phone) {
       alert("Please complete all required fields.");
       return;
     }
 
+    // Ensure we have a user (anon is fine) — but DO NOT create the order here.
     try {
-      // Ensure there’s a user (anonymous if needed)
-      const user =
-        auth.currentUser || (await signInAnonymously(auth)).user;
-
-      const shippingAddress = {
-        fullName: `${first} ${last}`.trim(),
-        firstName: first,
-        lastName: last,
-        email,
-        phone,
-        line1: street,
-        line2: apt || "",
-        city,
-        province: stateProv,
-        zip,
-        newsletterOptIn: !!news,
-      };
-
-      // 1) Create the order
-      const orderData = {
-        userId: user.uid,
-        createdAt: serverTimestamp(),
-        status: "processing",
-        items,
-        subtotal,
-        discount,
-        shippingFee,
-        total,
-        shippingAddress,
-        contactEmail: email,
-        note: "Created from Checkout",
-      };
-      const ref = await addDoc(collection(firestore, "orders"), orderData);
-
-      // 2) Create a notification so the user can jump to Order Summary
-      const firstItem = items[0] || null;
-      await addDoc(collection(firestore, "users", user.uid, "notifications"), {
-        type: "order_placed",
-        orderId: ref.id,
-        title: "Thanks for your order!",
-        body: `We’re processing your order ${String(ref.id).slice(0, 6)}.`,
-        image: firstItem?.image || firstItem?.img || null,
-        link: `/ordersummary?orderId=${ref.id}`,
-        createdAt: serverTimestamp(),
-        read: false,
-      });
-
-      clearCheckoutItems();
-      navigate(`/Payment?orderId=${ref.id}`);
+      if (!auth.currentUser) {
+        await signInAnonymously(auth);
+      }
     } catch (e) {
-      console.error(e);
-      alert("Could not create order. Please try again.");
+      console.warn("Anonymous sign-in failed (continuing):", e);
     }
+
+    const shippingAddress = {
+      fullName: `${first} ${last}`.trim(),
+      firstName: first,
+      lastName: last,
+      email,
+      phone,
+      line1: street,
+      line2: apt || "",
+      city,
+      province: stateProv,
+      zip,
+      newsletterOptIn: !!news,
+    };
+
+    // Save a pending payload the Payment page will use to CREATE the order.
+    const payload = {
+      items,
+      subtotal,
+      discount,
+      shippingFee,
+      total,
+      shippingAddress,
+      repairId: repairId || null,
+      createdAtClient: Date.now(),
+    };
+    sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
+
+    // Go to Payment (no orderId yet!)
+    const qs = repairId ? `?repairId=${encodeURIComponent(repairId)}` : "";
+    navigate(`/Payment${qs}`);
   };
 
   return (
@@ -126,90 +153,37 @@ export default function Checkout() {
 
         <h3>SHIPPING ADDRESS</h3>
         <div className="form-grid">
-          <input
-            type="text"
-            placeholder="*First Name"
-            required
-            value={first}
-            onChange={(e) => setFirst(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="*Last Name"
-            required
-            value={last}
-            onChange={(e) => setLast(e.target.value)}
-          />
+          <input type="text" placeholder="*First Name" required value={first} onChange={(e) => setFirst(e.target.value)} />
+          <input type="text" placeholder="*Last Name"  required value={last}  onChange={(e) => setLast(e.target.value)} />
         </div>
 
-        <input
-          type="text"
-          placeholder="*Street Address"
-          required
-          value={street}
-          onChange={(e) => setStreet(e.target.value)}
-        />
-        <input
-          type="text"
-          placeholder="Apt/Suite # (Optional)"
-          value={apt}
-          onChange={(e) => setApt(e.target.value)}
-        />
+        <input type="text" placeholder="*Street Address" required value={street} onChange={(e) => setStreet(e.target.value)} />
+        <input type="text" placeholder="Apt/Suite # (Optional)" value={apt} onChange={(e) => setApt(e.target.value)} />
 
         <div className="form-grid">
-          <input
-            type="text"
-            placeholder="*City"
-            required
-            value={city}
-            onChange={(e) => setCity(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="*State"
-            required
-            value={stateProv}
-            onChange={(e) => setStateProv(e.target.value)}
-          />
-          <input
-            type="text"
-            placeholder="*Zip/Postal Code"
-            required
-            value={zip}
-            onChange={(e) => setZip(e.target.value)}
-          />
+          <input type="text" placeholder="*City"   required value={city}     onChange={(e) => setCity(e.target.value)} />
+          <input type="text" placeholder="*State"  required value={stateProv} onChange={(e) => setStateProv(e.target.value)} />
+          <input type="text" placeholder="*Zip/Postal Code" required value={zip} onChange={(e) => setZip(e.target.value)} />
         </div>
 
-        <input
-          type="text"
-          placeholder="*Phone Number"
-          required
-          value={phone}
-          onChange={(e) => setPhone(e.target.value)}
-        />
+        <input type="text" placeholder="*Phone Number" required value={phone} onChange={(e) => setPhone(e.target.value)} />
 
         <div className="form-actions">
-          <button className="cancel-btn" onClick={() => navigate(-1)}>
-            CANCEL
-          </button>
-          <button className="pay-btn" onClick={handleContinueToPay}>
-            CONTINUE TO PAY
-          </button>
+          <button className="cancel-btn" onClick={() => navigate(-1)}>CANCEL</button>
+          <button className="pay-btn" onClick={handleContinueToPay}>CONTINUE TO PAY</button>
         </div>
       </div>
 
-      {/* RIGHT: Order Summary (matches screenshot) */}
+      {/* RIGHT: Order Summary */}
       <div className="checkout-summary">
         <OrderSummaryCard
           title="ORDER SUMMARY"
           showSupport
           showAddress={false}
-          // If your component expects raw values:
           items={items}
-          discount={discount}
-          shippingFee={shippingFee}
-          // If it expects a single order object, it can read from this too:
-          order={{ items, subtotal, discount, shippingFee, total }}
+          discount={69}
+          shippingFee={510}
+          order={{ items, subtotal, discount: 69, shippingFee: 510, total }}
         />
       </div>
     </div>
