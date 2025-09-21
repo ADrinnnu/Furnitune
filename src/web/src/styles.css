@@ -153,20 +153,7 @@ header.nav .container {
 }
 
 /* ---------- Hero ---------- */
-.hero {
-  display:grid; grid-template-columns:1.08fr .92fr; gap:var(--space);
-  padding-block:22px;
-}
-.hero .panel {
-  border-radius:var(--radius-lg); overflow:hidden;
-  min-height:280px;
-}
-.hero .panel:first-child {
-  background:linear-gradient(120deg,var(--accent) 0%, var(--accent-2) 100%);
-  color:#fff; display:grid; place-items:center; padding:28px;
-}
-.hero .panel:last-child { background:var(--paper) }
-.hero .panel img { height:100%; width:100%; object-fit:cover }
+
 
 /* ---------- FeatureStrip ---------- */
 .pill-grid {
