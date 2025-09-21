@@ -1,0 +1,49 @@
+/* src/components/FeatureStrip.css */
+
+/* Base from your styles */
+.pill-grid {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+  margin-top: 12px;
+}
+
+.pill {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  background: var(--paper);
+  border-radius: var(--radius);
+  padding: 14px;
+  box-shadow: var(--shadow);
+  border: 1px solid #eef0ea;
+  height: 100%;
+}
+
+.pill .card {
+  width: 42px;
+  height: 42px;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: #f4f7f4;
+  color: var(--accent);
+  font-weight: 800;
+  line-height: 1;   /* keeps icon perfectly centered */
+  font-size: 20px;  /* consistent icon size */
+}
+
+/* Tidy text alignment */
+.pill .title { font-weight: 800; line-height: 1.2; }
+.pill .muted { font-size: 14px; line-height: 1.3; margin-top: 4px; }
+
+/* Make rows consistent height */
+.pill-grid > .pill { align-self: stretch; }
+
+/* Responsive columns */
+@media (max-width: 1024px) {
+  .pill-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+}
+@media (max-width: 640px) {
+  .pill-grid { grid-template-columns: 1fr; }
+}
