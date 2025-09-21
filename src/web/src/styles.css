@@ -366,6 +366,7 @@ header.nav .container {
   scroll-snap-type: x mandatory; 
 }
 
+
 .product-cards {
   flex: 0 0 auto;     
   width: 280px;        
