@@ -1,0 +1,207 @@
+/* src/pages/MyPurchases.css */
+
+:root {
+  --mp-green: #2c5f4a;
+  --mp-green-600: #1f4c3b;
+  --mp-surface: #fff;
+  --mp-muted: #666;
+  --mp-border: #e5e5e5;
+  --mp-chip-bg: #eaf3ef;
+  --mp-gutter: 18px;   
+
+}
+
+/* Container */
+.orders-container{
+  max-width: 1200px;        /* was 1100; tweak if needed */
+  margin: 30px auto;
+  padding: 20px;
+  box-sizing: border-box;
+}
+
+/* -------- Tabs: fill entire row (no right-side gap) -------- */
+.order-tabs{
+  padding: 0 var(--mp-gutter);
+  box-sizing: border-box;
+  width: 100%;
+  display: grid;
+  grid-auto-flow: column;    /* one row */
+  grid-auto-columns: 1fr;    /* each tab gets equal width */
+  gap: 12px;                 /* spacing between tabs */
+  margin: 0 0 22px 0;
+  align-items: stretch;
+}
+
+.order-tabs button{
+  width: 100%;               /* stretch to the grid cell */
+  text-align: center;
+  white-space: nowrap;       /* keep labels on one line */
+  line-height: 1.15;
+  padding: 10px 12px;        /* a little bigger */
+  background: var(--mp-green);
+  color: #fff;
+  border: none;
+  border-radius: 10px;
+  font-size: 12px;           /* small but readable so all fit */
+  letter-spacing: .4px;
+  cursor: pointer;
+  transition: background .15s ease, transform .15s ease;
+}
+
+.order-tabs button:hover{
+  background: #285845;
+  transform: translateY(-1px);
+}
+
+.order-tabs button.active{
+  background: var(--mp-green-600);
+  box-shadow: 0 0 0 2px rgba(255,255,255,.08) inset;
+  transform: translateY(-1px);
+}
+
+/* Keep everything on one line on smaller widths by shrinking just a bit */
+@media (max-width: 1100px){
+  .order-tabs{ gap: 10px; }
+  .order-tabs button{ font-size: 11px; padding: 9px 10px; }
+}
+@media (max-width: 980px){
+  .order-tabs{ gap: 8px; }
+  .order-tabs button{ font-size: 10.5px; padding: 8px 9px; }
+}
+
+/* -------- Order Card -------- */
+.order-card{
+  padding: 16px var(--mp-gutter);  
+  background: var(--mp-surface);
+  border-radius: 10px;
+  box-shadow: 0 2px 6px rgba(0,0,0,.08);
+  margin-bottom: 22px;
+  border-bottom: 2px solid #000;
+}
+.order-header {
+  font-weight: 700;
+  font-size: 14px;
+  margin-bottom: 10px;
+  color: #223;
+}
+
+/* Card body */
+.order-body {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+.order-body img {
+  width: 110px;
+  height: 78px;
+  object-fit: cover;
+  border-radius: 8px;
+  border: 1px solid #ddd;
+  background: #f8f8f8;
+}
+.order-info {
+  flex: 1;
+  min-width: 0;
+}
+.order-title {
+  font-size: 15px;
+  font-weight: 700;
+  margin: 0 0 2px;
+}
+.order-seller,
+.order-qty {
+  font-size: 12px;
+  color: var(--mp-muted);
+  margin: 2px 0;
+}
+
+/* Right block: price + status chip */
+.order-right {
+  margin-left: auto;
+  text-align: right;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 6px;
+  min-width: 140px;
+}
+.order-price {
+  font-weight: 700;
+  font-size: 14px;
+  color: #111;
+}
+
+/* Status chip */
+.status-chip {
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 12px;
+  font-weight: 700;
+  border: 1px solid var(--mp-green);
+  color: var(--mp-green);
+  background: var(--mp-chip-bg);
+}
+.status-processing { background: var(--mp-chip-bg); color: var(--mp-green); }
+.status-preparing  { background: #fff6e6; border-color: #9a6a00; color: #9a6a00; }
+.status-to_ship,
+.status-to_receive { background: #e6f4ff; border-color: #0b5b88; color: #0b5b88; }
+.status-completed  { background: #e6f6ea; border-color: #1f7a3a; color: #1f7a3a; }
+.status-refund     { background: #fff0e6; border-color: #9a3d00; color: #9a3d00; }
+.status-cancelled  { background: #f3f3f3; border-color: #9a9a9a; color: #666; }
+
+/* Footer row with action buttons */
+.order-footer {
+  margin-top: 14px;
+  border-top: 1px solid var(--mp-border);
+  padding-top: 12px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.order-total {
+  font-weight: 700;
+  font-size: 13px;
+}
+
+/* Actions: unified big green buttons */
+.order-actions {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.order-actions .pending {
+  background: var(--mp-green);
+  color: #fff;
+  border: none;
+  border-radius: 8px;
+  padding: 12px 22px;           
+  font-size: 12px;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  font-weight: 700;
+  cursor: pointer;
+  transition: filter 0.15s ease, transform 0.05s ease;
+}
+.order-actions .pending:hover { filter: brightness(0.95); }
+.order-actions .pending:active { transform: translateY(1px); }
+.order-actions .pending[disabled] {
+  opacity: 0.45;
+  cursor: not-allowed;
+  filter: none;
+}
+
+.muted {
+  color: #888;
+  margin: 24px 0 12px;
+  text-align: center;
+  font-size: 14px;
+}
+
+@media (max-width: 680px) {
+  .order-body img { width: 90px; height: 64px; }
+  .order-right { min-width: auto; }
+  .order-footer { flex-direction: column; align-items: flex-start; }
+  .order-total { margin-bottom: 4px; }
+}

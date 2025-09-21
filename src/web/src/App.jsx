@@ -22,6 +22,7 @@ import CartPage from "./pages/CartPage.jsx";
 import Repair from "./pages/Repair.jsx";
 import Customization from "./pages/Customization.jsx";
 import ProductDetail from "./pages/ProductDetail";
+import ReturnRequest from "./pages/ReturnRequest.jsx";
 
 /* Auth pages */
 import Login from "./pages/Login.jsx";
@@ -139,6 +140,7 @@ export default function App() {
         <Route path="/visitus" element={<VisitUs />} />
         <Route path="/aboutus" element={<AboutUs />} />
         <Route path="/collections/:slug" element={<Collections />} />
+        <Route path="/return" element={<ReturnRequest />} />
 
 
 
