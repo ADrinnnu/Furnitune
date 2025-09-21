@@ -3,7 +3,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Link, NavLink, useNavigate } from "react-router-dom";
 import { useCart } from "../state/CartContext";
 import { auth } from "../firebase";
-import { onAuthStateChanged, signOut } from "firebase/auth";
+import { signOut, onIdTokenChanged } from "firebase/auth"; // removed onAuthStateChanged
 import { useProductSearch } from "../hooks/useProductSearch";
 import "../ProfileMenu.css";
 import { useIsAdmin } from "../hooks/useIsAdmin";
@@ -36,8 +36,9 @@ export default function Navbar() {
   // ✅ admin flag from Firestore users/{uid}.role
   const { isAdmin } = useIsAdmin();
 
+  // single lightweight auth listener (no reload here)
   useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => setUser(u));
+    const unsub = onIdTokenChanged(auth, (u) => setUser(u || null));
     return () => unsub();
   }, []);
 
@@ -278,7 +279,22 @@ export default function Navbar() {
                 aria-label="Open profile menu"
                 onClick={() => setOpen((s) => !s)}
               >
-                <span className="avatar-circle">{initials}</span>
+                {user.photoURL ? (
+                  <img
+                    src={user.photoURL}
+                    alt=""
+                    decoding="async"
+                    style={{
+                      width: 28,
+                      height: 28,
+                      borderRadius: "50%",
+                      objectFit: "cover",
+                      display: "block",
+                    }}
+                  />
+                ) : (
+                  <span className="avatar-circle">{initials}</span>
+                )}
               </button>
 
               {open && (
@@ -295,7 +311,6 @@ export default function Navbar() {
                     <span>My Purchases</span>
                   </Link>
 
-                  {/* ✅ Show Admin link only for admins (no layout/CSS changes) */}
                   {user && isAdmin && (
                     <Link to="/admin" className="pd-item" onClick={() => setOpen(false)}>
                       <span className="pd-ic">🛡️</span>

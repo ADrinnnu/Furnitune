@@ -1,3 +1,4 @@
+// src/pages/Account.jsx
 import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import {
@@ -5,7 +6,8 @@ import {
   sendPasswordResetEmail,
   updateProfile,
 } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth, storage } from "../firebase";
+import { ref as sRef, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../Account.css";
 
 function readExtras(uid) {
@@ -70,19 +72,44 @@ export default function Account() {
   const onFile = async (e) => {
     const f = e.target.files?.[0];
     if (!f) return;
-    const reader = new FileReader();
-    reader.onload = async () => {
-      const dataUrl = reader.result;
-      try {
-        await updateProfile(auth.currentUser, { photoURL: dataUrl });
-        setPhotoURL(dataUrl);
-        setMsg("Profile picture updated.");
-        setTimeout(() => setMsg(""), 2000);
-      } catch (err) {
-        setMsg(err.message || "Failed to update picture.");
-      }
-    };
-    reader.readAsDataURL(f);
+
+    if (!auth.currentUser?.uid) {
+      setMsg("Please sign in again.");
+      return;
+    }
+
+    let localPreview;
+    try {
+      // instant local preview while uploading
+      localPreview = URL.createObjectURL(f);
+      setPhotoURL(localPreview);
+
+      setMsg("Uploading picture…");
+      const safeName = f.name.replace(/\s+/g, "_");
+      const path = `avatars/${auth.currentUser.uid}/${Date.now()}_${safeName}`;
+      const r = sRef(storage, path);
+
+      // cacheable upload (faster repeat loads)
+      await uploadBytes(r, f, {
+        contentType: f.type,
+        cacheControl: "public, max-age=31536000, immutable",
+      });
+
+      const url = await getDownloadURL(r);
+
+      await updateProfile(auth.currentUser, { photoURL: url });
+
+      // refresh the user ONCE here (not in navbar)
+      try { await auth.currentUser.reload(); } catch {}
+
+      setPhotoURL(url);
+      setMsg("Profile picture updated.");
+      setTimeout(() => setMsg(""), 2000);
+    } catch (err) {
+      setMsg(err?.message || "Failed to update picture.");
+    } finally {
+      if (localPreview) URL.revokeObjectURL(localPreview);
+    }
   };
 
   const save = async () => {
@@ -90,8 +117,10 @@ export default function Account() {
     setSaving(true);
     setMsg("");
     try {
-      if ((auth.currentUser.displayName || "") !== name.trim()) {
-        await updateProfile(auth.currentUser, { displayName: name.trim() });
+      const newName = name.trim();
+      if ((auth.currentUser.displayName || "") !== newName) {
+        await updateProfile(auth.currentUser, { displayName: newName });
+        try { await auth.currentUser.reload(); } catch {}
       }
       writeExtras(user.uid, { address: address.trim(), phone: phone.trim() });
       setMsg("Saved!");
@@ -127,7 +156,6 @@ export default function Account() {
       <h2 className="account-title">MY ACCOUNT</h2>
 
       <div className="account-grid">
-        {/* Left: Avatar block */}
         <section className="account-left">
           <div className="avatar">
             {photoURL ? (
@@ -151,7 +179,6 @@ export default function Account() {
           />
         </section>
 
-        {/* Right: form */}
         <section className="account-right">
           <div className="field-row">
             <label>USERNAME:</label>

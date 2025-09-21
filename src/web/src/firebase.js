@@ -3,6 +3,9 @@ import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 import { getStorage } from "firebase/storage";
+import { initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+
+
 
 const DEFAULT_FIREBASE_CONFIG = {
   apiKey: "AIzaSyCYHjH1hIdCFyyOgCzjwxMf3KsZ0yXtHSM",
@@ -32,6 +35,9 @@ function loadFirebaseConfig() {
 }
 
 export const app = initializeApp(loadFirebaseConfig());
+export const db = initializeFirestore(app, {
+  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+});
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);
 export const storage = getStorage(app); // no second arg
