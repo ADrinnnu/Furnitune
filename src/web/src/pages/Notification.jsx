@@ -23,23 +23,39 @@ export default function Notification() {
 
   useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid || false)), []);
 
-  const baseCol = useMemo(() => (uid ? collection(db, "users", uid, "notifications") : null), [db, uid]);
+  const baseCol = useMemo(
+    () => (uid ? collection(db, "users", uid, "notifications") : null),
+    [db, uid]
+  );
 
   // live list
   useEffect(() => {
     if (!baseCol) return;
     setInitialLoading(true);
 
-    const constraints = [orderBy("createdAt", "desc"), limit(10)];
-    if (filter === "unread") constraints.unshift(where("read", "==", false));
+    // For "all": order by createdAt desc (no index required).
+    // For "unread": NO orderBy to avoid the composite index; we'll sort client-side.
+    let constraints = [];
+    if (filter === "all") {
+      constraints = [orderBy("createdAt", "desc"), limit(10)];
+    } else {
+      constraints = [where("read", "==", false), limit(10)];
+    }
 
     const q = query(baseCol, ...constraints);
     const stop = onSnapshot(q, (snap) => {
-      const docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+      if (filter === "unread") {
+        docs.sort(
+          (a, b) =>
+            (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+        );
+      }
       setItems(docs);
       setCursor(snap.docs[snap.docs.length - 1] || null);
       setInitialLoading(false);
     });
+
     return stop;
   }, [baseCol, filter]);
 
@@ -47,12 +63,25 @@ export default function Notification() {
     if (!baseCol || !cursor) return;
     setMoreLoading(true);
 
-    const constraints = [orderBy("createdAt", "desc"), startAfter(cursor), limit(10)];
-    if (filter === "unread") constraints.unshift(where("read", "==", false));
+    let constraints = [];
+    if (filter === "all") {
+      constraints = [orderBy("createdAt", "desc"), startAfter(cursor), limit(10)];
+    } else {
+      // default ordering by __name__ (doc id); allowed without index.
+      constraints = [where("read", "==", false), startAfter(cursor), limit(10)];
+    }
 
     const q = query(baseCol, ...constraints);
     const snap = await getDocs(q);
-    setItems((prev) => [...prev, ...snap.docs.map((d) => ({ id: d.id, ...d.data() }))]);
+
+    let next = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (filter === "unread") {
+      next.sort(
+        (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+      );
+    }
+
+    setItems((prev) => [...prev, ...next]);
     setCursor(snap.docs[snap.docs.length - 1] || null);
     setMoreLoading(false);
   };
@@ -73,18 +102,13 @@ export default function Notification() {
     }
   };
 
-  // NEW: Mark all unread notifications as read (in batches)
+  // Bulk: mark all unread as read (in 500-doc batches)
   const markAllRead = async () => {
     if (!uid || !baseCol || bulkLoading) return;
     setBulkLoading(true);
     try {
       let totalUpdated = 0;
-      // Loop until no unread remain; each loop handles up to 500 docs
-      // No pagination needed because after each batch the matched docs become read=true
-      // and will be excluded from the next query.
-      // If you have >500 unread at once, this will iterate multiple times.
-      // (Adjust the `limit()` size if you like.)
-      // Note: Equality filter (read==false) avoids needing a composite index.
+      // loop until no unread remain
       // eslint-disable-next-line no-constant-condition
       while (true) {
         const q = query(baseCol, where("read", "==", false), limit(500));
@@ -92,16 +116,14 @@ export default function Notification() {
         if (snap.empty) break;
 
         const batch = writeBatch(db);
-        snap.docs.forEach((d) => {
-          batch.update(d.ref, { read: true, readAt: serverTimestamp() });
-        });
+        snap.docs.forEach((d) =>
+          batch.update(d.ref, { read: true, readAt: serverTimestamp() })
+        );
         await batch.commit();
         totalUpdated += snap.size;
 
-        // Small yield to keep UI responsive on very large sets
         await new Promise((r) => setTimeout(r, 0));
       }
-      // Optionally, you could show a toast here:
       console.log(`Marked ${totalUpdated} notifications as read.`);
     } catch (e) {
       console.error("Failed to mark all notifications read:", e);
@@ -142,7 +164,6 @@ export default function Notification() {
             Unread
           </button>
 
-          {/* NEW: Mark all as read button */}
           <button
             className="mark-all-btn"
             onClick={markAllRead}
