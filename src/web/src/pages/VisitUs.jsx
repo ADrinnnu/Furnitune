@@ -4,6 +4,7 @@ import cpnImg from "../assets/cpn.jpeg";
 import cusImg from "../assets/cust.jpg"
 import recsImg from "../assets/recs.jpg"
 import repsImg from "../assets/qual.jpg"
+import "../VisitUs.css";
 
 const features = [
   {

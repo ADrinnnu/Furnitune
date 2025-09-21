@@ -7,6 +7,7 @@ import repsImg from "../assets/pano.png";
 import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
+import "../Collections.css";
 
 
 const norm = (s) =>

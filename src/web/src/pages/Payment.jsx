@@ -16,6 +16,8 @@ import {
 import { auth } from "../firebase";
 import qrCodeImg from "../assets/payment.jpg";
 import { getCheckoutItems, clearCheckoutItems } from "../utils/checkoutSelection";
+import "../Payment.css";
+
 
 const PENDING_KEY = "PENDING_CHECKOUT";
 

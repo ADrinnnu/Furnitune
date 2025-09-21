@@ -4,6 +4,7 @@ import repair from "../assets/reps.jpg"
 import recommend from "../assets/recs.jpg"
 import cpn from "../assets/cpn.jpeg"
 import coco from "../assets/coco.jpg"
+import "../AboutUs.css";
 
 
 const AboutUs = () => {

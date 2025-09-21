@@ -6,6 +6,7 @@ import { getCheckoutItems } from "../utils/checkoutSelection";
 import { auth, firestore } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
 import { signInAnonymously } from "firebase/auth";
+import "../Checkout.css";
 
 const PENDING_KEY = "PENDING_CHECKOUT";
 

@@ -2,14 +2,7 @@
    Product Detail – FULL STYLES
    =============================== */
 
-:root{
-  --bg: #f5f1e7;
-  --paper: #ffffff;
-  --muted: #6f756e;
-  --line: #eee3ce;
-  --accent: #2f6a59;       
-  --shadow: 0 8px 24px rgba(0,0,0,.08);
-}
+
 
 .pd-loading{ padding:32px; }
 

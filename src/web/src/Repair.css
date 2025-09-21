@@ -33,12 +33,7 @@
 .upload-actions { display:flex; gap:12px; margin:12px 0; }
 .info-box { background:#fff; border:1px solid #ddd; border-radius:12px; padding:16px; }
 
-.card {
-  background:#fff;
-  border:1px solid #ddd;
-  border-radius:12px;
-  padding:14px;
-}
+
 .card1 {
   background:#fff;
   border:1px solid #ddd;

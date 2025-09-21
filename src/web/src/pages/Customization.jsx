@@ -1,5 +1,5 @@
 import React from "react";
-
+import "../Customization.css";
 
 export default function Customization() {
   return (
