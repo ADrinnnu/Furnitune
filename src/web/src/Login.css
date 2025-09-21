@@ -60,12 +60,7 @@
   box-sizing: border-box;
 }
 
-.field-label {
-  font-size: .9rem;
-  font-weight: 600;
-  color: #2f3d35;
-  margin-top: 4px;
-}
+
 
 .pw-wrap {
   position: relative;
