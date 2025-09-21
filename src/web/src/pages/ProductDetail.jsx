@@ -13,6 +13,7 @@ import {
 import { useCart } from "../state/CartContext";
 import { setCheckoutItems } from "../utils/checkoutSelection";
 import "../ProductDetail.css";
+import ReviewsBlock from "../components/ReviewsBlock";
 
 const FABRICS = [
   { id: "marble", label: "Marble", sw: "#d9d3c7" },
@@ -228,7 +229,7 @@ export default function ProductDetail() {
     }
   }
 
-  // ---------- SKELETON: mirrors layout so nothing shifts ----------
+  // ---------- SKELETON ----------
   if (product === undefined) {
     return (
       <div className="pd-wrap">
@@ -271,7 +272,7 @@ export default function ProductDetail() {
       </div>
     );
   }
-  // ---------------------------------------------------------------
+  // -----------------------------
 
   if (product === null) return <div className="pd-loading">Product not found.</div>;
 
@@ -311,6 +312,9 @@ export default function ProductDetail() {
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
             </p>
           </div>
+
+          {/* REVIEWS — directly below Description */}
+          <ReviewsBlock firestore={firestore} productId={product.id} />
         </section>
 
         {/* RIGHT */}
