@@ -4,7 +4,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 import {
   getFirestore, collection, query, where, orderBy, limit,
-  onSnapshot, startAfter, getDocs, updateDoc, doc, serverTimestamp
+  onSnapshot, startAfter, getDocs, updateDoc, doc, serverTimestamp, writeBatch
 } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import "../Notification.css";
@@ -18,6 +18,7 @@ export default function Notification() {
   const [filter, setFilter] = useState("all"); // 'all' | 'unread'
   const [initialLoading, setInitialLoading] = useState(true);
   const [moreLoading, setMoreLoading] = useState(false);
+  const [bulkLoading, setBulkLoading] = useState(false);
   const [cursor, setCursor] = useState(null);
 
   useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid || false)), []);
@@ -72,6 +73,43 @@ export default function Notification() {
     }
   };
 
+  // NEW: Mark all unread notifications as read (in batches)
+  const markAllRead = async () => {
+    if (!uid || !baseCol || bulkLoading) return;
+    setBulkLoading(true);
+    try {
+      let totalUpdated = 0;
+      // Loop until no unread remain; each loop handles up to 500 docs
+      // No pagination needed because after each batch the matched docs become read=true
+      // and will be excluded from the next query.
+      // If you have >500 unread at once, this will iterate multiple times.
+      // (Adjust the `limit()` size if you like.)
+      // Note: Equality filter (read==false) avoids needing a composite index.
+      // eslint-disable-next-line no-constant-condition
+      while (true) {
+        const q = query(baseCol, where("read", "==", false), limit(500));
+        const snap = await getDocs(q);
+        if (snap.empty) break;
+
+        const batch = writeBatch(db);
+        snap.docs.forEach((d) => {
+          batch.update(d.ref, { read: true, readAt: serverTimestamp() });
+        });
+        await batch.commit();
+        totalUpdated += snap.size;
+
+        // Small yield to keep UI responsive on very large sets
+        await new Promise((r) => setTimeout(r, 0));
+      }
+      // Optionally, you could show a toast here:
+      console.log(`Marked ${totalUpdated} notifications as read.`);
+    } catch (e) {
+      console.error("Failed to mark all notifications read:", e);
+    } finally {
+      setBulkLoading(false);
+    }
+  };
+
   if (uid === null) {
     return (
       <div className="notifications-container">
@@ -81,10 +119,13 @@ export default function Notification() {
     );
   }
 
+  const hasUnreadInView = items.some((n) => !n.read);
+
   return (
     <div className="notifications-container">
       <div className="notifications-header">
         <h2>NOTIFICATIONS</h2>
+
         <div className="notifications-tabs">
           <button
             className={filter === "all" ? "active" : ""}
@@ -99,6 +140,19 @@ export default function Notification() {
             type="button"
           >
             Unread
+          </button>
+
+          {/* NEW: Mark all as read button */}
+          <button
+            className="mark-all-btn"
+            onClick={markAllRead}
+            type="button"
+            disabled={bulkLoading}
+            aria-busy={bulkLoading ? "true" : "false"}
+            title="Mark all unread notifications as read"
+            style={{ marginLeft: 12 }}
+          >
+            {bulkLoading ? "Marking…" : "Mark all as read"}
           </button>
         </div>
       </div>
