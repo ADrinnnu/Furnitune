@@ -307,7 +307,8 @@ export default function ProductDetail() {
 
           <div className="pd-desc slab">
             <h3>DESCRIPTION</h3>
-            <p>
+            {/* ADDED: preserve admin newlines and spacing */}
+            <p style={{ whiteSpace: "pre-wrap" }}>
               {product.description ||
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
             </p>

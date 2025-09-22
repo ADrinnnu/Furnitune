@@ -141,6 +141,7 @@ export default function Products() {
     thumbnail: "",
     ratingAvg: 0,
     reviewsCount: 0,
+    description: "", // <-- NEW FIELD
   });
 
   useEffect(() => {
@@ -245,6 +246,7 @@ export default function Products() {
         setItems((prev) => [created, ...prev]);
       }
 
+      // reset form after save/create
       setForm((f) => ({
         ...f,
         id: undefined,
@@ -254,6 +256,7 @@ export default function Products() {
         basePrice: 0,
         images: [],
         thumbnail: "",
+        description: "", // clear description too
         dimensionDefaults: { width_cm: 0, depth_cm: 0, height_cm: 0 },
       }));
       setFiles([]);
@@ -552,6 +555,24 @@ export default function Products() {
                 setTagsText(e.target.value);
                 setDirty(true);
               }}
+            />
+          </L>
+        </div>
+      </div>
+
+      {/* Row 5: Description (NEW) */}
+      <div className="admin-card" style={{ marginBottom: 12 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+          <L label="Description (supports line breaks)">
+            <textarea
+              className="admin-input"
+              rows={6}
+              value={form.description}
+              onChange={(e) => {
+                setForm((f) => ({ ...f, description: e.target.value }));
+                setDirty(true);
+              }}
+              placeholder={`E.g.\nRelaxed profile with tapered legs.\n\nSeat height: 45 cm. Frame: kiln-dried hardwood.`}
             />
           </L>
         </div>
