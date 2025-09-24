@@ -46,7 +46,7 @@ export default function OrderSummaryCard({
   // Order Summary–only bits
   showAddress = false,      // controls Delivery Address render
   shippingAddress = null,   // optional address (still gated by showAddress)
-  showSupport = true,       // NEW: controls the “Need Assistance?” box
+  showSupport = true,       // controls the “Need Assistance?” box
 }) {
   const [order, setOrder] = useState(undefined);
   const [items, setItems] = useState([]);
@@ -203,6 +203,12 @@ export default function OrderSummaryCard({
             <div className="cart-info">
               <p>{name}</p>
               <span>Qty: {qty}</span>
+              {(it?.colorName || it?.colorHex) && (
+                <span>
+                  {/* simple text only; no CSS changes */}
+                  Color: {it.colorName || "—"}{it.colorHex ? ` (${it.colorHex})` : ""}
+                </span>
+              )}
             </div>
             <span className="price">{peso(price)}</span>
           </div>

@@ -16,10 +16,10 @@ import "../ProductDetail.css";
 import ReviewsBlock from "../components/ReviewsBlock";
 
 const FABRICS = [
-  { id: "marble", label: "Marble", sw: "#d9d3c7" },
+  { id: "marble", label: "Marble",     sw: "#d9d3c7" },
   { id: "terra",  label: "Terracotta", sw: "#b86a52" },
-  { id: "cement", label: "Cement", sw: "#6f6f6f" },
-  { id: "harbour",label: "Harbour", sw: "#2c3e50" },
+  { id: "cement", label: "Cement",     sw: "#6f6f6f" },
+  { id: "harbour",label: "Harbour",    sw: "#2c3e50" },
 ];
 
 const DEFAULT_SIZES_BY_TYPE = {
@@ -99,6 +99,11 @@ export default function ProductDetail() {
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
+  // NEW: dynamic colors + flag + validator
+  const [colors, setColors] = useState(FABRICS);
+  const [hasCover, setHasCover] = useState(true);
+  const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
+
   useEffect(() => {
     if (!id) { setProduct(null); return; }
     (async () => {
@@ -128,6 +133,24 @@ export default function ProductDetail() {
           ratingAvg: Number(data.ratingAvg ?? 0),
           reviewsCount: Number(data.reviewsCount ?? 0),
         });
+
+        // NEW: cover colors from Firestore
+        const rawColors = Array.isArray(data.colorOptions) ? data.colorOptions : [];
+        const mapped = rawColors
+          .map((c, i) => {
+            const hex = String(c?.hex || c?.color || "").trim();
+            const name = (c?.name || hex || `Color ${i + 1}`).trim();
+            if (!isHex(hex)) return null;
+            return { id: `${slugify(name)}-${hex.replace("#","") || i}`, label: name, sw: hex };
+          })
+          .filter(Boolean);
+        const coverEnabled = (data.hasCover === false) ? false : (mapped.length > 0 || data.hasCover === true);
+        setHasCover(coverEnabled);
+        if (coverEnabled) {
+          const palette = mapped.length ? mapped : FABRICS;
+          setColors(palette);
+          setFabric((prev) => palette.find(p => p.id === prev)?.id || palette[0].id);
+        }
 
         const catSlug = resolveCategorySlug(data);
         const typeLabel = normalizeTypeLabel(data, catSlug);
@@ -210,6 +233,9 @@ export default function ProductDetail() {
     notes: notes || "",
     thumb: images?.[0] || "/placeholder.jpg",
     image: images?.[0] || "/placeholder.jpg",
+    // NEW: persist chosen color (if applicable)
+    colorName: (colors.find(c => c.id === fabric)?.label) || null,
+    colorHex: (colors.find(c => c.id === fabric)?.sw) || null,
   });
 
   function handleBuyNow() {
@@ -307,14 +333,14 @@ export default function ProductDetail() {
 
           <div className="pd-desc slab">
             <h3>DESCRIPTION</h3>
-            {/* ADDED: preserve admin newlines and spacing */}
+            {/* preserve admin newlines */}
             <p style={{ whiteSpace: "pre-wrap" }}>
               {product.description ||
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
             </p>
           </div>
 
-          {/* REVIEWS — directly below Description */}
+          {/* REVIEWS */}
           <ReviewsBlock firestore={firestore} productId={product.id} />
         </section>
 
@@ -335,7 +361,8 @@ export default function ProductDetail() {
               <div className="rp-price">{priceStr}</div>
             </div>
 
-            {/* Step 1 */}
+            {/* Step 1 — hidden when product has no cover */}
+            {hasCover && (
             <div className="rp-step">
               <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 1: !o[1] }))} aria-expanded={open[1]}>
                 <span className="rp-num">1</span>
@@ -346,7 +373,7 @@ export default function ProductDetail() {
               {open[1] && (
                 <div className="rp-step-c">
                   <div className="swatches">
-                    {FABRICS.map((f) => (
+                    {colors.map((f) => (
                       <button
                         key={f.id}
                         className={`swatch ${fabric === f.id ? "active" : ""}`}
@@ -358,11 +385,12 @@ export default function ProductDetail() {
                     ))}
                   </div>
                   <div className="swatch-labels">
-                    {FABRICS.map((f) => <span key={f.id}>{f.label}</span>)}
+                    {colors.map((f) => <span key={f.id}>{f.label}</span>)}
                   </div>
                 </div>
               )}
             </div>
+            )}
 
             {/* Step 2 */}
             <div className="rp-step">

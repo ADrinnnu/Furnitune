@@ -1,3 +1,4 @@
+// src/pages/OrderSummary.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -47,7 +48,7 @@ export default function OrderSummary() {
   const location = useLocation();
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const qsOrderId = qs.get("orderId");
-  const customId = qs.get("customId"); // <-- NEW
+  const customId = qs.get("customId"); // custom orders
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
@@ -77,7 +78,6 @@ export default function OrderSummary() {
       (snap) => {
         if (!snap.exists()) return setOrder(null);
         const c = { id: snap.id, ...snap.data() };
-        // Synthesize an "order-like" object for OrderSummaryCard
         const title = c.productTitle || c.title || "Customized Furniture";
         const price = Number(c.unitPrice || 0);
         const image =
@@ -103,6 +103,9 @@ export default function OrderSummary() {
               size: c.size || null,
               price,
               image,
+              // NEW: show chosen color/material
+              colorHex: (c?.cover && c.cover.color) ? String(c.cover.color) : null,
+              colorName: (c?.cover && c.cover.materialType) ? String(c.cover.materialType) : null,
             },
           ],
           note: c.notes || null,
@@ -143,7 +146,7 @@ export default function OrderSummary() {
       {/* LEFT: summary card */}
       <div className="os-left">
         {order === undefined ? (
-          // Skeleton for the summary card
+          // Skeleton
           <div className="os-card skeleton" role="status" aria-busy="true" style={{ padding: 20 }}>
             <div style={{ height: 20, width: 220, background: "#eee", marginBottom: 12, borderRadius: 6 }} />
             <div style={{ height: 12, width: 120, background: "#eee", marginBottom: 8, borderRadius: 6 }} />
@@ -154,7 +157,7 @@ export default function OrderSummary() {
         ) : (
           <OrderSummaryCard
             title="ORDER SUMMARY"
-            orderId={order?.id || orderId || customId /* show an id */}
+            orderId={order?.id || orderId || customId}
             showAddress
             showSupport={false}
             order={order}
@@ -167,7 +170,6 @@ export default function OrderSummary() {
         <div className="os-card os-status">
           <h4>ORDER DETAILS</h4>
 
-          {/* Top: bordered bar containing the steps */}
           <div
             className="os-steps-bar"
             style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", background: "#fff" }}
@@ -208,7 +210,6 @@ export default function OrderSummary() {
             </div>
           </div>
 
-          {/* Reserve space so the steps never jump when text length changes */}
           <p className="os-note" style={{ minHeight: 56, marginTop: 12 }}>
             {order === undefined ? (
               <span className="line skeleton" style={{ display: "block", height: 14, width: "70%", background: "#eee" }} />

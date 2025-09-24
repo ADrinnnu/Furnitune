@@ -5,10 +5,10 @@ import "../AllFurnitures.css";
 import {
   firestore,
   collection, getDocs,
-  // addDoc, serverTimestamp,   // removed from use here
+  // addDoc, serverTimestamp,
   storage, ref, getDownloadURL,
 } from "../firebase";
-import { useNavigate } from "react-router-dom"; // NEW
+import { useNavigate } from "react-router-dom";
 
 /* ------------------------ Helpers ------------------------ */
 const norm = (s) => String(s || "").trim().toLowerCase();
@@ -58,7 +58,7 @@ function formatPrice(p) {
   return n.toLocaleString("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 });
 }
 
-/* ------------------------ Image hydration (same as AllFurnitures) ------------------------ */
+/* ------------------------ Image hydration ------------------------ */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
   if (/^gs:\/\//i.test(u)) {
@@ -195,7 +195,7 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
 
 /* ------------------------ Page ------------------------ */
 export default function Customization() {
-  const navigate = useNavigate(); // NEW
+  const navigate = useNavigate();
 
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [productsByCategory, setProductsByCategory] = useState({});
@@ -208,6 +208,11 @@ export default function Customization() {
 
   const [coverColor, setCoverColor] = useState("#D3C6B3");
   const [coverMaterialType, setCoverMaterialType] = useState("Fabric");
+
+  // NEW: color palette + flag + validator
+  const [coverPalette, setCoverPalette] = useState([]);
+  const [coverEnabled, setCoverEnabled] = useState(true);
+  const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
 
   const [additionalChoices, setAdditionalChoices] = useState([]);
   const [additionalPicked, setAdditionalPicked] = useState({});
@@ -281,6 +286,16 @@ export default function Customization() {
       const next = {}; adds.forEach((a) => { next[a] = !!prev[a]; }); return next;
     });
 
+    // NEW: cover colors from Firestore
+    const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
+    const palette = raw
+      .map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" }))
+      .filter((c) => isHex(c.hex));
+    const enabled = (p?.hasCover === false) ? false : (palette.length > 0 || p?.hasCover === true);
+    setCoverEnabled(enabled);
+    setCoverPalette(palette);
+    if (enabled) setCoverColor((palette[0]?.hex) || "#D3C6B3");
+
     setCatalogOpen(false);
   };
 
@@ -288,7 +303,7 @@ export default function Customization() {
     try {
       const pickedAdditionals = Object.entries(additionalPicked).filter(([, v]) => v).map(([k]) => k);
 
-      // NEW: prepare a draft (NOT saved yet)
+      // draft for checkout
       const draft = {
         type: "customization",
         productId: selectedProduct?.id || null,
@@ -306,11 +321,8 @@ export default function Customization() {
         : [],
       };
 
-      // Persist the draft for checkout (survives a refresh)
-      sessionStorage.setItem("custom_draft", JSON.stringify(draft)); // NEW
-
-      // Go to checkout in "custom" mode
-      navigate("/Checkout?custom=1"); // NEW
+      sessionStorage.setItem("custom_draft", JSON.stringify(draft));
+      navigate("/Checkout?custom=1");
     } catch (e) {
       console.error("Prepare custom draft failed:", e);
       alert("Something went wrong. Please try again.");
@@ -342,7 +354,7 @@ export default function Customization() {
                 return (
                   <img
                     src={previewImg}
-                    alt={selectedProduct.title || selectedProduct.name || "Selected product"}
+                    alt={selectedProduct?.title || selectedProduct?.name || "Selected product"}
                     style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
                     onError={(e) => {
                       e.currentTarget.style.display = "none";
@@ -405,15 +417,17 @@ export default function Customization() {
           </div>
           <hr />
 
-          {/* 2 CHOOSE COVER COLOR */}
-          <div className="option">
-            <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
-            <div className="colors" style={{ pointerEvents: "auto" }}>
-              {["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79"].map((c) => (
-                <div key={c} className="color-box" style={colorBoxStyle(c)} onClick={() => setCoverColor(c)} title={c} />
-              ))}
+          {/* 2 CHOOSE COVER COLOR (hidden if hasCover is false) */}
+          {coverEnabled && (
+            <div className="option">
+              <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
+              <div className="colors" style={{ pointerEvents: "auto" }}>
+                {(coverPalette.length ? coverPalette.map(c => c.hex) : ["#D3C6B3","#A29B89","#5E5E5E","#B76E79"]).map((c) => (
+                  <div key={c} className="color-box" style={colorBoxStyle(c)} onClick={() => setCoverColor(c)} title={c} />
+                ))}
+              </div>
             </div>
-          </div>
+          )}
           <hr />
 
           {/* 3 CHOOSE COVER MATERIAL */}
