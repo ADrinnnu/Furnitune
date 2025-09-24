@@ -47,3 +47,22 @@
 @media (max-width: 640px) {
   .pill-grid { grid-template-columns: 1fr; }
 }
+
+
+.pill-grid {
+  position: relative;
+  padding-bottom: 14px;   /* space for the line */
+  margin-bottom: 10px;    /* spacing before the next section */
+}
+
+.pill-grid::after {
+  content: "";
+  position: absolute;
+  left: 0;                /* spans the grid width */
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: #bebcb7;    /* soft line like your mock */
+  box-shadow: 0 1px 0 rgba(0,0,0,.03);
+  border-radius: 1px;
+}
