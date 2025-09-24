@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import "../FloatingRobot.css";
+import botImg from "../assets/letter-f.png";
 
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase"; 
@@ -402,8 +403,16 @@ export default function FloatingRobot() {
 
       {/* Floating FAB */}
       <div ref={wrapRef} className="fab-wrap" style={{ transform:`translateY(${offset*0.2}px)` }}>
-        <button type="button" className="fab-robot" onClick={()=>setOpen(v=>!v)} aria-expanded={open} aria-controls="fab-menu">🤖</button>
-        {open && (
+<button
+  type="button"
+  className="fab-robot"
+  onClick={() => setOpen(v => !v)}
+  aria-expanded={open}
+  aria-controls="fab-menu"
+  aria-label="Assistant"
+>
+  <img src={botImg} alt="" />
+</button>        {open && (
           <div id="fab-menu" className="fab-menu" role="menu">
             <button type="button" className="fab-item" role="menuitem" title="FAQ Chatbot" onClick={()=>{setFaqOpen(true);setOpen(false);}}>💬</button>
             <button type="button" className="fab-item" role="menuitem" title="Recommender" onClick={()=>{
