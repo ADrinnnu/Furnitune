@@ -51,6 +51,48 @@ def pick_first_image_url(slug: str) -> str | None:
             return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
     return None
 
+def looks_like_image_url(u: str) -> bool:
+    if not u or not u.startswith("http"):
+        return False
+    # Block Firebase *metadata* links that return JSON instead of image bytes
+    if "firebasestorage.googleapis.com/v0/b/" in u and "alt=media" not in u:
+        return False
+    return True
+
+# ======== ADDED: helper to convert Firebase metadata links to signed, viewable URLs ========
+from urllib.parse import unquote
+
+def to_viewable_image(u: str) -> str | None:
+    """
+    If `u` is a Firebase Storage *metadata* URL (no ?alt=media), turn it into a
+    short-lived signed URL for direct image loading. Otherwise return it as-is.
+    """
+    if not u or not u.startswith("http"):
+        return None
+
+    # Already looks like a direct image URL (common extensions)
+    lower = u.lower()
+    if lower.endswith((".png", ".jpg", ".jpeg", ".webp", ".gif")) and "alt=media" in lower or "googleapis.com" not in lower:
+        return u
+
+    # Firebase Storage metadata URL pattern → sign it using the bucket in the URL
+    if "firebasestorage.googleapis.com" in u and "/v0/b/" in u and "/o/" in u and "alt=media" not in u:
+        try:
+            after_b = u.split("/v0/b/")[1]
+            bucket_name = after_b.split("/o/")[0]
+            object_enc = after_b.split("/o/")[1].split("?")[0]
+            object_path = unquote(object_enc)  # decode %2F, etc.
+
+            blob = storage.bucket(bucket_name).blob(object_path)
+            return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+        except Exception as e:
+            print("[image-url] signing failed:", e)
+            return None
+
+    return u
+# ======== /ADDED ========
+
+
 def load_products():
     """
     Load active products from Firestore; attach one HTTPS image per product.
@@ -69,6 +111,8 @@ def load_products():
             first = str(p["images"][0])
             if first.startswith("http"):
                 url = first
+                # ADDED: coerce Firebase metadata links → signed, viewable URL
+                url = to_viewable_image(url) or url
 
         # Else try to derive from slug in GCS
         if not url and p.get("slug"):
