@@ -1,9 +1,7 @@
 // src/components/CardCarousel.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useState, useRef } from "react";
 import { Link } from "react-router-dom";
-
-// Reuse the same styles AllFurnitures uses for .product-card, .product-image, etc.
-import "../AllFurnitures.css";
+import "../CardCarousel.css";
 
 // 🔽 Firestore (for filling in missing rating/review data)
 import { firestore } from "../firebase";
@@ -87,6 +85,43 @@ export default function CardCarousel({ items = [], type = "product" }) {
   // 🔽 Local map of fetched ratings: { [id]: { avg, count } }
   const [ratings, setRatings] = useState({});
 
+  // 🔽 slider nav state
+  const trackRef = useRef(null);
+  const [canLeft, setCanLeft] = useState(false);
+  const [canRight, setCanRight] = useState(false);
+
+  // keep arrows enabled/disabled based on scroll position
+  const updateArrows = () => {
+    const el = trackRef.current;
+    if (!el) return;
+    const max = el.scrollWidth - el.clientWidth;
+    setCanLeft(el.scrollLeft > 2);
+    setCanRight(el.scrollLeft < max - 2);
+  };
+
+  useEffect(() => {
+    const el = trackRef.current;
+    if (!el) return;
+    updateArrows();
+    el.addEventListener("scroll", updateArrows, { passive: true });
+    window.addEventListener("resize", updateArrows);
+    return () => {
+      el.removeEventListener("scroll", updateArrows);
+      window.removeEventListener("resize", updateArrows);
+    };
+  }, [items]);
+
+  // scroll by one card at a time
+  const scrollByCards = (dir = 1) => {
+    const el = trackRef.current;
+    if (!el) return;
+    const first = el.querySelector(".product-card");
+    const styles = first ? getComputedStyle(el) : null;
+    const gap = styles ? parseInt(styles.columnGap || styles.gap || "20", 10) : 20;
+    const cardW = first ? first.offsetWidth : 270;
+    el.scrollBy({ left: (cardW + gap) * dir, behavior: "smooth" });
+  };
+
   // Fetch ratings only for items missing them
   useEffect(() => {
     if (type !== "product" || !Array.isArray(items) || items.length === 0) return;
@@ -141,45 +176,78 @@ export default function CardCarousel({ items = [], type = "product" }) {
   // For collections, keep simple cards as before
   if (type !== "product") {
     return (
-      <div className="carousel">
-        {items.map((c, i) => {
-          const to = c.to || c.link || c.href || "#";
-          return (
-            <Link key={c.id || i} to={to} className="card-link">
-              <article className="card">
-                <div className="media">
-                  {c.img || c.image ? (
-                    <img src={c.img || c.image} alt={c.title || "Collection"} />
-                  ) : (
-                    <div className="fallback" />
-                  )}
-                </div>
-                <div className="body">
-                  <h4 className="title">{c.title || "Collection"}</h4>
-                  {c.description && <p className="description">{c.description}</p>}
-                </div>
-              </article>
-            </Link>
-          );
-        })}
+      <div className="carousel-wrap">
+        <div className="carousel" ref={trackRef}>
+          {items.map((c, i) => {
+            const to = c.to || c.link || c.href || "#";
+            return (
+              <Link key={c.id || i} to={to} className="card-link">
+                <article className="card">
+                  <div className="media">
+                    {c.img || c.image ? (
+                      <img src={c.img || c.image} alt={c.title || "Collection"} />
+                    ) : (
+                      <div className="fallback" />
+                    )}
+                  </div>
+                  <div className="body">
+                    <h4 className="title">{c.title || "Collection"}</h4>
+                    {c.description && <p className="description">{c.description}</p>}
+                  </div>
+                </article>
+              </Link>
+            );
+          })}
+        </div>
+        <button
+          className={`nav prev ${canLeft ? "" : "disabled"}`}
+          onClick={() => scrollByCards(-1)}
+          aria-label="Previous"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
+        <button
+          className={`nav next ${canRight ? "" : "disabled"}`}
+          onClick={() => scrollByCards(1)}
+          aria-label="Next"
+        >
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+        </button>
       </div>
     );
   }
 
-  // Products: copy the AllFurnitures product container
+  // Products
   return (
-    <div className="carousel">
-      {items.map((item, idx) => {
-        const fetched = item?.id ? ratings[item.id] : null;
-        const merged = {
-          ...item,
-          ratingAvg:
-            item.ratingAvg ?? item.rating ?? fetched?.avg ?? 0,
-          reviewsCount:
-            item.reviewsCount ?? item.reviews ?? fetched?.count ?? 0,
-        };
-        return <ProductCard key={item.id || idx} item={merged} idx={idx} />;
-      })}
+    <div className="carousel-wrap">
+      <div className="carousel" ref={trackRef}>
+        {items.map((item, idx) => {
+          const fetched = item?.id ? ratings[item.id] : null;
+          const merged = {
+            ...item,
+            ratingAvg:
+              item.ratingAvg ?? item.rating ?? fetched?.avg ?? 0,
+            reviewsCount:
+              item.reviewsCount ?? item.reviews ?? fetched?.count ?? 0,
+          };
+          return <ProductCard key={item.id || idx} item={merged} idx={idx} />;
+        })}
+      </div>
+
+      <button
+        className={`nav prev ${canLeft ? "" : "disabled"}`}
+        onClick={() => scrollByCards(-1)}
+        aria-label="Previous"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M15 6l-6 6 6 6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
+      <button
+        className={`nav next ${canRight ? "" : "disabled"}`}
+        onClick={() => scrollByCards(1)}
+        aria-label="Next"
+      >
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none"><path d="M9 18l6-6-6-6" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"/></svg>
+      </button>
     </div>
   );
 }
