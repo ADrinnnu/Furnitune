@@ -1,0 +1,81 @@
+/* Scope all rules under .ftos to avoid leaks */
+.ftos {
+  --bg: #f8f4e9;
+  --paper: #ffffff;
+  --ink: #1b1b1b;
+  --muted: #6b6f6a;
+  --brand: #166a4d;
+  --border: #eef0ea;
+  --shadow: 0 8px 24px rgba(19,25,20,.08);
+  --radius: 16px;
+  --radius-xl: 20px;
+
+  background: var(--bg);
+  color: var(--ink);
+  min-height: 100vh;
+}
+
+/* Hero */
+.ftos .ftos-hero{ padding: 48px 20px 24px; }
+.ftos .ftos-hero-inner{ max-width: 1200px; margin: 0 auto; }
+.ftos .ftos-eyebrow{
+  font-weight: 700; letter-spacing: .08em; font-size: 12px;
+  text-transform: uppercase; color: var(--muted); margin: 0 0 8px;
+}
+.ftos .ftos-title{ font-size: 44px; line-height: 1.1; margin: 0 0 6px; }
+.ftos .ftos-muted{ color: var(--muted); }
+.ftos .ftos-muted-sm{ color: var(--muted); font-size: 14px; }
+
+/* Grid */
+.ftos .ftos-grid{
+  max-width: 1200px; margin: 0 auto; padding: 12px 20px 60px;
+  display: grid; grid-template-columns: 280px 1fr; gap: 28px; align-items: start;
+}
+
+/* Sidebar */
+.ftos .ftos-toc{ position: sticky; top: 16px; height: fit-content; }
+.ftos .ftos-toc-card, .ftos .ftos-meta-card{
+  background: var(--paper); border: 1px solid var(--border);
+  box-shadow: var(--shadow); border-radius: var(--radius); padding: 16px;
+}
+.ftos .ftos-toc-card + .ftos-meta-card{ margin-top: 12px; }
+.ftos .ftos-toc-card h3{ margin: 0 0 10px; font-size: 16px; }
+.ftos .ftos-toc-card ul{ list-style: none; padding: 0; margin: 0; display: grid; gap: 8px; }
+.ftos .ftos-toc-card a{ text-decoration: none; color: var(--ink); }
+.ftos .ftos-toc-card a:hover{ color: var(--brand); }
+.ftos .ftos-meta-card h4{ margin: 0; }
+.ftos .ftos-meta-card p{ margin: 2px 0 0; }
+
+/* Body */
+.ftos .ftos-body{ display: grid; gap: 16px; }
+.ftos .ftos-card{
+  background: var(--paper); border: 1px solid var(--border);
+  border-radius: var(--radius); box-shadow: var(--shadow); padding: 18px;
+}
+.ftos .ftos-card h2{ font-size: 22px; margin: 0 0 10px; }
+.ftos .ftos-card p{ line-height: 1.7; margin: 0; }
+.ftos .ftos-card p + p, 
+.ftos .ftos-card p + ul{ margin-top: 10px; }
+.ftos .ftos-card ul{ margin: 6px 0 0 18px; line-height: 1.7; }
+.ftos .ftos-contact-list{ list-style: none; margin: 0; padding: 0; display: grid; gap: 8px; }
+
+/* Divider */
+.ftos .ftos-soft-divider{
+  height: 1px;
+  background: linear-gradient(to right, transparent, var(--border), transparent);
+  margin: 6px 0 2px;
+}
+
+/* Links (scoped) */
+.ftos a{ color: var(--brand); }
+.ftos a:hover{ opacity: .9; }
+
+/* Responsive */
+@media (max-width: 980px){
+  .ftos .ftos-grid{ grid-template-columns: 1fr; gap: 16px; }
+  .ftos .ftos-toc{ position: static; order: -1; }
+}
+@media (max-width: 520px){
+  .ftos .ftos-title{ font-size: 34px; }
+  .ftos .ftos-card{ padding: 16px; }
+}

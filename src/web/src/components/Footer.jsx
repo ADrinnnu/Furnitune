@@ -65,7 +65,7 @@ export default function Footer() {
           <div className="meta-links">
             <span>© 2025 Furnitune, All Rights Reserved</span>
             <span className="meta-sep">|</span>
-            <a href="#" className="ft-link">Terms of Service</a>
+            <a href="/terms-of-service" className="ft-link">Terms of Service</a>
             <span className="meta-sep">|</span>
             <a href="/visitus" className="ft-link">Visit us Now</a>
             <span className="meta-sep">|</span>

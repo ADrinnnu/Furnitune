@@ -23,6 +23,8 @@ import Repair from "./pages/Repair.jsx";
 import Customization from "./pages/Customization.jsx";
 import ProductDetail from "./pages/ProductDetail";
 import ReturnRequest from "./pages/ReturnRequest.jsx";
+import TermsOfService from "./pages/TermsOfService";
+
 
 /* Auth pages */
 import Login from "./pages/Login.jsx";
@@ -123,6 +125,7 @@ export default function App() {
         <Route path="/Customization" element={<Customization />} />
         <Route path="/furniture" element={<FurnitureHub />} />
         <Route path="/chatbot" element={<div>ChatBot coming soon</div>} />
+        <Route path="/terms-of-service" element={<TermsOfService />} />
 
         {/* Auth pages */}
         <Route path="/login" element={<Login />} />
