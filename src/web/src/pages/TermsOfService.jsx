@@ -64,8 +64,8 @@ export default function TermsOfService({
         <article className="ftos-body">
           <section className="ftos-card">
             <p>
-              Welcome to <strong>{brand}</strong> (“Company,” “we,” “our,” or “us”).
-              These Terms of Service (“Terms”) govern your access to and use of
+              Welcome to <strong>{brand}</strong>.   
+               These Terms of Service govern your access to and use of
               our website, <strong>{site}</strong>, and related services
               (collectively, the “Services”). By accessing or using the Services,
               you agree to these Terms. If you do not agree, do not use the
