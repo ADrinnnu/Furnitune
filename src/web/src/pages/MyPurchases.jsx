@@ -1,3 +1,4 @@
+// src/pages/MyPurchases.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { auth } from "../firebase";
@@ -76,6 +77,54 @@ const statusText = (s) => {
   };
   return map[s] || String(s || "processing").toUpperCase().replaceAll("_", " ");
 };
+
+/* ---------- NEW: origin helpers (non-breaking) ---------- */
+const getOriginKey = (o) => {
+  // REPAIR if the order links to a repair doc
+  if (o?.repairId) return "REPAIR";
+
+  // CUSTOMIZATION if we can find any marker placed by your checkout/payment flow
+  if (
+    o?.origin === "customization" ||
+    o?.orderType === "customization" ||
+    o?.customizationId ||
+    o?.customId ||
+    (Array.isArray(o?.items) &&
+      o.items.some(
+        (it) =>
+          it?.meta?.source === "customization" ||
+          it?.meta?.custom === true ||
+          it?.meta?.customization === true
+      ))
+  ) {
+    return "CUSTOMIZATION";
+  }
+
+  // Otherwise it's a normal catalog/cart order
+  return "CATALOG";
+};
+
+const originPillStyle = (key) => {
+  const base = {
+    display: "inline-block",
+    marginLeft: 8,
+    padding: "2px 8px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 800,
+    border: "1px solid",
+    verticalAlign: "middle",
+  };
+  if (key === "REPAIR") {
+    return { ...base, color: "#8b6b00", borderColor: "#f0e1a1", background: "#fff9e6" };
+  }
+  if (key === "CUSTOMIZATION") {
+    return { ...base, color: "#5e31a6", borderColor: "#e1d1f7", background: "#f2eaff" };
+  }
+  // CATALOG
+  return { ...base, color: "#2c5f4a", borderColor: "#dfe6e2", background: "#f5fbf8" };
+};
+/* ---------- /NEW ---------- */
 
 export default function MyPurchases() {
   const navigate = useNavigate();
@@ -410,9 +459,16 @@ export default function MyPurchases() {
         if (status === "refund") cancelLabel = "WAITING FOR SELLER RESPONDS";
         else if (status === "cancelled") cancelLabel = "CANCELLED";
 
+        /* NEW: figure out where the order came from */
+        const originKey = getOriginKey(o); // "CATALOG" | "REPAIR" | "CUSTOMIZATION"
+
         return (
           <div className="order-card" key={o.id}>
-            <div className="order-header"><span>🪑 FURNITUNE</span></div>
+            <div className="order-header">
+              <span>🪑 FURNITUNE</span>
+              {/* NEW: tiny origin pill */}
+              <span style={originPillStyle(originKey)}>{originKey}</span>
+            </div>
 
             <div
               className="order-body"

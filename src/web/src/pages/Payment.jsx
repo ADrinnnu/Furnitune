@@ -18,7 +18,6 @@ import qrCodeImg from "../assets/payment.jpg";
 import { getCheckoutItems, clearCheckoutItems } from "../utils/checkoutSelection";
 import "../Payment.css";
 
-
 const PENDING_KEY = "PENDING_CHECKOUT";
 
 export default function Payment() {
@@ -39,6 +38,22 @@ export default function Payment() {
       return null;
     }
   }, []);
+
+  // NEW: detect customization context & draft (supports either Checkout-passed draft or direct draft)
+  const isCustomization = useMemo(() => {
+    return (pending?.origin === "customization") || !!sessionStorage.getItem("custom_draft");
+  }, [pending]); // NEW
+
+  const customDraft = useMemo(() => {
+    // Prefer draft embedded by Checkout; fallback to direct session draft if present
+    if (pending?.customization) return pending.customization;
+    try {
+      const raw = sessionStorage.getItem("custom_draft");
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }, [pending]); // NEW
 
   // If nothing to pay for, bounce to cart
   useEffect(() => {
@@ -131,9 +146,12 @@ export default function Payment() {
         total,
         shippingAddress: pending?.shippingAddress || null,
         contactEmail: pending?.shippingAddress?.email || null,
-        note: repairId ? `Created from Repair ${repairId}` : "Created from Checkout",
+        note: repairId
+          ? `Created from Repair ${repairId}`
+          : (isCustomization ? "Created from Customization" : "Created from Checkout"), // NEW
         repairId,
         paymentStatus: "pending",
+        origin: isCustomization ? "customization" : "catalog", // NEW (optional label for where it came from)
       };
       const orderRef = await addDoc(collection(db, "orders"), orderData);
 
@@ -150,6 +168,17 @@ export default function Payment() {
         paymentStatus: "pending",
         paymentUpdatedAt: serverTimestamp(),
       });
+
+      // 3.5) NEW: if this originated from Customization, mirror into /custom_orders
+      if (isCustomization && customDraft) {
+        await addDoc(collection(db, "custom_orders"), {
+          ...customDraft,       // holds productId, productTitle, category, size, cover, additionals, notes, images, unitPrice, etc.
+          userId: uid,
+          orderId: orderRef.id, // link back to the created order
+          createdAt: serverTimestamp(),
+          status: "processing", // now paid → promote out of draft
+        });
+      }
 
       // 4) Notify the user (now that upload succeeded)
       try {
@@ -180,6 +209,7 @@ export default function Payment() {
       // 6) Clear temp stores and go to Order Summary
       sessionStorage.removeItem(PENDING_KEY);
       try { clearCheckoutItems(); } catch {}
+      try { sessionStorage.removeItem("custom_draft"); } catch {} // NEW
       alert("Payment proof uploaded! Waiting for admin confirmation.");
       navigate(`/ordersummary?orderId=${orderRef.id}`, { replace: true });
     } catch (e) {

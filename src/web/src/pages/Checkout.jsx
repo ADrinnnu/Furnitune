@@ -1,4 +1,3 @@
-// src/pages/Checkout.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -14,13 +13,48 @@ export default function Checkout() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
   const repairId = params.get("repairId"); // from Repair flow
+  const customMode = params.get("custom") === "1"; // <-- NEW
 
-  // Right-side list (cart/buy-now or single repair item)
+  // Right-side list (cart/buy-now or single repair/custom item)
   const [items, setItems] = useState(getCheckoutItems());
+
+  // If Customization flow, load draft as single line item
+  useEffect(() => {
+    if (!customMode) return;
+    try {
+      const raw = sessionStorage.getItem("custom_draft");
+      const draft = raw ? JSON.parse(raw) : null;
+      if (!draft) return;
+
+      const title = draft.productTitle || "Customized Furniture";
+      const price = Number(draft.unitPrice || 0);
+      const image =
+        (Array.isArray(draft.images) && draft.images[0]) ||
+        (draft.imageUrls && draft.imageUrls[0]) ||
+        draft.image ||
+        null;
+
+      setItems([
+        {
+          id: `custom-${Date.now()}`,
+          productId: draft.productId || "custom",
+          name: title,
+          title,
+          qty: 1,
+          price,
+          image,
+          imageUrl: image,
+          meta: { custom: true },
+        },
+      ]);
+    } catch (e) {
+      console.warn("No custom draft found:", e);
+    }
+  }, [customMode]);
 
   // If Repair flow, load that one repair as a line item for preview
   useEffect(() => {
-    if (!repairId) return;
+    if (!repairId || customMode) return;
     (async () => {
       try {
         const snap = await getDoc(doc(firestore, "repairs", repairId));
@@ -53,7 +87,7 @@ export default function Checkout() {
         console.error("Failed to load repair for checkout:", e);
       }
     })();
-  }, [repairId]);
+  }, [repairId, customMode]);
 
   // Form state
   const [email, setEmail] = useState("");
@@ -113,6 +147,15 @@ export default function Checkout() {
       newsletterOptIn: !!news,
     };
 
+    // Include customization draft if in custom mode
+    let customData = null;
+    if (customMode) {
+      try {
+        const raw = sessionStorage.getItem("custom_draft");
+        customData = raw ? JSON.parse(raw) : null;
+      } catch {}
+    }
+
     // Save a pending payload the Payment page will use to CREATE the order.
     const payload = {
       items,
@@ -123,11 +166,17 @@ export default function Checkout() {
       shippingAddress,
       repairId: repairId || null,
       createdAtClient: Date.now(),
+      // NEW for customization flow
+      custom: !!customMode,
+      customData, // the full draft we prepared earlier
     };
     sessionStorage.setItem(PENDING_KEY, JSON.stringify(payload));
 
     // Go to Payment (no orderId yet!)
-    const qs = repairId ? `?repairId=${encodeURIComponent(repairId)}` : "";
+    const qsParts = [];
+    if (repairId) qsParts.push(`repairId=${encodeURIComponent(repairId)}`);
+    if (customMode) qsParts.push("custom=1");
+    const qs = qsParts.length ? `?${qsParts.join("&")}` : "";
     navigate(`/Payment${qs}`);
   };
 

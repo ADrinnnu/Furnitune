@@ -1,4 +1,3 @@
-// src/pages/OrderSummary.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -46,7 +45,9 @@ const messages = {
 export default function OrderSummary() {
   const { orderId: orderIdParam } = useParams();
   const location = useLocation();
-  const qsOrderId = useMemo(() => new URLSearchParams(location.search).get("orderId"), [location.search]);
+  const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
+  const qsOrderId = qs.get("orderId");
+  const customId = qs.get("customId"); // <-- NEW
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
@@ -55,9 +56,9 @@ export default function OrderSummary() {
   // track auth
   useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
 
-  // If we have a specific orderId, listen to that doc
+  // If we have a specific orderId (normal orders), listen to that doc
   useEffect(() => {
-    if (!orderId) return;
+    if (!orderId || customId) return; // skip when showing a custom order
     const ref = doc(firestore, "orders", orderId);
     const stop = onSnapshot(
       ref,
@@ -65,11 +66,57 @@ export default function OrderSummary() {
       () => setOrder(null)
     );
     return stop;
-  }, [orderId]);
+  }, [orderId, customId]);
 
-  // Otherwise, listen to the user's most recent order
+  // If we have a specific customId, listen to /custom_orders/{id} and adapt to card
   useEffect(() => {
-    if (orderId || !uid) return;
+    if (!customId) return;
+    const ref = doc(firestore, "custom_orders", customId);
+    const stop = onSnapshot(
+      ref,
+      (snap) => {
+        if (!snap.exists()) return setOrder(null);
+        const c = { id: snap.id, ...snap.data() };
+        // Synthesize an "order-like" object for OrderSummaryCard
+        const title = c.productTitle || c.title || "Customized Furniture";
+        const price = Number(c.unitPrice || 0);
+        const image =
+          (Array.isArray(c.images) && c.images[0]) ||
+          (Array.isArray(c.imageUrls) && c.imageUrls[0]) ||
+          c.image || null;
+
+        setOrder({
+          id: c.id,
+          status: c.status || "processing",
+          createdAt: c.createdAt,
+          shippingAddress: c.shippingAddress || null,
+          contactEmail: c.contactEmail || null,
+          subtotal: price,
+          discount: 0,
+          shippingFee: 0,
+          total: price,
+          items: [
+            {
+              title,
+              name: title,
+              qty: 1,
+              size: c.size || null,
+              price,
+              image,
+            },
+          ],
+          note: c.notes || null,
+          paymentProofUrl: c.paymentProofUrl || null,
+        });
+      },
+      () => setOrder(null)
+    );
+    return stop;
+  }, [customId]);
+
+  // Otherwise, listen to the user's most recent order (normal orders only)
+  useEffect(() => {
+    if (orderId || customId || !uid) return;
     const qRef = query(
       collection(firestore, "orders"),
       where("userId", "==", uid),
@@ -85,7 +132,7 @@ export default function OrderSummary() {
       () => setOrder(null)
     );
     return stop;
-  }, [uid, orderId]);
+  }, [uid, orderId, customId]);
 
   const currentKey = normalizeStatus(order?.status);
   const currentIdx = Math.max(0, STEPS.findIndex((s) => s.key === currentKey));
@@ -107,7 +154,7 @@ export default function OrderSummary() {
         ) : (
           <OrderSummaryCard
             title="ORDER SUMMARY"
-            orderId={order?.id || orderId}
+            orderId={order?.id || orderId || customId /* show an id */}
             showAddress
             showSupport={false}
             order={order}

@@ -66,3 +66,7 @@ details summary { cursor: pointer; font-weight: 700; }
 .item { display: grid; grid-template-columns: 1fr auto; gap: 8px; background:#fff; border:1px solid #eef1ef; padding:8px; border-radius:10px; }
 .item-title { font-weight: 700; }
 .note { background: #fff; border: 1px solid #e5e5e5; padding: 10px; border-radius: 8px; white-space: pre-wrap; }
+
+
+
+
