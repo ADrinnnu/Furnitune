@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 
-const API = import.meta.env.VITE_RECOMMENDER_BASE_URL || "http://127.0.0.1:5000";
+const API = API_BASE.endsWith("/reco") ? API_BASE : `${API_BASE}/reco`;
+const API_BASE = (import.meta.env.VITE_RECOMMENDER_BASE_URL || "http://127.0.0.1:5000").replace(/\/+$/,'');
 
 function fileToBase64(file) {
   return new Promise((resolve) => {

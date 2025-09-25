@@ -47,8 +47,7 @@ def pick_first_image_url(slug: str) -> str | None:
     for blob in bucket.list_blobs(prefix=f"products/{slug}/"):
         name = blob.name.lower()
         if name.endswith((".png", ".jpg", ".jpeg", ".webp")):
-            # v4 signed URL for 1 hour
-            return blob.generate_signed_url(version="v4", expiration=3600, method="GET")
+            return blob.generate_signed_url(version="v4", expiration=7*24*3600, method="GET")
     return None
 
 def looks_like_image_url(u: str) -> bool:
