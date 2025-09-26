@@ -5,7 +5,6 @@ import "../AllFurnitures.css";
 import {
   firestore,
   collection, getDocs,
-  // addDoc, serverTimestamp,
   storage, ref, getDownloadURL,
 } from "../firebase";
 import { useNavigate } from "react-router-dom";
@@ -209,7 +208,6 @@ export default function Customization() {
   const [coverColor, setCoverColor] = useState("#D3C6B3");
   const [coverMaterialType, setCoverMaterialType] = useState("Fabric");
 
-  // NEW: color palette + flag + validator
   const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
   const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
@@ -218,13 +216,11 @@ export default function Customization() {
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
 
-  // Esc to close
   useEffect(() => {
     const onKey = (e) => { if (e.key === "Escape") setCatalogOpen(false); };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  // prevent body scroll while open
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
@@ -267,7 +263,7 @@ export default function Customization() {
       }
     })();
     return () => { alive = false; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  }, []); 
 
   const handlePickProduct = (p) => {
     const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
@@ -286,7 +282,6 @@ export default function Customization() {
       const next = {}; adds.forEach((a) => { next[a] = !!prev[a]; }); return next;
     });
 
-    // NEW: cover colors from Firestore
     const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
     const palette = raw
       .map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" }))
@@ -303,7 +298,6 @@ export default function Customization() {
     try {
       const pickedAdditionals = Object.entries(additionalPicked).filter(([, v]) => v).map(([k]) => k);
 
-      // draft for checkout
       const draft = {
         type: "customization",
         productId: selectedProduct?.id || null,
@@ -337,11 +331,9 @@ export default function Customization() {
   return (
     <div className="customization-container">
       <div className="customization-grid">
-        {/* LEFT */}
         <div className="left-side">
           <h1 className="title">FURNITURE CUZTOMIZATION</h1>
 
-          {/* Preview opens catalog */}
           <div
             className="preview-box"
             onClick={() => setCatalogOpen(true)}
