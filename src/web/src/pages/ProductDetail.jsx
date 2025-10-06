@@ -15,12 +15,7 @@ import { setCheckoutItems } from "../utils/checkoutSelection";
 import "../ProductDetail.css";
 import ReviewsBlock from "../components/ReviewsBlock";
 
-const FABRICS = [
-  { id: "marble", label: "Marble",     sw: "#d9d3c7" },
-  { id: "terra",  label: "Terracotta", sw: "#b86a52" },
-  { id: "cement", label: "Cement",     sw: "#6f6f6f" },
-  { id: "harbour",label: "Harbour",    sw: "#2c3e50" },
-];
+/* ------------------ Defaults / helpers ------------------ */
 
 const DEFAULT_SIZES_BY_TYPE = {
   Chairs:     ["Standard", "Counter", "Bar"],
@@ -33,13 +28,43 @@ const DEFAULT_SIZES_BY_TYPE = {
 };
 
 const norm = (s) => String(s || "").trim().toLowerCase();
-const slugify = (s) => norm(s).replace(/\s+/g, "-");
+const slug = (s) => norm(s).replace(/\s+/g, "-");
 const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 
 function resolveCategorySlug(data) {
   if (data.categorySlug) return String(data.categorySlug).trim().toLowerCase();
   const raw = data.baseType || data.type || data.category || data.name || "";
-  return slugify(raw);
+  return slug(raw);
+}
+function normalizeTypeLabel(data, catSlug) {
+  const t = (data.baseType || data.type || "").toLowerCase();
+  const c = String(catSlug || "").toLowerCase();
+  if (t.includes("chair")     || c.includes("chair"))     return "Chairs";
+  if (t.includes("sofa")      || t.includes("couch") || c.includes("sofa")) return "Sofas";
+  if (t.includes("bed")       || c.includes("bed"))       return "Beds";
+  if (t.includes("table")     || c.includes("table"))     return "Tables";
+  if (t.includes("bench")     || c.includes("bench"))     return "Benches";
+  if (t.includes("ottoman")   || c.includes("ottoman"))   return "Ottomans";
+  if (t.includes("sectional") || c.includes("sectional")) return "Sectionals";
+  return titleCase(catSlug || t || "Furniture");
+}
+
+/** Keep sizes in the exact order you define for each type. */
+function sortSizesForType(typeLabel, sizes) {
+  const desired = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
+  const byDesired = [];
+  const seen = new Set();
+  for (const label of desired) {
+    if (sizes.some(s => String(s) === label)) {
+      byDesired.push(label);
+      seen.add(label);
+    }
+  }
+  for (const s of sizes) {
+    const str = String(s);
+    if (!seen.has(str)) byDesired.push(str);
+  }
+  return byDesired;
 }
 
 /* ---------- Storage URL resolver ---------- */
@@ -54,6 +79,7 @@ function objectPathFromAnyStorageUrl(u) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
+  // treat relative paths as object paths
   if (!/^https?:\/\//i.test(u)) return u;
   return null;
 }
@@ -62,48 +88,94 @@ async function toDownloadUrl(val) {
   try {
     const objPath = objectPathFromAnyStorageUrl(val);
     if (objPath) return await getDownloadURL(ref(storage, objPath));
-    return val;
+    return val; // already https
   } catch {
-    return "";
+    return ""; // swallow missing/perm errors to avoid <img> 404
   }
 }
 async function resolveStorageUrl(val) { return await toDownloadUrl(val); }
 
-function normalizeTypeLabel(data, catSlug) {
-  const t = (data.baseType || data.type || "").toLowerCase();
-  const c = String(catSlug || "").toLowerCase();
-  if (t.includes("chair")     || c.includes("chair"))     return "Chairs";
-  if (t.includes("sofa")      || t.includes("couch") || c.includes("sofa")) return "Sofas";
-  if (t.includes("bed")       || c.includes("bed"))       return "Beds";
-  if (t.includes("table")     || c.includes("table"))     return "Tables";
-  if (t.includes("bench")     || c.includes("bench"))     return "Benches";
-  if (t.includes("ottoman")   || c.includes("ottoman"))   return "Ottomans";
-  if (t.includes("sectional") || c.includes("sectional")) return "Sectionals";
-  return titleCase(catSlug || t || "Furniture");
+/* ---------- Variant helpers (color × size) ---------- */
+async function toHttps(u) {
+  if (!u) return "";
+  const obj = objectPathFromAnyStorageUrl(u);
+  if (!obj) return u; // already https or unsupported
+  try { return await getDownloadURL(ref(storage, obj)); } catch { return ""; }
+}
+function pickVariantPaths(prod, colorId, sizeId) {
+  const arr = prod?.imagesByOption?.[colorId]?.[sizeId];
+  if (Array.isArray(arr) && arr.length) return arr;
+  const colorMap = prod?.imagesByOption?.[colorId];
+  if (colorMap) {
+    const first = Object.values(colorMap).flat();
+    if (first?.length) return first;
+  }
+  if (Array.isArray(prod?.images) && prod.images.length) return prod.images;
+  if (prod?.defaultImagePath) return [prod.defaultImagePath];
+  return [];
+}
+function isComboAvailable(prod, cId, sId) {
+  const arr = prod?.imagesByOption?.[cId]?.[sId];
+  return Array.isArray(arr) && arr.length > 0;
 }
 
+/** Map a display size label to the options.sizes id, with tolerant matching */
+function mapSizeLabelToId(rawData, label) {
+  const opts = Array.isArray(rawData?.options?.sizes) ? rawData.options.sizes : [];
+  if (!opts.length) return { id: null, matched: false };
+
+  const targetNorm = norm(label);
+  const targetSlug = slug(label);
+
+  // exact id/label (case-insensitive)
+  let hit = opts.find(o => norm(o.id) === targetNorm || norm(o.label || "") === targetNorm);
+  if (hit) return { id: String(hit.id), matched: true };
+
+  // by slug
+  hit = opts.find(o => slug(o.id) === targetSlug || slug(o.label || "") === targetSlug);
+  if (hit) return { id: String(hit.id), matched: true };
+
+  // heuristics
+  if (/^\d+\s*people$/.test(targetNorm)) {
+    const n = targetNorm.split(" ")[0];
+    hit = opts.find(o => o.id === `${n}p`);
+    if (hit) return { id: String(hit.id), matched: true };
+  }
+  if (/^\d+\s*seater$/.test(targetNorm)) {
+    const n = targetNorm.split(" ")[0];
+    hit = opts.find(o => o.id === `${n}seater`);
+    if (hit) return { id: String(hit.id), matched: true };
+  }
+  return { id: null, matched: false };
+}
+
+/* ------------------ Component ------------------ */
 export default function ProductDetail() {
   const navigate = useNavigate();
   const { id } = useParams();
   const { addToCart } = useCart();
 
   const [product, setProduct] = useState(undefined); // undefined=loading, null=notfound
+  const [rawData, setRawData] = useState(null);
   const [images, setImages] = useState([]);
+  const [baseImages, setBaseImages] = useState([]);  // keep base gallery so we can revert
   const [activeIdx, setActiveIdx] = useState(0);
 
-  // UI state
-  const [fabric, setFabric] = useState(FABRICS[0].id);
+  // NO preselection
+  const [fabric, setFabric] = useState(null);   // colorId | null
+  const [colors, setColors] = useState([]);     // {id,label,sw}[]
+  const [hasCover, setHasCover] = useState(false);
+
   const [sizeOptions, setSizeOptions] = useState([]); // display labels
-  const [size, setSize] = useState("");               // selected display label
-  const [absPrices, setAbsPrices] = useState({});     // display label -> absolute price
+  const [size, setSize] = useState("");               // selected label ("" = none)
+
+  const [absPrices, setAbsPrices] = useState({});
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
 
-  // NEW: dynamic colors + flag + validator
-  const [colors, setColors] = useState(FABRICS);
-  const [hasCover, setHasCover] = useState(true);
   const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
 
+  // Load product
   useEffect(() => {
     if (!id) { setProduct(null); return; }
     (async () => {
@@ -111,13 +183,18 @@ export default function ProductDetail() {
         const snap = await getDoc(doc(firestore, "products", String(id)));
         if (!snap.exists()) { setProduct(null); return; }
         const data = snap.data();
+        setRawData(data);
 
-        // Images
+        // Base images (do NOT switch on load)
         const rawImgs = Array.isArray(data.imageUrls) && data.imageUrls.length
           ? data.imageUrls
-          : (Array.isArray(data.images) && data.images.length ? data.images : (data.image ? [data.image] : []));
+          : (Array.isArray(data.images) && data.images.length
+              ? data.images
+              : (data.defaultImagePath ? [data.defaultImagePath] : (data.image ? [data.image] : [])));
         const resolved = (await Promise.all(rawImgs.map(resolveStorageUrl))).filter(Boolean);
-        setImages(resolved);
+        const base = resolved.length ? resolved : ["/placeholder.jpg"];
+        setBaseImages(base);
+        setImages(base);
         setActiveIdx(0);
 
         // Header/meta
@@ -132,31 +209,38 @@ export default function ProductDetail() {
           basePrice,
           ratingAvg: Number(data.ratingAvg ?? 0),
           reviewsCount: Number(data.reviewsCount ?? 0),
+          options: data.options || undefined,
         });
 
-        // NEW: cover colors from Firestore
-        const rawColors = Array.isArray(data.colorOptions) ? data.colorOptions : [];
-        const mapped = rawColors
-          .map((c, i) => {
-            const hex = String(c?.hex || c?.color || "").trim();
-            const name = (c?.name || hex || `Color ${i + 1}`).trim();
-            if (!isHex(hex)) return null;
-            return { id: `${slugify(name)}-${hex.replace("#","") || i}`, label: name, sw: hex };
-          })
-          .filter(Boolean);
-        const coverEnabled = (data.hasCover === false) ? false : (mapped.length > 0 || data.hasCover === true);
-        setHasCover(coverEnabled);
-        if (coverEnabled) {
-          const palette = mapped.length ? mapped : FABRICS;
-          setColors(palette);
-          setFabric((prev) => palette.find(p => p.id === prev)?.id || palette[0].id);
+        // COLORS
+        const optColors = Array.isArray(data?.options?.colors) ? data.options.colors : null;
+        let palette = [];
+        if (optColors?.length) {
+          palette = optColors.map((c, i) => ({
+            id: String(c.id || slug(c.label || c.name || `color-${i}`)),
+            label: String(c.label || c.name || `Color ${i+1}`),
+            sw: String(c.hex || "#cccccc"),
+          }));
+        } else {
+          const rawColors = Array.isArray(data.colorOptions) ? data.colorOptions : [];
+          const mapped = rawColors.map((c, i) => ({
+            id: slug(c?.name || `color-${i}`),
+            label: c?.name || `Color ${i+1}`,
+            sw: c?.hex || "#cccccc",
+          }));
+          palette = mapped.length ? mapped : FALLBACK_SWATCHES;
         }
+        setColors(palette);
+        setHasCover(palette.length > 0);
+        setFabric(null); // no color selected
+
+        // SIZES
+        const optSizes = Array.isArray(data?.options?.sizes) ? data.options.sizes : null;
+        let displaySizes = optSizes?.length ? optSizes.map(s => s.label || s.id) : null;
 
         const catSlug = resolveCategorySlug(data);
         const typeLabel = normalizeTypeLabel(data, catSlug);
 
-        // Start with any product/category sizes (display labels)
-        let displaySizes = Array.isArray(data.sizeOptions) ? data.sizeOptions.slice() : null;
         if (!displaySizes && catSlug) {
           try {
             const catDoc = await getDoc(doc(firestore, "categories", catSlug));
@@ -165,16 +249,18 @@ export default function ProductDetail() {
             }
           } catch { /* ignore */ }
         }
-        if (!displaySizes || !displaySizes.length) displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
+        if (!displaySizes || !displaySizes.length) {
+          displaySizes = DEFAULT_SIZES_BY_TYPE[typeLabel] || [];
+        }
 
-        // 👉 Read relative rules and compute absolute prices
+        // Price rules
         const priceMap = {};
         if (typeLabel) {
           try {
             const qRules = query(collection(firestore, "sizePriceRules"), where("type", "==", typeLabel));
             const snapRules = await getDocs(qRules);
             const rules = [];
-            snapRules.forEach((d) => rules.push(d.data())); // {size, mode, value}
+            snapRules.forEach((d) => rules.push(d.data()));
 
             const byKey = new Map();
             for (const r of rules) {
@@ -184,7 +270,7 @@ export default function ProductDetail() {
               let abs = basePrice;
               if (mode === "multiplier" || mode === "x" || mode === "mult") abs = Math.round(basePrice * (isNaN(v) ? 1 : v));
               else if (mode === "absolute") abs = isNaN(v) ? basePrice : v;
-              else abs = basePrice + (isNaN(v) ? 0 : v); // delta
+              else abs = basePrice + (isNaN(v) ? 0 : v);
               byKey.set(key, { label: r.size, price: abs });
             }
 
@@ -202,15 +288,45 @@ export default function ProductDetail() {
           }
         }
 
+        // 🔽 enforce exact ordering you specified
+        displaySizes = sortSizesForType(typeLabel, displaySizes);
+
         setSizeOptions(Array.isArray(displaySizes) ? displaySizes : []);
-        if (!displaySizes.includes(size)) setSize(displaySizes[0] || "");
+        setSize("");                // no size selected
         setAbsPrices(priceMap);
+
       } catch (err) {
         console.error("Error fetching product:", err);
         setProduct(null);
       }
     })();
   }, [id]);
+
+  // Only swap gallery when BOTH color & size are chosen; otherwise revert to base
+  useEffect(() => {
+    if (!id || !rawData) return;
+    if (!fabric || !size) { setImages(baseImages); setActiveIdx(0); return; }
+
+    (async () => {
+      try {
+        const { id: sizeId, matched } = mapSizeLabelToId(rawData, size);
+        if (!matched || !sizeId) { setImages(baseImages); setActiveIdx(0); return; }
+
+        const paths = pickVariantPaths(rawData, fabric, sizeId);
+        const https = (await Promise.all(paths.map(toHttps))).filter(Boolean);
+        if (https.length) {
+          setImages(https);
+          setActiveIdx(0);
+        } else {
+          setImages(baseImages);
+          setActiveIdx(0);
+        }
+      } catch {
+        setImages(baseImages);
+        setActiveIdx(0);
+      }
+    })();
+  }, [id, rawData, fabric, size, baseImages]);
 
   const unitPrice = useMemo(() => {
     if (!product) return 0;
@@ -233,7 +349,6 @@ export default function ProductDetail() {
     notes: notes || "",
     thumb: images?.[0] || "/placeholder.jpg",
     image: images?.[0] || "/placeholder.jpg",
-    // NEW: persist chosen color (if applicable)
     colorName: (colors.find(c => c.id === fabric)?.label) || null,
     colorHex: (colors.find(c => c.id === fabric)?.sw) || null,
   });
@@ -243,7 +358,6 @@ export default function ProductDetail() {
     setCheckoutItems([item]);
     navigate("/checkout");
   }
-
   function handleAddToCart() {
     const item = buildLineItem(1);
     try {
@@ -325,7 +439,7 @@ export default function ProductDetail() {
                   onClick={() => setActiveIdx(i)}
                   aria-label={`Image ${i+1}`}
                 >
-                  <img src={u} alt={`Thumb ${i+1}`} />
+                  <img src={u || "/placeholder.jpg"} alt={`Thumb ${i+1}`} />
                 </button>
               ))}
             </div>
@@ -333,7 +447,6 @@ export default function ProductDetail() {
 
           <div className="pd-desc slab">
             <h3>DESCRIPTION</h3>
-            {/* preserve admin newlines */}
             <p style={{ whiteSpace: "pre-wrap" }}>
               {product.description ||
                 "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Sed do eiusmod tempor incididunt ut labore et dolore magna aliqua."}
@@ -361,7 +474,7 @@ export default function ProductDetail() {
               <div className="rp-price">{priceStr}</div>
             </div>
 
-            {/* Step 1 — hidden when product has no cover */}
+            {/* Step 1 — CHOOSE COVER COLOR (toggle to unselect) */}
             {hasCover && (
             <div className="rp-step">
               <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 1: !o[1] }))} aria-expanded={open[1]}>
@@ -377,8 +490,8 @@ export default function ProductDetail() {
                       <button
                         key={f.id}
                         className={`swatch ${fabric === f.id ? "active" : ""}`}
-                        style={{ background: f.sw }}
-                        onClick={() => setFabric(f.id)}
+                        style={{ background: isHex(f.sw) ? f.sw : "#ccc" }}
+                        onClick={() => setFabric(prev => prev === f.id ? null : f.id)} // toggle
                         aria-label={f.label}
                         title={f.label}
                       />
@@ -392,7 +505,7 @@ export default function ProductDetail() {
             </div>
             )}
 
-            {/* Step 2 */}
+            {/* Step 2 — CHOOSE SIZE (toggle to unselect) */}
             <div className="rp-step">
               <button className="rp-step-h" onClick={() => setOpen((o) => ({ ...o, 2: !o[2] }))} aria-expanded={open[2]}>
                 <span className="rp-num">2</span>
@@ -405,15 +518,28 @@ export default function ProductDetail() {
                   {sizeOptions.length ? (
                     <div className="chip-tray">
                       <div className="chips">
-                        {sizeOptions.map((s) => (
-                          <button
-                            key={s}
-                            className={`chip ${size === s ? "active" : ""}`}
-                            onClick={() => setSize(String(s))}
-                          >
-                            {s}
-                          </button>
-                        ))}
+                        {sizeOptions.map((s) => {
+                          const { id: sizeId, matched } = mapSizeLabelToId(rawData, s);
+                          // Only disable if we matched a concrete id AND the combo lacks images.
+                          const available = fabric
+                            ? (rawData && matched ? isComboAvailable(rawData, fabric, sizeId) : true)
+                            : true;
+
+                          const isActive = size === s;
+
+                          return (
+                            <button
+                              key={s}
+                              className={`chip ${isActive ? "active" : ""}`}
+                              onClick={() => setSize(prev => prev === s ? "" : String(s))} // toggle
+                              disabled={!available}
+                              title={!available ? "Not available for this color" : s}
+                              style={!available ? { opacity: 0.5, cursor: "not-allowed" } : undefined}
+                            >
+                              {s}
+                            </button>
+                          );
+                        })}
                       </div>
                     </div>
                   ) : (
