@@ -135,3 +135,25 @@ textarea {
 .place-order:hover {
   background: #45593e;
 }
+
+
+.preview-box {
+  position: relative;
+  overflow: hidden;
+}
+.preview-title {
+  position: absolute;
+  top: 8px;
+  left: 8px;
+  background: rgba(0, 0, 0, 0.6);
+  color: #fff;
+  padding: 6px 10px;
+  border-radius: 8px;
+  font-size: 14px;
+  line-height: 1.2;
+  max-width: calc(100% - 16px);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  pointer-events: none; /* keep preview clickable */
+}
