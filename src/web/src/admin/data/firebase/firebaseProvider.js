@@ -239,3 +239,59 @@ export const firebaseProvider = {
     });
   },
 };
+
+export async function ensureShipmentForOrder(order) {
+  await requireAdmin();
+
+  const qy = query(collection(db, "shipments"), where("orderId", "==", order.id));
+  const snap = await getDocs(qy);
+  if (!snap.empty) return snap.docs[0].id;
+
+  const ref = await addDoc(collection(db, "shipments"), {
+    orderId: order.id,
+    userId: order.userId || null,
+    status: "processing",
+    address: order.shippingAddress || null,
+    items: order.items || [],
+    createdAt: serverTimestamp(),
+    updatedAt: serverTimestamp(),
+  });
+
+  // optional first event
+  try {
+    await addDoc(collection(db, "shipments", ref.id, "events"), {
+      at: serverTimestamp(),
+      from: "pending",
+      to: "processing",
+      note: "Created from order (To Ship)",
+      by: auth.currentUser?.email || auth.currentUser?.uid || "admin",
+    });
+  } catch (_) {}
+
+  return ref.id;
+}
+
+export async function deleteShipmentsForOrder(orderId) {
+  await requireAdmin();
+
+  const qy = query(collection(db, "shipments"), where("orderId", "==", orderId));
+  const snap = await getDocs(qy);
+
+  for (const s of snap.docs) {
+    // delete  events
+    try {
+      const evSnap = await getDocs(collection(db, "shipments", s.id, "events"));
+      await Promise.all(evSnap.docs.map((ev) => deleteDoc(ev.ref)));
+    } catch (_) {}
+
+    // delete legacy flat events if you had them
+    try {
+      const legacy = await getDocs(
+        query(collection(db, "shipment_events"), where("shipmentId", "==", s.id))
+      );
+      await Promise.all(legacy.docs.map((ev) => deleteDoc(ev.ref)));
+    } catch (_) {}
+
+    await deleteDoc(doc(db, "shipments", s.id));
+  }
+}

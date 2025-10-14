@@ -15,6 +15,11 @@ import {
   where,
   deleteDoc,
 } from "firebase/firestore";
+// ⬇️ add provider helpers (no CSS touched)
+import {
+  ensureShipmentForOrder,
+  deleteShipmentsForOrder,
+} from "../data/firebase/firebaseProvider";
 import "../Orders.css";
 
 /* --------------------------- constants --------------------------- */
@@ -69,7 +74,6 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
         ...style,
       }}
     >
-      {/* simple trash glyph (keeps CSS unchanged) */}
       🗑
     </button>
   );
@@ -206,6 +210,19 @@ export default function Orders() {
 
       setRows((prev) => prev.map((o) => (o.id === id ? { ...o, status: newStatus } : o)));
 
+      // ⬇️ Create (or reuse) a shipment when order moves to "to_ship"
+      if (newStatus === "to_ship") {
+        const orderRow = rows.find((o) => o.id === id);
+        if (orderRow) {
+          try {
+            await ensureShipmentForOrder({ ...orderRow, id });
+          } catch (e) {
+            console.error("ensureShipmentForOrder failed", e);
+          }
+        }
+      }
+
+      // existing notification
       const order = rows.find((o) => o.id === id);
       const uid = order?.userId;
       if (uid) {
@@ -255,6 +272,13 @@ export default function Orders() {
 
       if (orderData?.userId) {
         await deleteUserNotifs(db, orderData.userId, { orderId });
+      }
+
+      // ⬇️ Also remove any shipments (and their events) tied to this order
+      try {
+        await deleteShipmentsForOrder(orderId);
+      } catch (e) {
+        console.error("deleteShipmentsForOrder failed", e);
       }
 
       await deleteDoc(doc(db, "orders", orderId));
@@ -1116,7 +1140,6 @@ export default function Orders() {
                                   </div>
                                 </div>
 
-                                {/* Customer info if present */}
                                 {(c?.contactEmail || c?.userId) && (
                                   <div className="span-2">
                                     <h4>Customer</h4>
@@ -1127,7 +1150,6 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* Payment section for customization */}
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
                                   <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
@@ -1154,7 +1176,6 @@ export default function Orders() {
                                   </div>
                                 </div>
 
-                                {/* Images */}
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Images</h4>

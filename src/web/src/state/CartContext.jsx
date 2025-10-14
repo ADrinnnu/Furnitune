@@ -26,14 +26,12 @@ import {
 
 /* --------------------------- helpers --------------------------- */
 
-/** One cart row per product+size */
 function cartDocIdFor(item) {
   const pid = item.productId || item.id || "unknown";
   const size = (item.size || "").toString().trim() || "default";
   return `${pid}__${size}`;
 }
 
-/** What we store to Firestore */
 function toPersisted(item) {
   return {
     productId: item.productId || item.id,
@@ -48,10 +46,9 @@ function toPersisted(item) {
   };
 }
 
-/** What UI expects (CartPage uses id/title/price/qty/thumb) */
 function toUiItem(data, docId) {
   return {
-    id: data.productId, // CartPage uses .id
+    id: data.productId, 
     productId: data.productId,
     title: data.title || data.name || "Item",
     name: data.name || data.title || "Item",
@@ -60,7 +57,7 @@ function toUiItem(data, docId) {
     size: data.size || null,
     thumb: data.thumb || data.image || "",
     image: data.image || data.thumb || "",
-    docId, // used for Firestore ops
+    docId, 
   };
 }
 
@@ -74,13 +71,10 @@ export function CartProvider({ children }) {
   const [cartItems, setCartItems] = useState([]);
   const subRef = useRef(null);
 
-  // Guest cart buffer (memory-only; clears on refresh/sign-out)
   const guestBufferRef = useRef([]);
 
-  // Auth watcher: subscribe to user's cart; merge guest cart on sign-in
   useEffect(() => {
     const stop = onAuthStateChanged(auth, async (u) => {
-      // stop any existing subscription
       if (subRef.current) {
         try {
           subRef.current();
@@ -91,19 +85,16 @@ export function CartProvider({ children }) {
       setUser(u || null);
 
       if (!u) {
-        // signed out → clear UI + guest buffer (ephemeral)
         setCartItems([]);
         guestBufferRef.current = [];
         return;
       }
 
-      // Merge any guest items into Firestore cart once
       if (guestBufferRef.current.length) {
         const batch = writeBatch(firestore);
         for (const it of guestBufferRef.current) {
           const key = cartDocIdFor(it);
           const ref = doc(firestore, "users", u.uid, "cart", key);
-          // upsert and increment in same batch
           batch.set(ref, toPersisted(it), { merge: true });
           batch.update(ref, {
             qty: fvIncrement(it.qty || 1),
@@ -118,7 +109,6 @@ export function CartProvider({ children }) {
         guestBufferRef.current = [];
       }
 
-      // Live subscribe to this user's cart
       const q = query(collection(firestore, "users", u.uid, "cart"));
       subRef.current = onSnapshot(
         q,
@@ -142,7 +132,6 @@ export function CartProvider({ children }) {
 
   /* ------------------------- actions -------------------------- */
 
-  /** Add or increase quantity */
   async function addToCart(item) {
     const base = {
       ...item,
@@ -150,18 +139,15 @@ export function CartProvider({ children }) {
       qty: Number(item.qty || 1),
     };
 
-    // Guest: memory-only cart
     if (!user) {
       const key = cartDocIdFor(base);
 
-      // merge in guest buffer
       const idx = guestBufferRef.current.findIndex(
         (x) => cartDocIdFor(x) === key
       );
       if (idx >= 0) guestBufferRef.current[idx].qty += base.qty;
       else guestBufferRef.current.push({ ...base });
 
-      // reflect in UI
       setCartItems((cur) => {
         const j = cur.findIndex((x) => cartDocIdFor(x) === key);
         if (j >= 0) {
@@ -174,7 +160,6 @@ export function CartProvider({ children }) {
       return;
     }
 
-    // Signed-in: atomic upsert with increment
     try {
       const key = cartDocIdFor(base);
       const ref = doc(firestore, "users", user.uid, "cart", key);
@@ -182,24 +167,21 @@ export function CartProvider({ children }) {
         ref,
         {
           ...toPersisted(base),
-          qty: fvIncrement(base.qty || 1), // increment in the same write
+          qty: fvIncrement(base.qty || 1), 
           updatedAt: serverTimestamp(),
         },
         { merge: true }
       );
     } catch (e) {
       console.error("addToCart write failed:", e?.code || e);
-      // graceful fallback to guest (so UX isn't blocked if rules lag)
       const key = cartDocIdFor(base);
       guestBufferRef.current.push({ ...base });
       setCartItems((cur) => [...cur, toUiItem(toPersisted(base), key)]);
     }
   }
 
-  /** +1 */
   async function incrementQuantity(idOrDoc) {
     if (!user) {
-      // guest
       setCartItems((cur) =>
         cur.map((it) =>
           it.id === idOrDoc || it.docId === idOrDoc
@@ -231,7 +213,6 @@ export function CartProvider({ children }) {
     });
   }
 
-  /** -1 (delete if 0) */
   async function decrementQuantity(idOrDoc) {
     if (!user) {
       setCartItems((cur) => {
@@ -272,7 +253,6 @@ export function CartProvider({ children }) {
       });
   }
 
-  /** Remove row */
   async function removeFromCart(idOrDoc) {
     if (!user) {
       setCartItems((cur) =>
@@ -298,7 +278,6 @@ export function CartProvider({ children }) {
     await deleteDoc(ref);
   }
 
-  /** Clear cart */
   async function clearCart() {
     if (!user) {
       setCartItems([]);
