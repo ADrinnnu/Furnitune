@@ -1,4 +1,4 @@
-/* ---------- Checkout ---------- */
+
 .checkout-container {
   display: flex;
   justify-content: space-between;
@@ -8,7 +8,7 @@
   padding: 20px;
 }
 
-/* Left Form */
+
 .checkout-form {
   flex: 1.5;
 }
@@ -66,7 +66,7 @@
   cursor: pointer;
 }
 
-/* Right Summary */
+
 .checkout-summary {
   flex: 1;
   background: #fff;

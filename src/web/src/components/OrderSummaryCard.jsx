@@ -7,8 +7,8 @@ import {
   ref, getDownloadURL,
 } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import "../OrderSummary.css";
 
-/* ---------- helpers ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
   if (/^gs:\/\//i.test(u)) {
@@ -32,7 +32,6 @@ async function resolveStorageUrl(val) {
 }
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 
-/* ---------- component ---------- */
 export default function OrderSummaryCard({
   items: passedItems,
   orderId,
@@ -43,15 +42,13 @@ export default function OrderSummaryCard({
   shippingFee = 0,
   totalOverride,
 
-  // Order Summary–only bits
-  showAddress = false,      // controls Delivery Address render
-  shippingAddress = null,   // optional address (still gated by showAddress)
-  showSupport = true,       // controls the “Need Assistance?” box
+  showAddress = false,      
+  shippingAddress = null,   
+  showSupport = true,       
 }) {
   const [order, setOrder] = useState(undefined);
   const [items, setItems] = useState([]);
 
-  // If items are provided (Checkout flow)
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
@@ -66,7 +63,6 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems]);
 
-  // Otherwise load one order or latest for user
   useEffect(() => {
     if (passedItems) return;
     let mounted = true;
@@ -107,7 +103,6 @@ export default function OrderSummaryCard({
     return () => { mounted = false; try { stopAuth(); } catch {} };
   }, [orderId, passedItems]);
 
-  // Normalize images for fetched order
   useEffect(() => {
     if (passedItems) return;
     (async () => {
@@ -139,7 +134,6 @@ export default function OrderSummaryCard({
 
   const addr = useMemo(() => shippingAddress || order?.shippingAddress || null, [order, shippingAddress]);
 
-  /* ---- states ---- */
   if (order === undefined) {
     return (
       <div className={`checkout-summary ${className}`}>
@@ -205,7 +199,6 @@ export default function OrderSummaryCard({
               <span>Qty: {qty}</span>
               {(it?.colorName || it?.colorHex) && (
                 <span>
-                  {/* simple text only; no CSS changes */}
                   Color: {it.colorName || "—"}{it.colorHex ? ` (${it.colorHex})` : ""}
                 </span>
               )}
