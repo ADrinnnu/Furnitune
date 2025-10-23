@@ -3,100 +3,198 @@ import "dotenv/config";
 import express from "express";
 import bodyParser from "body-parser";
 import cors from "cors";
+import fs from "fs";
+import path from "path";
 
-import { Embedding } from "./lib/embeddings.js";
-import { VectorStore } from "./lib/vectorstore.js";
-import { LlmClient } from "./lib/llm-client.js"; // OpenRouter client
+import { LlmClient } from "./lib/llm-client.js"; // exposes chat(messages, opts)
 
+// ----------------------------------------------------------------------------
+// App setup
+// ----------------------------------------------------------------------------
 const app = express();
 
-app.use(cors({
-  origin: "http://localhost:5173",
-  methods: ["GET","POST","OPTIONS"],
-  allowedHeaders: ["Content-Type","x-bizchat-session","x-user-id","x-user-name"]
-}));
+app.use(
+  cors({
+    origin: process.env.ALLOW_ORIGIN || "http://localhost:5173",
+    methods: ["GET", "POST", "OPTIONS"],
+    allowedHeaders: ["Content-Type", "x-bizchat-session", "x-user-id", "x-user-name"],
+  })
+);
 app.use(bodyParser.json({ limit: "16mb" }));
 
-const MODEL = process.env.OPENROUTER_MODEL || "google/gemma-2-9b-it:free";
+// ----------------------------------------------------------------------------
+// Model / client (GPT-4o-mini primary, Gemma free fallback)
+// ----------------------------------------------------------------------------
+const MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
+const FALLBACK = process.env.OPENROUTER_FALLBACK_MODEL || "google/gemma-2-9b-it:free";
+const llm = new LlmClient({ model: MODEL, fallbackModel: FALLBACK });
 
-// very tiny in-memory session store
-const sessions = new Map(); // sid -> { history: [], greeted: false }
+// ----------------------------------------------------------------------------
+// Furnitune info (mirror the app: small fixed blurb)
+// ----------------------------------------------------------------------------
+const DEFAULT_FURNITUNE_INFO = `
+Furnitune is an e-commerce platform for Santos Upholstery.
+We sell ready-made furniture, support custom orders (dimensions, materials, and colors),
+and offer repair services even for items not purchased from us.
+`.trim();
 
-let store = new VectorStore();
-let embedder = await Embedding.boot();
-let llm = new LlmClient({ model: MODEL });
-
-app.get("/bizchat/health", (req, res) => res.json({ ok: true }));
-
-app.post("/bizchat/ingest", async (req, res) => {
-  const docs = Array.isArray(req.body.docs) ? req.body.docs : [];
-  const chunks = [];
-  for (const d of docs) {
-    if (!d?.text) continue;
-    const parts = d.text.split(/\n{2,}/).map(s => s.trim()).filter(Boolean);
-    parts.forEach((t, i) => chunks.push({ id: `${d.id}#${i}`, title: d.title, url: d.url, text: t }));
+// Optional: load from a JSON file like the app does (if present)
+function loadInfo() {
+  try {
+    const p = path.join(process.cwd(), "src", "web", "server", "seed", "furnituneInfo.json");
+    if (fs.existsSync(p)) {
+      const j = JSON.parse(fs.readFileSync(p, "utf8"));
+      if (j?.info && typeof j.info === "string" && j.info.trim().length > 0) return j.info.trim();
+    }
+  } catch {}
+  if (process.env.FURNITUNE_INFO && process.env.FURNITUNE_INFO.trim()) {
+    return process.env.FURNITUNE_INFO.trim();
   }
-  const vecs = await embedder.embedMany(chunks.map(c => c.text));
-  store = new VectorStore(); // reset
-  store.addMany(vecs, chunks);
-  res.json({ ok: true, chunks: chunks.length });
+  return DEFAULT_FURNITUNE_INFO;
+}
+let FURNITUNE_INFO = loadInfo();
+
+// Tiny in-memory session (for greet-once, same behavior as app)
+const sessions = new Map(); // sid -> { greeted: false }
+
+// Optional: simple per-session throttle to avoid rate spikes
+const lastHitPerSid = new Map();
+const THROTTLE_MS = 900;
+
+// ----------------------------------------------------------------------------
+// Health + hot reload
+// ----------------------------------------------------------------------------
+app.get("/bizchat/health", (_req, res) => res.json({ ok: true, model: MODEL, fallback: FALLBACK }));
+
+app.post("/bizchat/reload-info", (_req, res) => {
+  FURNITUNE_INFO = loadInfo();
+  res.json({ ok: true, len: FURNITUNE_INFO.length });
 });
 
+// ----------------------------------------------------------------------------
+// Ask — EXACT app flow: system + user; concise; no RAG
+// ----------------------------------------------------------------------------
 app.post("/bizchat/ask", async (req, res) => {
   try {
     const sid = String(req.body.sessionId || req.get("x-bizchat-session") || "anon");
-    const user = req.body.user || {}; // { id, name, email }
-    const sess = sessions.get(sid) || { history: [], greeted: false };
-    sessions.set(sid, sess);
-
+    const user = req.body.user || {};
     const question = String(req.body.question || "").trim();
     if (!question) return res.status(400).json({ error: "Missing question" });
 
-    if (store.size() === 0) {
-      return res.json({
-        answer: "Our AI index isn’t ready yet. Please email Furnitune@jameyl.com or call 123-323-312 for help."
+    // throttle (per session)
+    const now = Date.now();
+    const last = lastHitPerSid.get(sid) || 0;
+    if (now - last < THROTTLE_MS) {
+      return res.json({ answer: "One moment, please." });
+    }
+    lastHitPerSid.set(sid, now);
+
+    // tiny session for greet-once
+    const sess = sessions.get(sid) || { greeted: false };
+    sessions.set(sid, sess);
+
+    const greetOnce =
+      !sess.greeted && user?.name ? `Start by saying "Hi ${user.name}!" once, then avoid re-greeting.` : "";
+
+    const system = `
+You are Furni, the official chatbot for Furnitune — an e-commerce platform for Santos Upholstery.
+Use ONLY the Furnitune information provided below. Do NOT explain how language models work.
+If information is insufficient, reply exactly:
+"I'm sorry, I can only answer questions about Furnitune’s products, services, or policies."
+${greetOnce}
+`.trim();
+
+    // 1–2 sentences, ≤45 words; no lists/emojis/headers; fence the answer
+    const userContent = `
+Answer ONLY from this Furnitune information:
+
+${FURNITUNE_INFO}
+
+User question: ${question}
+
+Rules:
+- Keep the reply concise: 1–2 sentences, maximum 45 words.
+- No lists, no bullet points, no emojis, no headings, no marketing fluff.
+- If the info above doesn't contain the answer, reply with the exact sentence:
+  "I'm sorry, I can only answer questions about Furnitune’s products, services, or policies."
+
+Return your reply ONLY between these markers:
+<<<ANSWER>>>
+<your reply>
+<<<END>>>
+`.trim();
+
+    let raw =
+      (await llm.chat(
+        [
+          { role: "system", content: system },
+          { role: "user", content: userContent },
+        ],
+        { temperature: 0.15, top_p: 0.2, max_tokens: 160 }
+      )) || `I'm sorry, I can only answer questions about Furnitune’s products, services, or policies.`;
+
+    // Extract & sanitize
+    const extractFenced = (t) => {
+      const m = /<<<ANSWER>>>[\s\r\n]*([\s\S]*?)[\s\r\n]*<<<END>>>/i.exec(t || "");
+      return (m ? m[1] : t || "").trim();
+    };
+    const words = (n) => n.trim().split(/\s+/).filter(Boolean);
+    const firstSentences = (s, maxSentences = 2) => {
+      const parts = s.split(/(?<=[.!?])\s+/).filter(Boolean);
+      return parts.slice(0, maxSentences).join(" ");
+    };
+    const clampWords = (s, max = 45) => {
+      const w = words(s);
+      return w.length <= max ? s : w.slice(0, max).join(" ");
+    };
+    const stripFormatting = (s) =>
+      s
+        .replace(/[*_`#>-]/g, "")
+        .replace(/^[\s:–—-]+/, "")
+        .replace(/\s{2,}/g, " ")
+        .trim();
+
+    const DRIFT_RX =
+      /(as an ai|as a language model|i,?\s*gemma|i can:\s*\*|let me explain|how i.*(work|function)|virtual room design|budget analyzer|decor ideas engine|home decor platform)/i;
+    const UNRELATED_RX = /(poetry|write a story|translate languages?|coding help|resume|essay|creative writing)/i;
+
+    let ans = extractFenced(raw);
+    if (DRIFT_RX.test(ans) || UNRELATED_RX.test(ans)) {
+      ans = `I'm sorry, I can only answer questions about Furnitune’s products, services, or policies.`;
+    }
+
+    ans = stripFormatting(firstSentences(ans, 2));
+    ans = clampWords(ans, 45);
+
+    if (/^\s*what\s+is\s+furnitune\??\s*$/i.test(question)) {
+      ans =
+        "Furnitune is an e-commerce platform for Santos Upholstery that sells ready-made furniture, supports custom orders (dimensions, materials, colors), and offers repair services even for items not bought from us.";
+    }
+
+    if (!sess.greeted && user?.name) sess.greeted = true;
+
+    res.json({ answer: ans });
+  } catch (e) {
+    // Friendly handling for daily free quota exhaustion across both models
+    if (e && (e.code === 429 || /rate limit/i.test(String(e.detail || e.message || "")))) {
+      return res.status(200).json({
+        answer:
+          "I’m at my daily free limit right now. Please try again later, or email Furnitune@jameyl.com or call 123-323-312.",
       });
     }
 
-    const qv = await embedder.embedOne(question);
-    const hits = store.search(qv, req.body.k ?? 6);
-    const context = hits.map((h, i) => `[#${i+1}] ${h.item.text}`).join("\n\n");
-
-    const greetOnce = (!sess.greeted && user.name) ? `Start by saying "Hi ${user.name}!" once, then avoid re-greeting.` : "";
-    const system =
-      `You are a helpful sales assistant for Furnitune. Answer ONLY using the provided context.\n` +
-      `If the answer isn't in context, say you don’t know and suggest emailing Furnitune@jameyl.com or calling 123-323-312.\n` +
-      greetOnce;
-
-    const prompt = `${system}\n\nContext:\n${context}\n\nUser: ${question}\nAssistant:`;
-
-    const answer = await llm.complete(prompt, { temperature: 0.2 });
-    if (!sess.greeted && user.name) sess.greeted = true;
-
-    const final = String(answer || "").trim();
-    res.json({ answer: final || "Sorry — I don’t have that info right now. Please email Furnitune@jameyl.com or call 123-323-312." });
-  } catch (e) {
-    res.status(200).json({
-      answer: "Sorry — I couldn’t fetch that right now. Please email Furnitune@jameyl.com or call 123-323-312."
+    console.error("ask error:", e?.detail || e?.response?.data || e?.message || e);
+    return res.status(200).json({
+      answer:
+        "Sorry — I couldn’t fetch that right now. Please email Furnitune@jameyl.com or call 123-323-312.",
     });
   }
 });
 
+// ----------------------------------------------------------------------------
+// Boot
+// ----------------------------------------------------------------------------
 const PORT = process.env.PORT || 7861;
-
 app.listen(PORT, () => {
   console.log(`bizchat up on :${PORT}`);
-
-  // (optional) tiny debug endpoint so you can see if the index has vectors
-  app.get("/bizchat/debug/stats", (req, res) => {
-    try { res.json({ size: store.size() }); }
-    catch { res.json({ size: 0 }); }
-  });
-
-  // 🔹 Auto-seed on boot if env var is set
-  if (process.env.BIZCHAT_AUTOSEED === "1") {
-    import("./scripts/ingest-from-docx.mjs")
-      .then(() => console.log("Auto-seed complete"))
-      .catch(err => console.error("Auto-seed error:", err));
-  }
-  });
+});
