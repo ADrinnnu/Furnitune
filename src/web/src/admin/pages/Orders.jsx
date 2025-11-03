@@ -43,6 +43,7 @@ function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
   if (v === "paid") return "badge status-completed";
   if (v === "rejected") return "badge status-refund";
+  if (v === "refunded") return "badge status-to-receive";
   return "badge status-processing";
 }
 
@@ -113,6 +114,10 @@ export default function Orders() {
   const [customsDraft, setCustomsDraft] = useState({});
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
+
+  /* -------- returns UI state (NEW) -------- */
+  const [returnActing, setReturnActing] = useState({});      // { [orderId]: 'approve'|'reject'|'received'|'refund'|null }
+  const [returnByOrderId, setReturnByOrderId] = useState({}); // cache of latest return doc per order
 
   /* ------------------- live subscriptions ------------------- */
   useEffect(() => {
@@ -197,61 +202,87 @@ export default function Orders() {
   const setOrderDraft = (id, status) => setDraft((prev) => ({ ...prev, [id]: status }));
 
   const saveStatus = async (id) => {
-    const newStatus = draft[id];
-    if (!newStatus) return;
+  const newStatus = draft[id];
+  if (!newStatus) return;
 
-    try {
-      setSaving((prev) => ({ ...prev, [id]: true }));
+  try {
+    setSaving((prev) => ({ ...prev, [id]: true }));
 
-      await updateDoc(doc(db, "orders", id), {
-        status: newStatus,
-        statusUpdatedAt: serverTimestamp(),
-      });
+    // find the current row so we can decide if we need to set deliveredAt
+    const orderRow = rows.find((o) => o.id === id);
 
-      setRows((prev) => prev.map((o) => (o.id === id ? { ...o, status: newStatus } : o)));
+    // build the updates
+    const updates = {
+      status: newStatus,
+      statusUpdatedAt: serverTimestamp(),
+    };
 
-      // ⬇️ Create (or reuse) a shipment when order moves to "to_ship"
-      if (newStatus === "to_ship") {
-        const orderRow = rows.find((o) => o.id === id);
-        if (orderRow) {
-          try {
-            await ensureShipmentForOrder({ ...orderRow, id });
-          } catch (e) {
-            console.error("ensureShipmentForOrder failed", e);
-          }
-        }
+    // When admin marks order as completed, start the return window
+    if (newStatus === "completed" && !orderRow?.deliveredAt) {
+      updates.deliveredAt = serverTimestamp();
+      if (orderRow?.returnPolicyDays == null) {
+        updates.returnPolicyDays = 7; // default policy days if not already present
       }
-
-      // existing notification
-      const order = rows.find((o) => o.id === id);
-      const uid = order?.userId;
-      if (uid) {
-        const isRepairOrder = !!order?.repairId;
-        const firstItem = Array.isArray(order?.items) ? order.items[0] : null;
-
-        await addDoc(collection(db, "users", uid, "notifications"), {
-          type: isRepairOrder ? "repair_status" : "order_status",
-          orderId: id,
-          ...(isRepairOrder ? { repairId: order.repairId } : {}),
-          status: newStatus,
-          title: isRepairOrder
-            ? `Repair order ${String(id).slice(0, 6)} status updated`
-            : `Order ${String(id).slice(0, 6)} status updated`,
-          body: isRepairOrder
-            ? `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`
-            : `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
-          image: firstItem?.image || firstItem?.img || null,
-          link: `/ordersummary?orderId=${id}`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
-    } catch (e) {
-      alert(e?.message || "Failed to update status.");
-    } finally {
-      setSaving((prev) => ({ ...prev, [id]: false }));
     }
-  };
+
+    await updateDoc(doc(db, "orders", id), updates);
+
+    // optimistic local state update
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === id
+          ? {
+              ...o,
+              status: newStatus,
+              // reflect deliveredAt/returnPolicyDays optimistically in UI
+              ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}),
+              ...(updates.returnPolicyDays != null
+                ? { returnPolicyDays: updates.returnPolicyDays }
+                : {}),
+            }
+          : o
+      )
+    );
+
+    // ⬇️ Create (or reuse) a shipment when order moves to "to_ship"
+    if (newStatus === "to_ship" && orderRow) {
+      try {
+        await ensureShipmentForOrder({ ...orderRow, id });
+      } catch (e) {
+        console.error("ensureShipmentForOrder failed", e);
+      }
+    }
+
+    // existing notification code continues below (unchanged)...
+    const uid = orderRow?.userId;
+    if (uid) {
+      const isRepairOrder = !!orderRow?.repairId;
+      const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
+
+      await addDoc(collection(db, "users", uid, "notifications"), {
+        type: isRepairOrder ? "repair_status" : "order_status",
+        orderId: id,
+        ...(isRepairOrder ? { repairId: orderRow.repairId } : {}),
+        status: newStatus,
+        title: isRepairOrder
+          ? `Repair order ${String(id).slice(0, 6)} status updated`
+          : `Order ${String(id).slice(0, 6)} status updated`,
+        body: isRepairOrder
+          ? `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`
+          : `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
+        image: firstItem?.image || firstItem?.img || null,
+        link: `/ordersummary?orderId=${id}`,
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+    }
+  } catch (e) {
+    alert(e?.message || "Failed to update status.");
+  } finally {
+    setSaving((prev) => ({ ...prev, [id]: false }));
+  }
+};
+
 
   async function deleteUserNotifs(db, uid, { orderId = null, repairId = null } = {}) {
     if (!uid) return;
@@ -285,6 +316,157 @@ export default function Orders() {
       setRows((prev) => prev.filter((o) => o.id !== orderId));
     } finally {
       setDeleting((p) => ({ ...p, [orderId]: false }));
+    }
+  }
+
+  /* ------------------- helpers (returns) NEW ------------------- */
+  async function getLatestReturnDoc(orderId) {
+    const qy = query(collection(db, "returns"), where("orderId", "==", orderId));
+    const snap = await getDocs(qy);
+    let latest = null;
+    snap.forEach((d) => {
+      const r = { id: d.id, ...d.data() };
+      const ts = (r.createdAt?.seconds ?? 0) * 1000;
+      if (!latest || ts > ((latest?.createdAt?.seconds ?? 0) * 1000)) latest = r;
+    });
+    return latest;
+  }
+
+  async function primeReturnForOrder(orderId) {
+    try {
+      const r = await getLatestReturnDoc(orderId);
+      setReturnByOrderId((p) => ({ ...p, [orderId]: r || null }));
+    } catch (e) {
+      console.warn("primeReturnForOrder:", e?.message || e);
+    }
+  }
+
+  async function approveReturn(orderRow) {
+    const id = orderRow.id;
+    setReturnActing((p) => ({ ...p, [id]: "approve" }));
+    try {
+      const r = await getLatestReturnDoc(id);
+      if (!r) return alert("No return request found for this order.");
+
+      await updateDoc(doc(db, "returns", r.id), {
+        status: "approved",
+        approvedAt: serverTimestamp(),
+      });
+
+      if (orderRow.userId) {
+        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
+          type: "order_status",
+          orderId: id,
+          status: "refund",
+          title: `Return approved for ${String(id).slice(0, 6)}`,
+          body: "We’ve approved your return request. We’ll be in touch about pickup/next steps.",
+          image: Array.isArray(orderRow.items)
+            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            : null,
+          link: `/ordersummary?orderId=${id}`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+      await primeReturnForOrder(id);
+    } finally {
+      setReturnActing((p) => ({ ...p, [id]: null }));
+    }
+  }
+
+  async function rejectReturn(orderRow) {
+    const id = orderRow.id;
+    setReturnActing((p) => ({ ...p, [id]: "reject" }));
+    try {
+      const r = await getLatestReturnDoc(id);
+      if (!r) return alert("No return request found for this order.");
+      const reason = prompt("Reason for rejection? (optional)") || "";
+      await updateDoc(doc(db, "returns", r.id), {
+        status: "rejected",
+        rejectedAt: serverTimestamp(),
+        reason,
+      });
+
+      if (orderRow.userId) {
+        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
+          type: "order_status",
+          orderId: id,
+          status: "refund",
+          title: `Return rejected for ${String(id).slice(0, 6)}`,
+          body: reason ? `Reason: ${reason}` : "Your return request was rejected.",
+          image: Array.isArray(orderRow.items)
+            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            : null,
+          link: `/ordersummary?orderId=${id}`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+      await primeReturnForOrder(id);
+    } finally {
+      setReturnActing((p) => ({ ...p, [id]: null }));
+    }
+  }
+
+  async function markReturnReceived(orderRow) {
+    const id = orderRow.id;
+    setReturnActing((p) => ({ ...p, [id]: "received" }));
+    try {
+      const r = await getLatestReturnDoc(id);
+      if (!r) return alert("No return request found for this order.");
+      await updateDoc(doc(db, "returns", r.id), {
+        status: "received",
+        receivedAt: serverTimestamp(),
+      });
+      await primeReturnForOrder(id);
+    } finally {
+      setReturnActing((p) => ({ ...p, [id]: null }));
+    }
+  }
+
+  async function issueRefund(orderRow) {
+    const id = orderRow.id;
+    setReturnActing((p) => ({ ...p, [id]: "refund" }));
+    try {
+      const r = await getLatestReturnDoc(id);
+      if (!r) return alert("No return request found for this order.");
+
+      const full = Number(orderRow.total || 0) || 0;
+      const amount = Number(prompt("Refund amount (leave blank for full):", full)) || full;
+      const method = prompt("Refund method (e.g., original payment method):", "original") || "original";
+
+      await updateDoc(doc(db, "returns", r.id), {
+        status: "refund_issued",
+        refundAmount: amount,
+        refundMethod: method,
+        refundAt: serverTimestamp(),
+      });
+
+      await updateDoc(doc(db, "orders", id), {
+        paymentStatus: "refunded",
+        returnLocked: true,
+        statusUpdatedAt: serverTimestamp(),
+      });
+
+      if (orderRow.userId) {
+        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
+          type: "order_status",
+          orderId: id,
+          status: "refund",
+          title: `Refund issued for ${String(id).slice(0, 6)}`,
+          body: `We’ve issued your refund of ${amount}.`,
+          image: Array.isArray(orderRow.items)
+            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            : null,
+          link: `/ordersummary?orderId=${id}`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+
+      await primeReturnForOrder(id);
+    } finally {
+      setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
 
@@ -433,11 +615,14 @@ export default function Orders() {
     </button>
   );
 
-  const ViewButton = ({ open, onClick }) => (
+  const ViewButton = ({ rowId, open, onClick }) => (
     <button
       type="button"
       className="save-btn"
-      onClick={onClick}
+      onClick={() => {
+        onClick();
+        if (!open) primeReturnForOrder(rowId); // NEW: prime latest return doc when opening
+      }}
       style={{ background: open ? "#6b7e76" : "#2c5f4a" }}
       title={open ? "Hide details" : "View details"}
     >
@@ -572,6 +757,7 @@ export default function Orders() {
                           </td>
                           <td>
                             <ViewButton
+                              rowId={id}
                               open={isOpen}
                               onClick={() => setExpandedOrderId(isOpen ? null : id)}
                             />
@@ -609,6 +795,7 @@ export default function Orders() {
                                   >
                                     <option value="pending">Pending</option>
                                     <option value="paid">Paid</option>
+                                    <option value="refunded">Refunded</option>
                                     <option value="rejected">Rejected</option>
                                   </select>
                                 </div>
@@ -677,6 +864,63 @@ export default function Orders() {
                                     <pre className="note">{o.note}</pre>
                                   </div>
                                 )}
+
+                                {/* ---------- RETURN ACTIONS (NEW) ---------- */}
+                                <div className="span-2">
+                                  <h4>Return Actions</h4>
+                                  {(() => {
+                                    const r = returnByOrderId[o.id];
+                                    const busy = !!returnActing[o.id];
+                                    const Tag = ({ label }) => (
+                                      <span style={{ marginLeft: 8, fontSize: 12, color: "#6b7280" }}>{label}</span>
+                                    );
+                                    return (
+                                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                        <button
+                                          className="save-btn"
+                                          disabled={busy || !r || (r && r.status !== "requested")}
+                                          onClick={() => approveReturn(o)}
+                                          title="Approve return request"
+                                        >
+                                          {returnActing[o.id] === "approve" ? "Approving…" : "Approve"}
+                                        </button>
+
+                                        <button
+                                          className="save-btn"
+                                          disabled={busy || !r || (r && r.status !== "requested")}
+                                          onClick={() => rejectReturn(o)}
+                                          title="Reject return request"
+                                          style={{ background: "#9ca3af" }}
+                                        >
+                                          {returnActing[o.id] === "reject" ? "Rejecting…" : "Reject"}
+                                        </button>
+
+                                        <button
+                                          className="save-btn"
+                                          disabled={busy || !r || !["approved","in_transit","out_for_delivery"].includes(r.status)}
+                                          onClick={() => markReturnReceived(o)}
+                                          title="Mark item received"
+                                          style={{ background: "#6b7e76" }}
+                                        >
+                                          {returnActing[o.id] === "received" ? "Updating…" : "Mark Received"}
+                                        </button>
+
+                                        <button
+                                          className="save-btn"
+                                          disabled={busy || !r || !["received","approved"].includes(r.status)}
+                                          onClick={() => issueRefund(o)}
+                                          title="Issue refund and lock order"
+                                          style={{ background: "#111827" }}
+                                        >
+                                          {returnActing[o.id] === "refund" ? "Issuing…" : "Issue Refund"}
+                                        </button>
+
+                                        <Tag label={r ? `Latest: ${r.status}` : "No request found"} />
+                                      </div>
+                                    );
+                                  })()}
+                                </div>
+                                {/* ---------- /RETURN ACTIONS ---------- */}
                               </div>
                             </td>
                           </tr>
@@ -836,10 +1080,15 @@ export default function Orders() {
                             />
                           </td>
                           <td>
-                            <ViewButton
-                              open={isOpen}
+                            <button
+                              type="button"
+                              className="save-btn"
                               onClick={() => setExpandedRepairId(isOpen ? null : id)}
-                            />
+                              style={{ background: isOpen ? "#6b7e76" : "#2c5f4a" }}
+                              title={isOpen ? "Hide details" : "View details"}
+                            >
+                              {isOpen ? "Hide" : "View"}
+                            </button>
                           </td>
                         </tr>
 
@@ -874,6 +1123,7 @@ export default function Orders() {
                                     >
                                       <option value="pending">Pending</option>
                                       <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
                                     </select>
                                   ) : (
@@ -1084,10 +1334,15 @@ export default function Orders() {
                             />
                           </td>
                           <td>
-                            <ViewButton
-                              open={isOpen}
+                            <button
+                              type="button"
+                              className="save-btn"
                               onClick={() => setExpandedCustomId(isOpen ? null : id)}
-                            />
+                              style={{ background: isOpen ? "#6b7e76" : "#2c5f4a" }}
+                              title={isOpen ? "Hide details" : "View details"}
+                            >
+                              {isOpen ? "Hide" : "View"}
+                            </button>
                           </td>
                         </tr>
 
@@ -1160,6 +1415,7 @@ export default function Orders() {
                                     >
                                       <option value="pending">Pending</option>
                                       <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
                                     </select>
                                     {c?.paymentProofUrl ? (

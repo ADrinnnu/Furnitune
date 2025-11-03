@@ -83,7 +83,7 @@ const getOriginKey = (o) => {
   // REPAIR if the order links to a repair doc
   if (o?.repairId) return "REPAIR";
 
-  // CUSTOMIZATION if we can find any marker placed by your checkout/payment flow
+  // CUSTOMIZATION if checkout/payment flow tagged it
   if (
     o?.origin === "customization" ||
     o?.orderType === "customization" ||
@@ -124,6 +124,34 @@ const originPillStyle = (key) => {
   // CATALOG
   return { ...base, color: "#2c5f4a", borderColor: "#dfe6e2", background: "#f5fbf8" };
 };
+/* ---------- /NEW ---------- */
+
+/* ---------- NEW: robust return window helper ---------- */
+const DAY = 24 * 60 * 60 * 1000;
+/**
+ * Decide the return window using:
+ * 1) deliveredAt (preferred – set on customer confirm OR admin marking completed)
+ * 2) statusUpdatedAt
+ * 3) createdAt
+ * Defaults to 7 days if returnPolicyDays not present.
+ */
+function getReturnInfo(order) {
+  const startMs =
+    tsToMillis(order?.deliveredAt) ||
+    tsToMillis(order?.statusUpdatedAt) ||
+    tsToMillis(order?.createdAt) ||
+    0;
+
+  const days = Number(order?.returnPolicyDays ?? 7);
+  const endMs = startMs ? startMs + days * DAY : 0;
+
+  return {
+    startMs,
+    endMs,
+    ended: endMs ? Date.now() > endMs : false,
+    days,
+  };
+}
 /* ---------- /NEW ---------- */
 
 export default function MyPurchases() {
@@ -338,7 +366,7 @@ export default function MyPurchases() {
       }
 
       if (editingReview.enabled && editingReview.reviewId) {
-        // try update first (in case rules allow)
+        // try update first
         try {
           await updateDoc(doc(db, "reviews", editingReview.reviewId), {
             rating: stars,
@@ -347,8 +375,8 @@ export default function MyPurchases() {
             editedAt: serverTimestamp(),
             editedOnce: true,
           });
-        } catch (e) {
-          // If rules forbid update, create a new doc as the "edit" (version 2)
+        } catch {
+          // fallback: add a new versioned review if direct update not allowed
           await addDoc(collection(db, "reviews"), {
             userId: uid,
             userName:
@@ -462,6 +490,9 @@ export default function MyPurchases() {
         /* NEW: figure out where the order came from */
         const originKey = getOriginKey(o); // "CATALOG" | "REPAIR" | "CUSTOMIZATION"
 
+        /* NEW: compute return window safely */
+        const { startMs, endMs, ended } = getReturnInfo(o);
+
         return (
           <div className="order-card" key={o.id}>
             <div className="order-header">
@@ -498,6 +529,14 @@ export default function MyPurchases() {
 
             <div className="order-footer">
               <p className="order-total">Order Total: {fmtPHP(o?.total)}</p>
+
+              {/* NEW: Return window line (only if we have a valid start) */}
+              {startMs > 0 && (
+                <div className="muted" style={{ marginTop: 6 }}>
+                  Return window ends on{" "}
+                  {new Date(endMs).toLocaleDateString()} • {ended ? "ended" : "active"}
+                </div>
+              )}
 
               <div className="order-actions">
                 {/* status pill (read-only) */}
