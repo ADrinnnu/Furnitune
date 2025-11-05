@@ -1,9 +1,10 @@
 flask
 flask-cors
+gunicorn
 torch --extra-index-url https://download.pytorch.org/whl/cpu
 torchvision
-transformers
 faiss-cpu
+python-dotenv
 Pillow
 ftfy
 regex
@@ -13,3 +14,4 @@ firebase-admin
 google-cloud-storage
 google-cloud-firestore
 requests
+numpy

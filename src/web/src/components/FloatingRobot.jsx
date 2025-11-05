@@ -1,16 +1,16 @@
-// src/web/components/FloatingRobot.jsx
 import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import "../FloatingRobot.css";
 import botImg from "../assets/letter-f.png";
-
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../firebase"; 
+import { auth } from "../firebase";
 
+// ---- endpoints ----
 const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
 const RECO_URL = (import.meta.env.VITE_RECO_URL || "/recommender").replace(/\/+$/, "");
 
+// ---- panel styles ----
 const PANEL_CSS = `
 .mini-panel{position:fixed;right:22px;bottom:84px;width:420px;max-width:calc(100vw - 24px);
   height:620px;max-height:calc(100vh - 120px);background:#f8f5ee;border:1px solid #dcd5c7;border-radius:22px;overflow:hidden;
@@ -29,12 +29,10 @@ const PANEL_CSS = `
 .bubble.bot{border-top-left-radius:4px}.bubble.user{background:#e9efe9;border-color:#d0e0d5;border-top-right-radius:4px}
 .chips{display:flex;flex-wrap:wrap;gap:8px;margin-top:10px}
 .chip{background:#e9e5db;color:#1f2a27;border:1px solid #d8d0c1;font-weight:700;letter-spacing:.04em;padding:8px 10px;border-radius:12px;cursor:pointer;font-size:.9rem}
+.chip.on{background:#2d4739;color:#fff;border-color:#2d4739}
 .thumb{width:170px;height:110px;border-radius:12px;overflow:hidden;border:1px solid #d8d0c1;margin-top:10px}
 .thumb img{width:100%;height:100%;object-fit:cover}
-.cards{display:grid;gap:10px;margin-top:8px}
-.cards.two{grid-template-columns:repeat(2,minmax(0,1fr))}
-.card{border:1px solid #e3dccb;border-radius:12px;background:#fff;overflow:hidden}
-.card.sm img{height:110px}
+.card{border:1px solid #e3dccb;border-radius:12px;background:#fff;overflow:hidden;margin-top:8px}
 .card img{width:100%;height:160px;object-fit:cover;display:block}
 .card .body{padding:10px}
 .card .title{font-weight:800}
@@ -48,46 +46,45 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-const BotBubble = ({ children }) => <div className="msg bot"><div className="bubble bot">{children}</div></div>;
-const UserBubble = ({ children }) => <div className="msg user"><div className="bubble user">{children}</div></div>;
-
+// ---- PDF-based additionals per type ----
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 const TYPE_QUESTIONS = {
-  Bed: [
-    { key:"bed_material", prompt:"Pick a frame material", options:["Wood frame","Metal frame"] },
-    { key:"bed_size", prompt:"What size?", options:["Single","Queen","King","California King"] },
-    { key:"bed_drawers", prompt:"Drawers at the bottom?", options:["No drawers","2 drawers","4 drawers"] },
-  ],
   Sofa: [
-    { key:"sofa_seats", prompt:"How many seats?", options:["1 seater","2 seater","3 seater","4 seater","5 seater"] },
-    { key:"sofa_upholstery", prompt:"Upholstery", options:["Fabric","Leather"] },
-    { key:"sofa_chaise", prompt:"Chaise configuration?", options:["No chaise","Left chaise","Right chaise"] },
-  ],
-  Table: [
-    { key:"table_shape", prompt:"What shape?", options:["Rectangular","Square","Round"] },
-    { key:"table_size", prompt:"Choose size", options:["2 people","4 people","6 people","8 people"] },
-    { key:"table_material", prompt:"Top/base", options:["Solid wood","Glass top","Wood top + metal base"] },
-  ],
-  Chair: [
-    { key:"chair_style", prompt:"Style", options:["Armless","With arms"] },
-    { key:"chair_size", prompt:"Seat height", options:["Standard","Counter","Bar"] },
-    { key:"chair_finish", prompt:"Finish", options:["Wood","Fabric","Leather"] },
+    { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater"] },
+    { key: "color", prompt: "What color?",  options: ["Red","White","Black","Brown"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cushion","Footrest","None"] },
   ],
   Sectional: [
-    { key:"sec_orient", prompt:"Orientation", options:["L-Left","L-Right","U-shaped"] },
-    { key:"sec_seats", prompt:"Seats", options:["3 seater","5 seater","6 seater","7 seater"] },
-    { key:"sec_upholstery", prompt:"Upholstery", options:["Fabric","Leather"] },
+    { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape"] },
+    { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Throw Pillow","Footrest","None"] },
   ],
-  Ottoman: [
-    { key:"ott_type", prompt:"Type", options:["Standard","Cube","Footstool","Cocktail"] },
-    { key:"ott_cover", prompt:"Cover", options:["Fabric","Leather"] },
+  Chair: [
+    { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar"] },
+    { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cushion","With or without armrest","None"] },
+  ],
+  Table: [
+    { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Glass on top","Padded foam on top","None"] },
+  ],
+  Bed: [
+    { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King"] },
+    { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cabinets","Pull out Bed","None"] },
   ],
   Bench: [
-    { key:"bench_length", prompt:"Length", options:["2 seater","3 seater","4 seater"] },
-    { key:"bench_place", prompt:"Where to use?", options:["Indoor","Outdoor"] },
+    { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["With storage","Pillows","None"] },
+  ],
+  Ottoman: [
+    { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large"] },
+    { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
+    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Decorative Tray","With storage","None"] },
   ],
 };
 
+// quick type check for filtering
 const TYPE_ALIASES = {
   bed: ["bed","beds"],
   sofa: ["sofa","sofas","couch","couches"],
@@ -102,25 +99,29 @@ function itemLooksLikeType(item, type) {
   const want = (TYPE_ALIASES[type.toLowerCase()] || [type.toLowerCase()]);
   const hay = [
     item.type, item.baseType, item.category, item.productType,
-    item.title, item.name, item.slug,
+    item.title, item.name, item.slug, item.id,
   ].filter(Boolean).map(str).join(" ");
   return want.some(w => hay.includes(w));
 }
-function wantsReco(s) {
-  return /\b(recommend|recommendation|suggest|best|which|pick|choose|fit|suit|ideas?)\b/i.test(s || "");
-}
+
+// Prefer thumbnail first (backend signs gs:// → https)
+const getPrimaryImage = (it) => {
+  if (!it) return "";
+  if (it.thumbnail) return String(it.thumbnail);
+  if (it.imageUrl) return String(it.imageUrl);
+  if (it.image) return String(it.image);
+  if (Array.isArray(it.images) && it.images.length) return String(it.images[0]);
+  if (it.primaryImage) return String(it.primaryImage);
+  return "";
+};
 
 export default function FloatingRobot() {
+  // FAB and panel toggles
   const [open, setOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const wrapRef = useRef(null);
   const loc = useLocation();
-
-  useEffect(() => {
-    const onScroll = () => setOffset(window.scrollY % 10);
-    window.addEventListener("scroll", onScroll, { passive: true });
-    return () => window.removeEventListener("scroll", onScroll);
-  }, []);
+  useEffect(() => { const onScroll=()=>setOffset(window.scrollY%10); window.addEventListener("scroll",onScroll,{passive:true}); return ()=>window.removeEventListener("scroll",onScroll); }, []);
   useEffect(() => setOpen(false), [loc.pathname]);
   useEffect(() => {
     if (!open) return;
@@ -131,25 +132,18 @@ export default function FloatingRobot() {
     return () => { document.removeEventListener("mousedown", onDocClick); document.removeEventListener("keydown", onEsc); };
   }, [open]);
 
-  // 👤 current user (or Guest)
-  const [me, setMe] = useState(null);
+  // auth
   const [meName, setMeName] = useState("Guest");
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        setMe(null);
-        setMeName("Guest");
-        return;
-      }
+      if (!u) { setMeName("Guest"); return; }
       const fallback = u.email ? u.email.split("@")[0] : "Guest";
-      const nice = (u.displayName && u.displayName.trim()) || fallback || "Guest";
-      setMe(u);
-      setMeName(nice);
+      setMeName((u.displayName && u.displayName.trim()) || fallback || "Guest");
     });
     return () => unsub();
   }, []);
 
-  // Recommender state
+  // Reco state
   const [recoOpen, setRecoOpen] = useState(false);
   const [recoInitialized, setRecoInitialized] = useState(false);
   const [recoHealth, setRecoHealth] = useState(null);
@@ -163,7 +157,7 @@ export default function FloatingRobot() {
   const recoFileRef = useRef(null);
   const recoScrollRef = useRef(null);
 
-  // FAQ (BizChat backend)
+  // FAQ (unchanged)
   const [faqOpen, setFaqOpen] = useState(false);
   const [faqMessages, setFaqMessages] = useState([]);
   const [faqInput, setFaqInput] = useState("");
@@ -171,35 +165,23 @@ export default function FloatingRobot() {
   const [faqError, setFaqError] = useState("");
   const faqScrollRef = useRef(null);
 
-  // stable session id for conversation memory
-  const [bizSid] = useState(() => {
-    const key = "bizchat.sid";
-    let v = localStorage.getItem(key);
-    if (!v) { v = Math.random().toString(36).slice(2) + Date.now().toString(36); localStorage.setItem(key, v); }
-    return v;
-  });
-
-  useEffect(() => {
-    window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v=>!v) };
-    return () => { delete window.FurnituneFAQ; };
-  }, []);
-
+  // public APIs on window
+  useEffect(() => { window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v=>!v) }; return () => { delete window.FurnituneFAQ; }; }, []);
   useEffect(() => {
     window.FurnituneReco = {
       open: () => {
         setRecoOpen(true);
         setRecoInitialized(false);
-        setRecoType("");
-        setRecoAnswers({});
-        setRecoQIndex(0);
-        setRecoImage(null);
-        setRecoMessages([]);
+        setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
+        setRecoImage(null); setRecoMessages([]);
       },
       close: () => setRecoOpen(false),
-      toggle: () => setRecoOpen(v => !v)};
+      toggle: () => setRecoOpen(v => !v)
+    };
     return () => { delete window.FurnituneReco; };
   }, []);
 
+  // health
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
@@ -208,6 +190,7 @@ export default function FloatingRobot() {
     })();
   }, [recoOpen, recoHealth]);
 
+  // boot convo
   useEffect(() => {
     if (!recoOpen || recoInitialized) return;
     setRecoInitialized(true);
@@ -217,17 +200,28 @@ export default function FloatingRobot() {
     ]);
   }, [recoOpen, recoInitialized]);
 
-  useEffect(() => {
-    if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight;
-  }, [recoMessages, recoError, recoBusy]);
-  useEffect(() => {
-    if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight;
-  }, [faqMessages, faqBusy, faqError]);
+  // autoscroll
+  useEffect(() => { if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight; }, [recoMessages, recoError, recoBusy]);
+  useEffect(() => { if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight; }, [faqMessages, faqBusy, faqError]);
 
   const addRecoMsg = (m) => setRecoMessages(prev => [...prev, m]);
-  function recoAskType(){ addRecoMsg({ role:"bot", text:"What type of furniture do you want?", chips:TYPES }); }
-  function recoAskNext(type, idx){ const q=(TYPE_QUESTIONS[type]||[])[idx]; if(q) addRecoMsg({ role:"bot", text:q.prompt, chips:q.options }); }
-  function recoBuildQuery(type, a){ const bits=[type, ...Object.values(a)]; return bits.join(", "); }
+  const recoAskType = () => addRecoMsg({ role:"bot", text:"What type of furniture do you want?", chips:TYPES });
+
+  const recoAskNext = (type, idx) => {
+    const q=(TYPE_QUESTIONS[type]||[])[idx];
+    if(!q) return;
+    const chips = q.multi ? [...q.options, "Done"] : q.options;
+    addRecoMsg({ role:"bot", text:q.prompt, chips, qKey:q.key, multi:!!q.multi });
+  };
+
+  const recoBuildQuery = (type, a) => {
+    const parts = [type];
+    if (a.size) parts.push(String(a.size));
+    if (a.color) parts.push(String(a.color));
+    if (Array.isArray(a.additionals) && a.additionals.length) parts.push(a.additionals.join(" "));
+    return parts.join(", ");
+  };
+
   const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
   async function recommendBest(type, allAnswers) {
@@ -236,47 +230,53 @@ export default function FloatingRobot() {
     addRecoMsg({ role:"bot", text:"Got it! Let me find the best match for you…" });
 
     try {
-      const body = { k: 8, text: `${type}, ${recoBuildQuery(type, allAnswers)}` };
+      const body = {
+        k: 1, // only one product
+        text: `${recoBuildQuery(type, allAnswers)}`,
+        type,
+        additionals: Array.isArray(allAnswers.additionals) ? allAnswers.additionals : [],
+        strict: !Array.isArray(allAnswers.additionals) ? false : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
+        w_image: 0.6,
+        w_text: 0.4,
+        color_weight: 0.35,
+        color_mode: "match",
+      };
       if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
 
       const res = await fetch(`${API_BASE}/recommend`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
-      let items = Array.isArray(data.results) ? data.results : [];
 
-      let sameType = items.filter(it => itemLooksLikeType(it, type));
+      let items = [];
+      if (Array.isArray(data.items) && data.items.length) items = data.items;
+      else if (Array.isArray(data.related) && data.related.length) items = data.related;
 
-      if (sameType.length > 0) {
-        const exact = sameType[0];
+      const pick = (items.filter(it => itemLooksLikeType(it, type))[0]) || items[0];
+      if (pick) {
         addRecoMsg({ role:"bot", text:"Here’s the best match from our catalog:" });
-        addRecoMsg({ role:"bot", product: exact });
+        addRecoMsg({ role:"bot", product: pick });
       } else {
-        const res2 = await fetch(`${API_BASE}/recommend`, {
-          method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify({ k: 6, text: type })
-        });
-        const data2 = await res2.json();
-        sameType = (Array.isArray(data2.results) ? data2.results : []).filter(it => itemLooksLikeType(it, type));
-
-        addRecoMsg({ role:"bot", text:`I couldn’t find a perfect ${type.toLowerCase()} that fits those preferences. Here are some related ${type.toLowerCase()}s:` });
-        addRecoMsg({ role:"bot", cards: sameType.slice(0, 4) });
+        addRecoMsg({ role:"bot", text:`I couldn’t find a perfect ${type.toLowerCase()} for that selection.` });
       }
 
       addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
     } catch (e) {
       setRecoError(e.message || "Recommender failed");
       addRecoMsg({ role:"bot", text:"Sorry — I couldn’t fetch a recommendation right now." });
+      addRecoMsg({ role:"bot", text: e.message || "HTTP error" });
     } finally {
       setRecoBusy(false);
     }
   }
 
+  // chips flow (multi-select)
   function onRecoChipClick(label){
     if (label === "Change type"){ setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); addRecoMsg({role:"bot", text:"Okay—what type would you like?"}); recoAskType(); return; }
     if (label === "Start over"){
       setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); setRecoImage(null);
       setRecoMessages([
         { role:"bot", text:"Okay, starting fresh." },
-        { role:"bot", text:"Would you like to upload a photo of your room?", chips:["📷 Upload photo","Skip for now"] },
+        { role:"bot", text:"Would you like to upload a photo of your room? I can tailor suggestions from it.", chips:["📷 Upload photo","Skip for now"] },
       ]);
       return;
     }
@@ -294,7 +294,25 @@ export default function FloatingRobot() {
     if (recoType){
       const qs = TYPE_QUESTIONS[recoType] || [];
       const q = qs[recoQIndex];
-      if (q){
+      if (!q) { recommendBest(recoType, { ...recoAnswers }); return; }
+
+      if (q.multi){
+        if (label === "Done"){
+          addRecoMsg({ role:"user", text: (recoAnswers.additionals?.length ? recoAnswers.additionals.join(", ") : "None") });
+          const next = recoQIndex + 1;
+          if (next < qs.length){ setRecoQIndex(next); recoAskNext(recoType,next); }
+          else { recommendBest(recoType, { ...recoAnswers }); }
+          return;
+        }
+        // toggle selection
+        setRecoAnswers(a=>{
+          const cur = Array.isArray(a.additionals) ? a.additionals.slice() : [];
+          const i = cur.indexOf(label);
+          if (i>=0) cur.splice(i,1); else cur.push(label);
+          return { ...a, additionals: cur };
+        });
+        return;
+      } else {
         setRecoAnswers(a=>({ ...a, [q.key]: label }));
         addRecoMsg({ role:"user", text:label });
         const next = recoQIndex + 1;
@@ -313,7 +331,7 @@ export default function FloatingRobot() {
     recoAskType();
   }
 
-  // fallback content if backend fails / doesn't know
+  // FAQ quick answers (unchanged)
   const CONTACT = { phone:"123-323-312", email:"Furnitune@jameyl.com", live:"Offline now" };
   const FAQS = [
     { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
@@ -340,34 +358,24 @@ export default function FloatingRobot() {
     return c?c.a:`I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`;
   }
 
-  // --- BizChat call (backend) ---
   async function askBiz(question){
     setFaqBusy(true);
     setFaqError("");
     try{
-      const payload = {
-        question,
-        sessionId: bizSid,
-        user: me ? { id: me.uid, name: meName, email: me.email || "" } : { id: "guest", name: "Guest", email: "" }
-      };
-
+      const payload = { question, sessionId: "guest", user: { id: "guest", name: meName, email: "" } };
       const res = await fetch(`${BIZCHAT_BASE}/ask`, {
         method:"POST",
         headers:{ "Content-Type":"application/json" },
         body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = await res.json(); // { answer }
-
+      const data = await res.json();
       const raw = (data.answer || "").trim();
       const stripped = raw.replace(/[.\s]/g,"");
       const safeAnswer = stripped.length < 3
         ? `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`
         : raw;
-
-      const chips = wantsReco(question) ? ["Open Recommender"] : undefined;
-
-      setFaqMessages(p => [...p, { role:"bot", text: safeAnswer, ...(chips ? { chips } : {}) }]);
+      setFaqMessages(p => [...p, { role:"bot", text: safeAnswer }]);
     } catch(e){
       setFaqMessages(p => [...p, { role:"bot", text: answerFor(question) }]);
       setFaqError(e.message || "BizChat failed");
@@ -378,12 +386,8 @@ export default function FloatingRobot() {
 
   function onFaqChip(q){
     if (q === "Open Recommender"){
-      if (window.FurnituneReco?.open) {
-        window.FurnituneReco.open();
-        setFaqOpen(false);
-      } else {
-        window.location.href = RECO_URL;
-      }
+      if (window.FurnituneReco?.open) { window.FurnituneReco.open(); setFaqOpen(false); }
+      else { window.location.href = RECO_URL; }
       return;
     }
     setFaqMessages(p=>[...p,{role:"user",text:q}]);
@@ -403,30 +407,23 @@ export default function FloatingRobot() {
 
       {/* Floating FAB */}
       <div ref={wrapRef} className="fab-wrap" style={{ transform:`translateY(${offset*0.2}px)` }}>
-<button
-  type="button"
-  className="fab-robot"
-  onClick={() => setOpen(v => !v)}
-  aria-expanded={open}
-  aria-controls="fab-menu"
-  aria-label="Assistant"
->
-  <img src={botImg} alt="" />
-</button>        {open && (
+        <button type="button" className="fab-robot" onClick={() => setOpen(v => !v)} aria-expanded={open} aria-controls="fab-menu" aria-label="Assistant">
+          <img src={botImg} alt="" />
+        </button>
+        {open && (
           <div id="fab-menu" className="fab-menu" role="menu">
             <button type="button" className="fab-item" role="menuitem" title="FAQ Chatbot" onClick={()=>{setFaqOpen(true);setOpen(false);}}>💬</button>
-            <button type="button" className="fab-item" role="menuitem" title="Recommender" onClick={()=>{
-              if (window.FurnituneReco?.open) window.FurnituneReco.open();
-              setOpen(false);
-            }}>✨</button>
+            <button type="button" className="fab-item" role="menuitem" title="Recommender" onClick={()=>{ if (window.FurnituneReco?.open) window.FurnituneReco.open(); setOpen(false); }}>✨</button>
           </div>
         )}
       </div>
 
       {/* FAQ Panel */}
       <div className={`mini-panel ${faqOpen ? "open" : ""}`} aria-hidden={!faqOpen}>
-        <div className="topbar"><div className="brand"><div className="big">FURNITUNE</div><div className="small">FAQ Chatbot</div></div>
-          <button className="close" onClick={()=>setFaqOpen(false)}>Close</button></div>
+        <div className="topbar">
+          <div className="brand"><div className="big">FURNITUNE</div><div className="small">FAQ Chatbot</div></div>
+          <button className="close" onClick={()=>setFaqOpen(false)}>Close</button>
+        </div>
         <div className="scroll" ref={faqScrollRef}>
           {faqMessages.map((m,i)=> m.role==="user"
             ? <UserBubble key={i}>{m.text}</UserBubble>
@@ -460,12 +457,11 @@ export default function FloatingRobot() {
               <BotBubble key={i}>
                 <div>{m.text}</div>
                 {m.imageUrl && <div className="thumb" style={{marginTop:8}}><img src={m.imageUrl} alt="uploaded room"/></div>}
+
+                {/* Single best-match card only */}
                 {m.product && (
-                  <div className="card" style={{marginTop:8}}>
-                    {(() => {
-                      const p=m.product; const img=Array.isArray(p.images)?p.images[0]:p.images?.url||p.image;
-                      return img ? <img src={img} alt={p.title||p.name||"Product"}/> : null;
-                    })()}
+                  <div className="card">
+                    {(() => { const p=m.product; const img=getPrimaryImage(p); return img ? <img src={img} alt={p.title||p.name||"Product"} /> : null; })()}
                     <div className="body">
                       {!!(m.product.type||m.product.baseType) && <div className="type">{m.product.type||m.product.baseType}</div>}
                       <div className="title">{m.product.title||m.product.name||m.product.slug||"Product"}</div>
@@ -474,25 +470,17 @@ export default function FloatingRobot() {
                     </div>
                   </div>
                 )}
-                {m.cards?.length>0 && (
-                  <div className="cards two">
-                    {m.cards.map((it,idx)=>(
-                      <div className="card sm" key={idx}>
-                        {(() => {
-                          const img=Array.isArray(it.images)?it.images[0]:it.images?.url||it.image;
-                          return img ? <img src={img} alt={it.title||it.name||"Product"}/> : null;
-                        })()}
-                        <div className="body">
-                          {!!(it.type||it.baseType) && <div className="type">{it.type||it.baseType}</div>}
-                          <div className="title">{it.title||it.name||it.slug||"Product"}</div>
-                          {(it.price!=null || it.basePrice!=null) && <div className="price">₱{Number(it.price ?? it.basePrice ?? 0).toFixed(2)}</div>}
-                          <a className="btn" href={`/product/${it.id}`}>View</a>
-                        </div>
-                      </div>
-                    ))}
+
+                {/* chips */}
+                {m.chips?.length ? (
+                  <div className="chips">
+                    {m.chips.map(c=>{
+                      const isMulti = m.multi && (m.qKey==="additionals");
+                      const selected = isMulti && Array.isArray(recoAnswers.additionals) && recoAnswers.additionals.includes(c);
+                      return <button key={c} className={`chip ${selected?"on":""}`} onClick={()=>onRecoChipClick(c)}>{c}</button>;
+                    })}
                   </div>
-                )}
-                {m.chips?.length ? <div className="chips">{m.chips.map(c=><button key={c} className="chip" onClick={()=>onRecoChipClick(c)}>{c}</button>)}</div> : null}
+                ) : null}
               </BotBubble>
             )
           )}
@@ -510,3 +498,6 @@ export default function FloatingRobot() {
     </>
   );
 }
+
+const BotBubble = ({ children }) => <div className="msg bot"><div className="bubble bot">{children}</div></div>;
+const UserBubble = ({ children }) => <div className="msg user"><div className="bubble user">{children}</div></div>;
