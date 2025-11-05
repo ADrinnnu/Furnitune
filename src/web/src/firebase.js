@@ -40,9 +40,8 @@ export const db = initializeFirestore(app, {
 });
 export const auth = getAuth(app);
 export const firestore = getFirestore(app);
-export const storage = getStorage(app); // no second arg
+export const storage = getStorage(app); 
 
-// (optional re-exports)
 export {
   collection, query, where, getDocs, orderBy, startAt, endAt, limit,
   doc, getDoc, updateDoc, serverTimestamp, onSnapshot,

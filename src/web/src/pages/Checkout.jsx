@@ -89,7 +89,6 @@ export default function Checkout() {
     })();
   }, [repairId, customMode]);
 
-  // Form state
   const [email, setEmail] = useState("");
   const [news, setNews] = useState(false);
   const [first, setFirst] = useState("");
@@ -101,7 +100,6 @@ export default function Checkout() {
   const [zip, setZip] = useState("");
   const [phone, setPhone] = useState("");
 
-  // Totals (preview only; the real order will be created on Payment)
   const shippingFee = 510;
   const discount = 69;
   const subtotal = useMemo(
@@ -124,7 +122,6 @@ export default function Checkout() {
       return;
     }
 
-    // Ensure we have a user (anon is fine) — but DO NOT create the order here.
     try {
       if (!auth.currentUser) {
         await signInAnonymously(auth);

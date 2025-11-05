@@ -69,7 +69,6 @@ export default function OrderSummary() {
     return stop;
   }, [orderId, customId]);
 
-  // If we have a specific customId, listen to /custom_orders/{id} and adapt to card
   useEffect(() => {
     if (!customId) return;
     const ref = doc(firestore, "custom_orders", customId);
@@ -103,7 +102,6 @@ export default function OrderSummary() {
               size: c.size || null,
               price,
               image,
-              // NEW: show chosen color/material
               colorHex: (c?.cover && c.cover.color) ? String(c.cover.color) : null,
               colorName: (c?.cover && c.cover.materialType) ? String(c.cover.materialType) : null,
             },

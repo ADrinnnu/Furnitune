@@ -46,7 +46,7 @@ export default function Dashboard() {
       shipments: shipments.length,
       shipped,
       delivered,
-      revenue: totalSales / 100, // assuming cents
+      revenue: totalSales / 100, 
     };
   }, [designs, products, orders, shipments]);
 
