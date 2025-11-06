@@ -15,11 +15,19 @@ import {
   where,
   deleteDoc,
 } from "firebase/firestore";
-// ⬇️ add provider helpers (no CSS touched)
+// ⬇️ provider helpers (unchanged)
 import {
   ensureShipmentForOrder,
   deleteShipmentsForOrder,
 } from "../data/firebase/firebaseProvider";
+
+// ⬇️ NEW: tiny assessment/payment helpers (add these functions in your provider or a new module and update the import path)
+import {
+  finalizeAssessment,       // ({ kind: "repair"|"custom", id, assessedTotalCents, notes })
+  addPaymentAccepted,       // ({ kind, id, amountCents, method: "additional" })
+  recordPartialRefund,      // ({ kind, id, amountCents })
+} from "../data/assessmentProvider";
+
 import "../Orders.css";
 
 /* --------------------------- constants --------------------------- */
@@ -44,6 +52,8 @@ function paymentBadgeClass(ps) {
   if (v === "paid") return "badge status-completed";
   if (v === "rejected") return "badge status-refund";
   if (v === "refunded") return "badge status-to-receive";
+  if (v === "deposit_paid") return "badge status-preparing";
+  if (v === "awaiting_additional_payment") return "badge status-to-receive";
   return "badge status-processing";
 }
 
@@ -77,6 +87,87 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
     >
       🗑
     </button>
+  );
+}
+
+/* --------------------------- Assessment panel (NEW) --------------------------- */
+function AssessmentPanel({
+  kind,               // "repair" | "custom"
+  row,                // repair/custom doc
+  onFinalize,         // (assessedCents, notes) => void
+  onAddPayment,       // (amountCents) => void
+  onPartialRefund,    // (amountCents) => void
+}) {
+  const [assessed, setAssessed] = useState(
+    row?.assessedTotalCents != null ? Math.round(Number(row.assessedTotalCents) / 100) : ""
+  );
+  const [notes, setNotes] = useState(row?.assessmentNotes ?? "");
+  const dep  = Number(row?.depositCents || 0);
+  const adds = Number(row?.additionalPaymentsCents || 0);
+  const refs = Number(row?.refundsCents || 0);
+  const assessedC = Math.round(Number(assessed || 0) * 100);
+  const netPaid = dep + adds - refs;
+  const balance = assessedC > 0 ? Math.max(0, assessedC - netPaid) : 0;
+  const overpay = assessedC > 0 ? Math.max(0, netPaid - assessedC) : 0;
+
+  return (
+    <div className="span-2">
+      <h4>Assessment</h4>
+      <div className="kv">
+        <label>Final Total (₱)</label>
+        <input
+          className="status-select"
+          type="number"
+          value={assessed}
+          onChange={(e)=>setAssessed(e.target.value)}
+          placeholder="e.g. 16000"
+        />
+      </div>
+      <div className="kv">
+        <label>Notes</label>
+        <textarea
+          className="note"
+          rows={3}
+          value={notes}
+          onChange={(e)=>setNotes(e.target.value)}
+          placeholder="What needs to be done / price changes"
+        />
+      </div>
+      <div className="muted small" style={{marginTop:6}}>
+        Deposit: <b>₱{(dep/100).toLocaleString()}</b> · Add’l: <b>₱{(adds/100).toLocaleString()}</b> · Refunds: <b>₱{(refs/100).toLocaleString()}</b>
+      </div>
+      <div className="muted small">
+        {assessedC
+          ? <>Balance due: <b>₱{(balance/100).toLocaleString()}</b> · Overpaid: <b>₱{(overpay/100).toLocaleString()}</b></>
+          : "Set final total to compute balance"}
+      </div>
+
+      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
+        <button className="save-btn" onClick={()=>onFinalize(assessedC, notes)}>
+          Finalize Assessment
+        </button>
+
+        {balance > 0 && (
+          <button
+            className="save-btn"
+            style={{background:"#111827"}}
+            onClick={()=>onAddPayment(balance)}
+          >
+            Record Additional Payment (₱{(balance/100).toLocaleString()})
+          </button>
+        )}
+
+        {overpay > 0 && (
+          <button
+            className="save-btn"
+            style={{background:"#9ca3af"}}
+            onClick={()=>onPartialRefund(overpay)}
+          >
+            Record Partial Refund (₱{(overpay/100).toLocaleString()})
+          </button>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -115,9 +206,9 @@ export default function Orders() {
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
 
-  /* -------- returns UI state (NEW) -------- */
-  const [returnActing, setReturnActing] = useState({});      // { [orderId]: 'approve'|'reject'|'received'|'refund'|null }
-  const [returnByOrderId, setReturnByOrderId] = useState({}); // cache of latest return doc per order
+  /* -------- returns UI state (existing) -------- */
+  const [returnActing, setReturnActing] = useState({});
+  const [returnByOrderId, setReturnByOrderId] = useState({});
 
   /* ------------------- live subscriptions ------------------- */
   useEffect(() => {
@@ -172,7 +263,15 @@ export default function Orders() {
   }, [db]);
 
   /* ------------------- derived lists ------------------- */
-  const productOrders = useMemo(() => rows.filter((o) => !o?.repairId), [rows]);
+  const productOrders = useMemo(
+    () =>
+      rows.filter(
+        (o) =>
+          !o?.repairId &&
+          String(o?.origin || "catalog") !== "customization"
+      ),
+    [rows]
+  );
 
   const ordered = useMemo(() => {
     const sorted = [...productOrders].sort(
@@ -198,90 +297,129 @@ export default function Orders() {
     return sorted.filter((c) => (c?.status || "draft") === customsFilter);
   }, [customs, customsFilter]);
 
-  /* ------------------- helpers (orders) ------------------- */
+  /* ------------------- utils --------------------------- */
+  function tsToMillis(ts) {
+    if (!ts) return 0;
+    if (typeof ts?.toDate === "function") return ts.toDate().getTime();
+    if (typeof ts?.seconds === "number") return ts.seconds * 1000;
+    const d = new Date(ts);
+    return isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  function fmtDate(ts) {
+    const ms = tsToMillis(ts);
+    if (!ms) return "";
+    return new Date(ms).toLocaleString();
+  }
+  function fmtPHP(n) {
+    try {
+      return new Intl.NumberFormat("en-PH", {
+        style: "currency",
+        currency: "PHP",
+        maximumFractionDigits: 0,
+      }).format(Number(n) || 0);
+    } catch {
+      return `₱${Number(n) || 0}`;
+    }
+  }
+
+  /* ------------------- shared payment helpers (NEW, dedup) ------------------- */
+  async function updateOrderPayment(orderId, currentRow, nextStatus) {
+    const db2 = getFirestore(auth.app);
+    const val = nextStatus;
+    const updates = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+    if (val === "paid" && !currentRow?.paidAt) updates.paidAt = serverTimestamp();
+    if (val === "refunded") updates.refundedAt = serverTimestamp();
+
+    await updateDoc(doc(db2, "orders", orderId), updates);
+    setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updates } : o)));
+  }
+  async function updateRepairPayment(repairId, currentRepairRow, nextStatus) {
+    const db2 = getFirestore(auth.app);
+    const val = nextStatus;
+    const updates = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+    if (val === "paid" && !currentRepairRow?.paidAt) updates.paidAt = serverTimestamp();
+    if (val === "refunded") updates.refundedAt = serverTimestamp();
+
+    await updateDoc(doc(db2, "repairs", repairId), updates);
+    setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...updates } : r)));
+  }
+
   const setOrderDraft = (id, status) => setDraft((prev) => ({ ...prev, [id]: status }));
 
   const saveStatus = async (id) => {
-  const newStatus = draft[id];
-  if (!newStatus) return;
+    const newStatus = draft[id];
+    if (!newStatus) return;
 
-  try {
-    setSaving((prev) => ({ ...prev, [id]: true }));
+    try {
+      setSaving((prev) => ({ ...prev, [id]: true }));
 
-    // find the current row so we can decide if we need to set deliveredAt
-    const orderRow = rows.find((o) => o.id === id);
+      const orderRow = rows.find((o) => o.id === id);
 
-    // build the updates
-    const updates = {
-      status: newStatus,
-      statusUpdatedAt: serverTimestamp(),
-    };
-
-    // When admin marks order as completed, start the return window
-    if (newStatus === "completed" && !orderRow?.deliveredAt) {
-      updates.deliveredAt = serverTimestamp();
-      if (orderRow?.returnPolicyDays == null) {
-        updates.returnPolicyDays = 7; // default policy days if not already present
-      }
-    }
-
-    await updateDoc(doc(db, "orders", id), updates);
-
-    // optimistic local state update
-    setRows((prev) =>
-      prev.map((o) =>
-        o.id === id
-          ? {
-              ...o,
-              status: newStatus,
-              // reflect deliveredAt/returnPolicyDays optimistically in UI
-              ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}),
-              ...(updates.returnPolicyDays != null
-                ? { returnPolicyDays: updates.returnPolicyDays }
-                : {}),
-            }
-          : o
-      )
-    );
-
-    // ⬇️ Create (or reuse) a shipment when order moves to "to_ship"
-    if (newStatus === "to_ship" && orderRow) {
-      try {
-        await ensureShipmentForOrder({ ...orderRow, id });
-      } catch (e) {
-        console.error("ensureShipmentForOrder failed", e);
-      }
-    }
-
-    // existing notification code continues below (unchanged)...
-    const uid = orderRow?.userId;
-    if (uid) {
-      const isRepairOrder = !!orderRow?.repairId;
-      const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
-
-      await addDoc(collection(db, "users", uid, "notifications"), {
-        type: isRepairOrder ? "repair_status" : "order_status",
-        orderId: id,
-        ...(isRepairOrder ? { repairId: orderRow.repairId } : {}),
+      const updates = {
         status: newStatus,
-        title: isRepairOrder
-          ? `Repair order ${String(id).slice(0, 6)} status updated`
-          : `Order ${String(id).slice(0, 6)} status updated`,
-        body: isRepairOrder
-          ? `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`
-          : `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
-        image: firstItem?.image || firstItem?.img || null,
-        link: `/ordersummary?orderId=${id}`,
-        createdAt: serverTimestamp(),
-        read: false,
-      });
+        statusUpdatedAt: serverTimestamp(),
+      };
+
+      if (newStatus === "completed" && !orderRow?.deliveredAt) {
+        updates.deliveredAt = serverTimestamp();
+        if (orderRow?.returnPolicyDays == null) {
+          updates.returnPolicyDays = 7;
+        }
+      }
+
+      await updateDoc(doc(db, "orders", id), updates);
+
+      setRows((prev) =>
+        prev.map((o) =>
+          o.id === id
+            ? {
+                ...o,
+                status: newStatus,
+                ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}),
+                ...(updates.returnPolicyDays != null
+                  ? { returnPolicyDays: updates.returnPolicyDays }
+                  : {}),
+              }
+            : o
+        )
+      );
+
+      if (newStatus === "to_ship" && orderRow) {
+        try {
+          await ensureShipmentForOrder({ ...orderRow, id });
+        } catch (e) {
+          console.error("ensureShipmentForOrder failed", e);
+        }
+      }
+
+      const uid = orderRow?.userId;
+      if (uid) {
+        const isRepairOrder = !!orderRow?.repairId;
+        const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
+
+        await addDoc(collection(db, "users", uid, "notifications"), {
+          type: isRepairOrder ? "repair_status" : "order_status",
+          orderId: id,
+          ...(isRepairOrder ? { repairId: orderRow.repairId } : {}),
+          status: newStatus,
+          title: isRepairOrder
+            ? `Repair order ${String(id).slice(0, 6)} status updated`
+            : `Order ${String(id).slice(0, 6)} status updated`,
+          body: isRepairOrder
+            ? `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`
+            : `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
+          image: firstItem?.image || firstItem?.img || null,
+          link: `/ordersummary?orderId=${id}`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+    } catch (e) {
+      alert(e?.message || "Failed to update status.");
+    } finally {
+      setSaving((prev) => ({ ...prev, [id]: false }));
     }
-  } catch (e) {
-    alert(e?.message || "Failed to update status.");
-  } finally {
-    setSaving((prev) => ({ ...prev, [id]: false }));
-  }
-};
+  };
 
 
   async function deleteUserNotifs(db, uid, { orderId = null, repairId = null } = {}) {
@@ -296,30 +434,34 @@ export default function Orders() {
     }
   }
 
+  // ✅ STRICT delete: only remove from UI after Firestore delete succeeds
   async function deleteOrderCascade(orderId, orderDataFromRows) {
+    setDeleting((p) => ({ ...p, [orderId]: true }));
     try {
-      setDeleting((p) => ({ ...p, [orderId]: true }));
       const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
 
       if (orderData?.userId) {
         await deleteUserNotifs(db, orderData.userId, { orderId });
       }
 
-      // ⬇️ Also remove any shipments (and their events) tied to this order
       try {
         await deleteShipmentsForOrder(orderId);
       } catch (e) {
         console.error("deleteShipmentsForOrder failed", e);
       }
 
-      await deleteDoc(doc(db, "orders", orderId));
+      await deleteDoc(doc(db, "orders", orderId)); // <-- this will throw if not admin (per your rules)
+      // only now mutate local state
       setRows((prev) => prev.filter((o) => o.id !== orderId));
+    } catch (e) {
+      console.error("deleteOrderCascade failed:", e);
+      alert(e?.message || "Failed to delete order. Make sure your account is admin.");
     } finally {
       setDeleting((p) => ({ ...p, [orderId]: false }));
     }
   }
 
-  /* ------------------- helpers (returns) NEW ------------------- */
+  /* ------------------- helpers (returns) ------------------- */
   async function getLatestReturnDoc(orderId) {
     const qy = query(collection(db, "returns"), where("orderId", "==", orderId));
     const snap = await getDocs(qy);
@@ -446,6 +588,8 @@ export default function Orders() {
         paymentStatus: "refunded",
         returnLocked: true,
         statusUpdatedAt: serverTimestamp(),
+        refundedCents: Math.round(Number(amount || 0) * 100),
+        refundedAt: serverTimestamp(),
       });
 
       if (orderRow.userId) {
@@ -481,7 +625,6 @@ export default function Orders() {
     try {
       setRepairsSaving((prev) => ({ ...prev, [id]: true }));
 
-      // 1) Update repair doc
       await updateDoc(doc(db, "repairs", id), {
         status: newStatus,
         statusUpdatedAt: serverTimestamp(),
@@ -489,7 +632,6 @@ export default function Orders() {
 
       setRepairs((prev) => prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r)));
 
-      // 2) Mirror to linked order (if any)
       const linkedOrder = rows.find((o) => o?.repairId === id);
       if (linkedOrder?.id) {
         await updateDoc(doc(db, "orders", linkedOrder.id), {
@@ -501,7 +643,6 @@ export default function Orders() {
         );
       }
 
-      // 3) Notify
       const repair = repairs.find((r) => r.id === id);
       const uid = repair?.userId;
       if (uid) {
@@ -525,27 +666,27 @@ export default function Orders() {
     }
   };
 
+  // ✅ STRICT delete for repairs
   async function deleteRepairCascade(repairId) {
+    setRepDeleting((p) => ({ ...p, [repairId]: true }));
     try {
-      setRepDeleting((p) => ({ ...p, [repairId]: true }));
-
       const repairData = repairs.find((r) => r.id === repairId);
 
-      // delete linked order(s)
       const ordersQ = query(collection(db, "orders"), where("repairId", "==", repairId));
       const ordersSnap = await getDocs(ordersQ);
       for (const ord of ordersSnap.docs) {
         await deleteOrderCascade(ord.id, ord.data());
       }
 
-      // delete repair notifications
       if (repairData?.userId) {
         await deleteUserNotifs(db, repairData.userId, { repairId });
       }
 
-      // delete the repair doc
       await deleteDoc(doc(db, "repairs", repairId));
       setRepairs((prev) => prev.filter((r) => r.id !== repairId));
+    } catch (e) {
+      console.error("deleteRepairCascade failed:", e);
+      alert(e?.message || "Failed to delete repair. Make sure your account is admin.");
     } finally {
       setRepDeleting((p) => ({ ...p, [repairId]: false }));
     }
@@ -586,11 +727,15 @@ export default function Orders() {
     }
   }
 
+  // ✅ STRICT delete for custom orders
   async function deleteCustomCascade(customId) {
+    setCustomDeleting((p) => ({ ...p, [customId]: true }));
     try {
-      setCustomDeleting((p) => ({ ...p, [customId]: true }));
       await deleteDoc(doc(db, "custom_orders", customId));
       setCustoms((prev) => prev.filter((c) => c.id !== customId));
+    } catch (e) {
+      console.error("deleteCustomCascade failed:", e);
+      alert(e?.message || "Failed to delete customization order. Make sure your account is admin.");
     } finally {
       setCustomDeleting((p) => ({ ...p, [customId]: false }));
     }
@@ -603,7 +748,6 @@ export default function Orders() {
       className={`chip ${activeTab === id ? "active" : ""}`}
       onClick={() => {
         setActiveTab(id);
-        // collapse all expanded panels when switching tabs
         setExpandedOrderId(null);
         setExpandedRepairId(null);
         setExpandedCustomId(null);
@@ -621,7 +765,7 @@ export default function Orders() {
       className="save-btn"
       onClick={() => {
         onClick();
-        if (!open) primeReturnForOrder(rowId); // NEW: prime latest return doc when opening
+        if (!open) primeReturnForOrder(rowId);
       }}
       style={{ background: open ? "#6b7e76" : "#2c5f4a" }}
       title={open ? "Hide details" : "View details"}
@@ -630,9 +774,10 @@ export default function Orders() {
     </button>
   );
 
+  /* ------------------- render ------------------- */
   return (
     <div className="admin-orders">
-      {/* Tabs (three blocks right-aligned spacing preserved) */}
+      {/* Tabs */}
       <div className="orders-topbar" style={{ marginBottom: 16, justifyContent: "space-between" }}>
         <div className="status-toolbar"><TabButton id="orders" label="Orders" count={productOrders.length} /></div>
         <div className="status-toolbar"><TabButton id="repairs" label="Repair" count={repairs.length} /></div>
@@ -786,14 +931,11 @@ export default function Orders() {
                                   <select
                                     className="status-select"
                                     value={o.paymentStatus || "pending"}
-                                    onChange={async (e) => {
-                                      const db2 = getFirestore(auth.app);
-                                      await updateDoc(doc(db2, "orders", o.id), {
-                                        paymentStatus: e.target.value,
-                                      });
-                                    }}
+                                    onChange={(e) => updateOrderPayment(o.id, o, e.target.value)}
                                   >
                                     <option value="pending">Pending</option>
+                                    <option value="deposit_paid">Deposit_Paid</option>
+                                    <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
                                     <option value="paid">Paid</option>
                                     <option value="refunded">Refunded</option>
                                     <option value="rejected">Rejected</option>
@@ -865,7 +1007,7 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* ---------- RETURN ACTIONS (NEW) ---------- */}
+                                {/* ---------- RETURN ACTIONS ---------- */}
                                 <div className="span-2">
                                   <h4>Return Actions</h4>
                                   {(() => {
@@ -1002,8 +1144,9 @@ export default function Orders() {
                     const draftStatus = repairsDraft[id] ?? status;
 
                     const linkedOrder = rows.find((o) => o?.repairId === id);
-                    const paymentProofUrl = linkedOrder?.paymentProofUrl;
-                    const paymentStatus = linkedOrder?.paymentStatus || "pending";
+                    const paymentProofUrl =
+                      linkedOrder?.paymentProofUrl || r?.paymentProofUrl || null;
+                    const paymentStatus = (linkedOrder?.paymentStatus || r?.paymentStatus || "pending");
                     const isOpen = expandedRepairId === id;
 
                     return (
@@ -1038,13 +1181,11 @@ export default function Orders() {
                             <span className={`badge status-${status}`}>
                               {(STATUS_LABEL[status] || status).toUpperCase()}
                             </span>
-                            {linkedOrder && (
-                              <div style={{ marginTop: 4 }}>
-                                <span className={paymentBadgeClass(paymentStatus)}>
-                                  {String(paymentStatus).toUpperCase()}
-                                </span>
-                              </div>
-                            )}
+                            <div style={{ marginTop: 4 }}>
+                              <span className={paymentBadgeClass(paymentStatus)}>
+                                {String(paymentStatus).toUpperCase()}
+                              </span>
+                            </div>
                           </td>
                           <td className="nowrap">
                             <select
@@ -1114,20 +1255,31 @@ export default function Orders() {
                                   {linkedOrder ? (
                                     <select
                                       className="status-select"
-                                      value={paymentStatus}
-                                      onChange={async (e) => {
-                                        await updateDoc(doc(db, "orders", linkedOrder.id), {
-                                          paymentStatus: e.target.value,
-                                        });
-                                      }}
+                                      value={linkedOrder?.paymentStatus || "pending"}
+                                      onChange={(e) =>
+                                        updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)
+                                      }
                                     >
                                       <option value="pending">Pending</option>
+                                      <option value="deposit_paid">Deposit_Paid</option>
+                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
                                       <option value="paid">Paid</option>
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
                                     </select>
                                   ) : (
-                                    <div className="muted">No linked order yet.</div>
+                                    <select
+                                      className="status-select"
+                                      value={r?.paymentStatus || "pending"}
+                                      onChange={(e) => updateRepairPayment(id, r, e.target.value)}
+                                    >
+                                      <option value="pending">Pending</option>
+                                      <option value="deposit_paid">Deposit_Paid</option>
+                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
+                                      <option value="rejected">Rejected</option>
+                                    </select>
                                   )}
                                 </div>
 
@@ -1173,6 +1325,25 @@ export default function Orders() {
                                     <pre className="note">{r.notes}</pre>
                                   </div>
                                 )}
+
+                                {/* ---------- ASSESSMENT (NEW) ---------- */}
+                                <AssessmentPanel
+                                  kind="repair"
+                                  row={r}
+                                  onFinalize={async (assessedCents, notes) => {
+                                    await finalizeAssessment({ kind: "repair", id, assessedTotalCents: assessedCents, notes });
+                                    alert("Assessment saved.");
+                                  }}
+                                  onAddPayment={async (amountCents) => {
+                                    await addPaymentAccepted({ kind: "repair", id, amountCents, method: "additional" });
+                                    alert("Additional payment recorded.");
+                                  }}
+                                  onPartialRefund={async (amountCents) => {
+                                    await recordPartialRefund({ kind: "repair", id, amountCents });
+                                    alert("Partial refund recorded on this repair record.");
+                                  }}
+                                />
+                                {/* ---------- /ASSESSMENT ---------- */}
                               </div>
                             </td>
                           </tr>
@@ -1350,7 +1521,35 @@ export default function Orders() {
                           <tr>
                             <td colSpan={13}>
                               <div className="details-grid">
-                                {/* left group mirrors table content */}
+                                <div className="span-2">
+                                  <h4>Payment Status</h4>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                    <select
+                                      className="status-select"
+                                      value={c?.paymentStatus || "pending"}
+                                      onChange={(e) => updateCustomPayment(id, e.target.value)}
+                                    >
+                                      <option value="pending">Pending</option>
+                                      <option value="deposit_paid">Deposit_Paid</option>
+                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
+                                      <option value="rejected">Rejected</option>
+                                    </select>
+                                    {c?.paymentProofUrl ? (
+                                      <a href={c.paymentProofUrl} target="_blank" rel="noreferrer">
+                                        <img
+                                          src={c.paymentProofUrl}
+                                          alt="Payment Proof"
+                                          style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8 }}
+                                        />
+                                      </a>
+                                    ) : (
+                                      <span className="muted">No proof uploaded</span>
+                                    )}
+                                  </div>
+                                </div>
+
                                 <div>
                                   <div className="kv">
                                     <label>Product</label>
@@ -1405,33 +1604,6 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                <div className="span-2">
-                                  <h4>Payment Status</h4>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
-                                    <select
-                                      className="status-select"
-                                      value={c?.paymentStatus || "pending"}
-                                      onChange={(e) => updateCustomPayment(id, e.target.value)}
-                                    >
-                                      <option value="pending">Pending</option>
-                                      <option value="paid">Paid</option>
-                                      <option value="refunded">Refunded</option>
-                                      <option value="rejected">Rejected</option>
-                                    </select>
-                                    {c?.paymentProofUrl ? (
-                                      <a href={c.paymentProofUrl} target="_blank" rel="noreferrer">
-                                        <img
-                                          src={c.paymentProofUrl}
-                                          alt="Payment Proof"
-                                          style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8 }}
-                                        />
-                                      </a>
-                                    ) : (
-                                      <span className="muted">No proof uploaded</span>
-                                    )}
-                                  </div>
-                                </div>
-
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Images</h4>
@@ -1464,6 +1636,25 @@ export default function Orders() {
                                     <pre className="note">{c.notes}</pre>
                                   </div>
                                 )}
+
+                                {/* ---------- ASSESSMENT (NEW) ---------- */}
+                                <AssessmentPanel
+                                  kind="custom"
+                                  row={c}
+                                  onFinalize={async (assessedCents, notes) => {
+                                    await finalizeAssessment({ kind: "custom", id, assessedTotalCents: assessedCents, notes });
+                                    alert("Assessment saved.");
+                                  }}
+                                  onAddPayment={async (amountCents) => {
+                                    await addPaymentAccepted({ kind: "custom", id, amountCents, method: "additional" });
+                                    alert("Additional payment recorded.");
+                                  }}
+                                  onPartialRefund={async (amountCents) => {
+                                    await recordPartialRefund({ kind: "custom", id, amountCents });
+                                    alert("Partial refund recorded on this customization record.");
+                                  }}
+                                />
+                                {/* ---------- /ASSESSMENT ---------- */}
                               </div>
                             </td>
                           </tr>
@@ -1479,29 +1670,4 @@ export default function Orders() {
       )}
     </div>
   );
-}
-
-/* --------------------------- utils --------------------------- */
-function tsToMillis(ts) {
-  if (!ts) return 0;
-  if (typeof ts?.toDate === "function") return ts.toDate().getTime();
-  if (typeof ts?.seconds === "number") return ts.seconds * 1000;
-  const d = new Date(ts);
-  return isNaN(d.getTime()) ? 0 : d.getTime();
-}
-function fmtDate(ts) {
-  const ms = tsToMillis(ts);
-  if (!ms) return "";
-  return new Date(ms).toLocaleString();
-}
-function fmtPHP(n) {
-  try {
-    return new Intl.NumberFormat("en-PH", {
-      style: "currency",
-      currency: "PHP",
-      maximumFractionDigits: 0,
-    }).format(Number(n) || 0);
-  } catch {
-    return `₱${Number(n) || 0}`;
-  }
 }
