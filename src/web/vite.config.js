@@ -4,7 +4,7 @@ import react from "@vitejs/plugin-react";
 
 export default defineConfig({
   // required for GitHub Pages under https://ADrinnnu.github.io/Furnitune/
-  base: "/Furnitune/",
+  base: "/",
   plugins: [react()],
   server: {
     proxy: {
