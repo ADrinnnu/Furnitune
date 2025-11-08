@@ -1,27 +1,46 @@
 // src/web/server/index.js
 import "dotenv/config";
 import express from "express";
-import bodyParser from "body-parser";
 import cors from "cors";
 import fs from "fs";
 import path from "path";
-
 import { LlmClient } from "./lib/llm-client.js"; // exposes chat(messages, opts)
-
 
 // ----------------------------------------------------------------------------
 // App setup
 // ----------------------------------------------------------------------------
 const app = express();
+app.set("trust proxy", 1); // needed on Render/behind proxy
 
+// Parse ALLOW_ORIGIN as CSV (supports multiple)
+const DEFAULT_ORIGINS = [
+  "http://localhost:5173",
+  "http://localhost:3000",
+  "https://adrinnnu.github.io",
+];
+const ALLOW_ORIGINS = (process.env.ALLOW_ORIGIN || "")
+  .split(",")
+  .map(s => s.trim())
+  .filter(Boolean);
+const ORIGINS = ALLOW_ORIGINS.length ? ALLOW_ORIGINS : DEFAULT_ORIGINS;
+
+// CORS (server-to-server requests have no Origin -> allow)
 app.use(
   cors({
-    origin: process.env.ALLOW_ORIGIN || "http://localhost:5173",
+    origin: (origin, cb) => {
+      if (!origin) return cb(null, true);
+      if (ORIGINS.some(o => origin.startsWith(o))) return cb(null, true);
+      return cb(new Error("CORS blocked"));
+    },
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "x-bizchat-session", "x-user-id", "x-user-name"],
+    credentials: false,
+    optionsSuccessStatus: 204,
   })
 );
-app.use(bodyParser.json({ limit: "16mb" }));
+
+// Body parsing
+app.use(express.json({ limit: "16mb" }));
 
 // ----------------------------------------------------------------------------
 // Model / client (GPT-4o-mini primary, Gemma free fallback)
@@ -39,7 +58,6 @@ We sell ready-made furniture, support custom orders (dimensions, materials, and 
 and offer repair services even for items not purchased from us.
 `.trim();
 
-// Optional: load from a JSON file like the app does (if present)
 function loadInfo() {
   try {
     const p = path.join(process.cwd(), "src", "web", "server", "seed", "furnituneInfo.json");
@@ -60,11 +78,12 @@ const sessions = new Map(); // sid -> { greeted: false }
 
 // Optional: simple per-session throttle to avoid rate spikes
 const lastHitPerSid = new Map();
-const THROTTLE_MS = 900;
+const THROTTLE_MS = Number(process.env.BIZCHAT_THROTTLE_MS || 900);
 
 // ----------------------------------------------------------------------------
-// Health + hot reload
+/** Health + reload */
 // ----------------------------------------------------------------------------
+app.get("/health", (_req, res) => res.json({ ok: true })); // generic health for Render
 app.get("/bizchat/health", (_req, res) => res.json({ ok: true, model: MODEL, fallback: FALLBACK }));
 
 app.post("/bizchat/reload-info", (_req, res) => {
@@ -195,7 +214,7 @@ Return your reply ONLY between these markers:
 // ----------------------------------------------------------------------------
 // Boot
 // ----------------------------------------------------------------------------
-const PORT = process.env.PORT || 7861;
+const PORT = process.env.PORT || 7861; // Render injects PORT automatically
 app.listen(PORT, () => {
   console.log(`bizchat up on :${PORT}`);
 });

@@ -1,55 +1,65 @@
+
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io
+import os, re, base64, io, json, tempfile
 from typing import Dict, List, Optional
 
 import numpy as np
 from PIL import Image
 from flask import Flask, jsonify, request
+from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
 
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
 
 # -----------------------------------------------------------------------------
+# Credentials init (supports file path OR raw JSON env var)
+# -----------------------------------------------------------------------------
+def _ensure_gcp_credentials():
+    """
+    Prefer GOOGLE_APPLICATION_CREDENTIALS (file path).
+    If FIREBASE_ADMIN_JSON is set, write it to a temp file and point GAC to it.
+    Do NOT hardcode repo paths.
+    """
+    gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
+    if gac and os.path.exists(gac):
+        # File path provided and exists – good to go
+        return
+
+    raw = os.getenv("FIREBASE_ADMIN_JSON")
+    if raw:
+        try:
+            data = json.loads(raw)
+            fd, p = tempfile.mkstemp(prefix="svcacct_", suffix=".json")
+            with os.fdopen(fd, "w", encoding="utf-8") as f:
+                json.dump(data, f)
+            os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = p
+            return
+        except Exception:
+            pass
+    # else: rely on default ADC (unlikely on Render). No raise here.
+
+_ensure_gcp_credentials()
+
+# -----------------------------------------------------------------------------
 # ENV
 # -----------------------------------------------------------------------------
 PROJECT_ID = os.getenv("GCP_PROJECT") or os.getenv("FIREBASE_PROJECT") or ""
-FIREBASE_SERVICE_JSON = os.getenv("FIREBASE_SERVICE_JSON", "serviceAccountKey.json")
-os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = FIREBASE_SERVICE_JSON
-
+GCS_BUCKET = os.getenv("GCS_BUCKET", "")
 SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
-
-# -----------------------------------------------------------------------------
-# Additionals (UI label -> Firestore boolean field)
-# -----------------------------------------------------------------------------
-ADDITIONAL_TO_FIELD: Dict[str, str] = {
-    # Preferred labels
-    "Cushion": "hasCushions",
-    "With armrest": "hasArmrest",
-    "Footrest": "hasFootrest",
-    "Cabinets": "hasCabinets",
-    "Pull out Bed": "hasPullOutBed",
-    "Glass on top": "hasGlassTop",
-    "Padded foam on top": "hasPaddedFoam",
-    "With storage": "hasStorage",
-    "Throw Pillow": "hasThrowPillow",
-    "Decorative Tray": "hasDecorativeTray",
-    # Aliases / legacy
-    "Cushions": "hasCushions",
-    "Pillows": "hasCushions",
-    "With or without armrest": "hasArmrest",
-    "Armrest": "hasArmrest",
-    "Pull-out Bed": "hasPullOutBed",
-}
+CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
 # -----------------------------------------------------------------------------
 # App + Clients
 # -----------------------------------------------------------------------------
 app = Flask(__name__)
+CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
+
+# Use Application Default Credentials resolved above
 db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
@@ -267,8 +277,27 @@ def _load_flags_cache() -> Dict[str, Dict[str, bool]]:
     return flags
 
 # -----------------------------------------------------------------------------
-# Small utilities for additionals
+# Additionals mapping
 # -----------------------------------------------------------------------------
+ADDITIONAL_TO_FIELD: Dict[str, str] = {
+    "Cushion": "hasCushions",
+    "With armrest": "hasArmrest",
+    "Footrest": "hasFootrest",
+    "Cabinets": "hasCabinets",
+    "Pull out Bed": "hasPullOutBed",
+    "Glass on top": "hasGlassTop",
+    "Padded foam on top": "hasPaddedFoam",
+    "With storage": "hasStorage",
+    "Throw Pillow": "hasThrowPillow",
+    "Decorative Tray": "hasDecorativeTray",
+    # Aliases / legacy
+    "Cushions": "hasCushions",
+    "Pillows": "hasCushions",
+    "With or without armrest": "hasArmrest",
+    "Armrest": "hasArmrest",
+    "Pull-out Bed": "hasPullOutBed",
+}
+
 def _extract_additionals(data: dict, text: str) -> List[str]:
     addl = []
     if isinstance(data.get("additionals"), list):
@@ -319,6 +348,10 @@ def _to_ui(items: List[dict]) -> List[dict]:
 # -----------------------------------------------------------------------------
 # Routes
 # -----------------------------------------------------------------------------
+@app.get("/health")
+def plain_health():
+    return jsonify({"ok": art.size() > 0, "project": PROJECT_ID or "<unset>"}), (200 if art.size() > 0 else 500)
+
 @app.get("/reco/debug/health")
 def health():
     return jsonify({
