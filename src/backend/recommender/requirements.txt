@@ -1,17 +1,31 @@
-flask
-flask-cors
-gunicorn
-torch --extra-index-url https://download.pytorch.org/whl/cpu
-torchvision
-faiss-cpu
-python-dotenv
-Pillow
-ftfy
-regex
-tqdm
-git+https://github.com/openai/CLIP.git
-firebase-admin
-google-cloud-storage
-google-cloud-firestore
-requests
-numpy
+# allow CPU wheels from PyTorch
+--extra-index-url https://download.pytorch.org/whl/cpu
+
+flask==3.0.0
+flask-cors==4.0.0
+gunicorn==21.2.0
+
+# Google / Firebase
+firebase-admin==6.5.0
+google-cloud-storage==2.16.0
+google-cloud-firestore==2.16.0
+google-auth==2.34.0
+
+# Core libs
+requests==2.32.3
+python-dotenv==1.0.1
+Pillow==10.3.0
+numpy==1.26.4
+regex==2024.5.15
+tqdm==4.66.5
+ftfy==6.2.0
+
+# PyTorch (CPU) for Python 3.11
+torch==2.2.2+cpu
+torchvision==0.17.2+cpu
+
+# FAISS CPU
+faiss-cpu==1.7.4
+
+# OpenAI CLIP (pin to main)
+git+https://github.com/openai/CLIP.git@main
