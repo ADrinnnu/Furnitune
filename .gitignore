@@ -8,3 +8,5 @@ backend/recommender/serviceAccountKey.json
 src/web/server/.env
 src/backend/recommender/.env
 src/backend/recommender/serviceAccountKey.json
+src/web/serviceAccountKey.json
+src/backend/recommender/serviceAccountKey.json
