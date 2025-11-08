@@ -8,6 +8,7 @@ import path from "path";
 
 import { LlmClient } from "./lib/llm-client.js"; // exposes chat(messages, opts)
 
+
 // ----------------------------------------------------------------------------
 // App setup
 // ----------------------------------------------------------------------------
