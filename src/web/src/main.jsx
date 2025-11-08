@@ -6,7 +6,7 @@ import App from "./App.jsx";
 import "./styles.css";
 
 createRoot(document.getElementById("root")).render(
-  <BrowserRouter>
+  <BrowserRouter basename="/Furnitune">
   <CartProvider>
     <App />
     </CartProvider>
