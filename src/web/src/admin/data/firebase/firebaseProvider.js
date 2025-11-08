@@ -50,7 +50,7 @@ async function requireAdmin() {
 
 // ✅ IMPORTANT: explicitly bind Storage to the true bucket id
 // We DO NOT touch /src/firebase.js. We only override here for uploads.
-const storage = getStorage(app, "gs://furnitune-64458.appspot.com");
+const storage = getStorage(app, "gs://furnitune-64458.firebasestorage.app");
 
 // Upload a single file and return both https and gs://
 function uploadOne(file, destPath, metadata = {}) {
