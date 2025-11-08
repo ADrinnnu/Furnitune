@@ -1,13 +1,15 @@
-// vite.config.js
+// src/web/vite.config.js
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
 
 export default defineConfig({
+  // required for GitHub Pages under https://ADrinnnu.github.io/Furnitune/
+  base: "/Furnitune/",
   plugins: [react()],
   server: {
     proxy: {
       "/reco": {
-        target: "http://127.0.0.1:5000", 
+        target: "http://127.0.0.1:5000",
         changeOrigin: true,
       },
       "/bizchat": {
