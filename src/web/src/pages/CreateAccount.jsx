@@ -51,8 +51,10 @@ function CreateAccount() {
       if (displayName) await updateProfile(cred.user, { displayName });
 
       
-      await ensureUserDoc(cred.user);
-
+await ensureUserDoc(cred.user, {
+  source: "web",          // use "app" in your mobile app
+  createIfMissing: true,  // allow create only at sign-up
+});
       
       await sendEmailVerification(cred.user);
       await signOut(auth);

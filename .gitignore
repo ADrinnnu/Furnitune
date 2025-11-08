@@ -1,6 +1,7 @@
-# Node and Python ignores
-node_modules/
-__pycache__/
-.env
-serviceAccountKey.json
-
+**/.env
+**/venv
+**/.venv
+**/node_modules
+**/__pycache__
+**/artifacts
+backend/recommender/serviceAccountKey.json

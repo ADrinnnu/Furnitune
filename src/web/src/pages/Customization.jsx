@@ -42,11 +42,7 @@ const normalizePricingTables = (p) =>
     : null;
 
 // OPTIONAL: alias unusual size labels to the ones in your UI
-const SIZE_ALIASES = {
-  beds: {
-    king: ["california king", "cal-king"],
-  },
-};
+const SIZE_ALIASES = { beds: { king: ["california king", "cal-king"] } };
 function canonicalSize(category, size) {
   const L = lc(size);
   const map = SIZE_ALIASES[slugify(category)] || {};
@@ -99,7 +95,7 @@ const COMMON_ADDITIONALS = {
   Others: [],
 };
 
-// money helpers (store/compute in centavos for accuracy)
+// money helpers
 const toCents = (v) => {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.]/g, ""));
@@ -116,7 +112,6 @@ const formatPHP = (php) =>
 
 /**
  * price = ((base + sizeAdd) * sizeMultiplier * materialMultiplier) + sum(additions)
- * All money in CENTS to avoid float errors.
  */
 function computePriceCents({
   basePriceCents,
@@ -134,7 +129,7 @@ function computePriceCents({
   const materialMult = pricing?.materialMultipliers?.[mKey] ?? 1;
 
   const additionsCents = (additionsSelected || []).reduce((acc, label) => {
-    const row = findAdditionCI(additionsTable, label); // CI match
+    const row = findAdditionCI(additionsTable, label);
     return acc + (row?.cents || 0);
   }, 0);
 
@@ -145,7 +140,7 @@ function computePriceCents({
   return { base: basePriceCents, sizeAdd, sizeMult, materialMult, additions: additionsCents, total };
 }
 
-/* ───────── storage URL helpers (gs:// safe) ───────── */
+/* storage URL helpers */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
   if (/^gs:\/\//i.test(u)) {
@@ -157,7 +152,7 @@ function objectPathFromAnyStorageUrl(u) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-  if (!/^https?:\/\//i.test(u)) return u; // looks like object path
+  if (!/^https?:\/\//i.test(u)) return u;
   return null;
 }
 async function toDownloadUrl(val) {
@@ -194,11 +189,9 @@ const pickCardImage = (item) =>
   item?.image ||
   "";
 
-/* ───────── read size rules → pricing shape ───────── */
+/* read pricing rules */
 async function loadPricingFromSizeRules(category) {
-  // try exact Category first (e.g., "Beds")
   let snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", category)));
-  // if empty, optionally try slug ("beds")
   if (snap.empty) {
     snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", titleCase(category))));
   }
@@ -208,29 +201,23 @@ async function loadPricingFromSizeRules(category) {
     currency: "PHP",
     sizeAdds: {},
     sizeMultipliers: {},
-    materialMultipliers: { Fabric: 1, Leather: 1 }, // neutral unless you also store these
+    materialMultipliers: { Fabric: 1, Leather: 1 },
   };
 
   snap.forEach((d) => {
-    const r = d.data(); // { mode, size, type, value }
+    const r = d.data();
     if (!r || !r.size) return;
-
-    // allow alias like "California King" → "King"
     const sizeKey = lc(canonicalSize(category, r.size));
     const mode = lc(r.mode);
     const value = Number(r.value || 0);
-
-    if (["delta", "add", "plus"].includes(mode)) {
-      p.sizeAdds[sizeKey] = Math.round(value * 100); // PHP → cents
-    } else if (["multiplier", "x", "mul"].includes(mode)) {
-      p.sizeMultipliers[sizeKey] = value || 1;
-    }
+    if (["delta", "add", "plus"].includes(mode)) p.sizeAdds[sizeKey] = Math.round(value * 100);
+    else if (["multiplier", "x", "mul"].includes(mode)) p.sizeMultipliers[sizeKey] = value || 1;
   });
 
   return p;
 }
 
-/* ───────── Chip ───────── */
+/* UI bits */
 const chipStyle = (active) => ({
   padding: "6px 10px",
   borderRadius: 8,
@@ -238,7 +225,6 @@ const chipStyle = (active) => ({
   background: active ? "#1a1a1a" : "#fff",
   color: active ? "#fff" : "#1a1a1a",
   cursor: "pointer",
-  pointerEvents: "auto",
   userSelect: "none",
 });
 function Chip({ active, onClick, children }) {
@@ -249,24 +235,14 @@ function Chip({ active, onClick, children }) {
   );
 }
 
-/* ───────── Catalog Drawer ───────── */
+/* Catalog Drawer */
 function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setActiveCategory, onPick }) {
   if (!open) return null;
-
   const backdropStyle = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 9998 };
   const panelStyle = {
     position: "fixed",
-    top: 0,
-    right: 0,
-    width: "560px",
-    maxWidth: "92vw",
-    height: "100vh",
-    background: "#fff",
-    overflow: "auto",
-    zIndex: 9999,
-    boxShadow: "0 0 20px rgba(0,0,0,0.2)",
-    boxSizing: "border-box",
-    paddingRight: 10,
+    top: 0, right: 0, width: "560px", maxWidth: "92vw", height: "100vh",
+    background: "#fff", overflow: "auto", zIndex: 9999, boxShadow: "0 0 20px rgba(0,0,0,0.2)", boxSizing: "border-box", paddingRight: 10,
   };
   const headerStyle = { position: "sticky", top: 0, background: "#fff", zIndex: 1, padding: "12px 16px", borderBottom: "1px solid #eee" };
   const gridStyle = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", padding: "12px 16px 20px 16px" };
@@ -349,14 +325,17 @@ export default function Customization() {
   const [coverEnabled, setCoverEnabled] = useState(true);
 
   // pricing state
-  const [pricing, setPricing] = useState(null); // size/material table (pricing or rules)
-  const [additionalsPricing, setAdditionalsPricing] = useState(null); // top-level collection
+  const [pricing, setPricing] = useState(null);
+  const [additionalsPricing, setAdditionalsPricing] = useState(null);
   const currency = pricing?.currency || "PHP";
 
   // additionals UI
   const [additionalChoices, setAdditionalChoices] = useState([]);
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
+
+  // reference images (up to 3) → store data URLs until checkout
+  const [referenceImages, setReferenceImages] = useState([]); // [{name, dataUrl}]
 
   // esc + scroll lock when drawer open
   useEffect(() => {
@@ -371,10 +350,10 @@ export default function Customization() {
   }, [catalogOpen]);
 
   const productTitle =
-  selectedProduct?.title ||
-  selectedProduct?.name ||
-  selectedProduct?.id ||
-  "";
+    selectedProduct?.title ||
+    selectedProduct?.name ||
+    selectedProduct?.id ||
+    "";
 
   const descriptionText = useMemo(() => {
     if (selectedProduct?.description) return selectedProduct.description;
@@ -415,34 +394,21 @@ export default function Customization() {
     return () => { alive = false; };
   }, []);
 
-  // load size/material pricing from /pricing/<Category or slug>; fallback to /sizePriceRules; then _defaults
+  // load pricing tables
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!selectedCategory) return;
       try {
         let p = null;
-
-        // 1) pricing/<Category> or pricing/<slug>
         let snap = await getDoc(doc(firestore, "pricing", selectedCategory));
-        if (!snap.exists()) {
-          snap = await getDoc(doc(firestore, "pricing", slugify(selectedCategory)));
-        }
-        if (snap.exists()) {
-          p = snap.data();
-        }
-
-        // 2) fallback to sizePriceRules
-        if (!p) {
-          p = await loadPricingFromSizeRules(selectedCategory);
-        }
-
-        // 3) final fallback to pricing/_defaults
+        if (!snap.exists()) snap = await getDoc(doc(firestore, "pricing", slugify(selectedCategory)));
+        if (snap.exists()) p = snap.data();
+        if (!p) p = await loadPricingFromSizeRules(selectedCategory);
         if (!p) {
           const def = await getDoc(doc(firestore, "pricing", "_defaults"));
           p = def.exists() ? def.data() : null;
         }
-
         if (!cancelled) setPricing(normalizePricingTables(p));
       } catch (e) {
         console.error("Load pricing failed:", e);
@@ -452,16 +418,14 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // load additionals pricing from top-level /additionals_pricing
+  // load additionals pricing
   useEffect(() => {
     let cancelled = false;
     (async () => {
       if (!selectedCategory) return;
       try {
         let snap = await getDoc(doc(firestore, "additionals_pricing", selectedCategory));
-        if (!snap.exists()) {
-          snap = await getDoc(doc(firestore, "additionals_pricing", slugify(selectedCategory)));
-        }
+        if (!snap.exists()) snap = await getDoc(doc(firestore, "additionals_pricing", slugify(selectedCategory)));
         const data = snap.exists() ? snap.data() : null;
         if (!cancelled) setAdditionalsPricing(data);
       } catch (e) {
@@ -472,7 +436,7 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // merge additionals choices
+  // merge choices
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
     const pricedRoot = (additionalsPricing?.items || []).map((a) => a.label || a.key);
@@ -486,7 +450,35 @@ export default function Customization() {
     });
   }, [selectedCategory, additionalsPricing, pricing]);
 
-  const handlePickProduct = (p) => {
+  const pickedAdditionals = useMemo(
+    () => Object.entries(additionalPicked).filter(([, v]) => v).map(([k]) => k),
+    [additionalPicked]
+  );
+
+  const additionsTable = additionalsPricing?.items || pricing?.additions || [];
+
+  const priceBreakdown = useMemo(() => {
+    if (!selectedProduct) return null;
+
+    const base =
+      selectedProduct.basePriceCents != null
+        ? selectedProduct.basePriceCents
+        : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
+
+    const sizeForPricing = canonicalSize(selectedCategory, size);
+
+    return computePriceCents({
+      basePriceCents: base,
+      size: sizeForPricing,
+      material: coverMaterialType,
+      additionsSelected: pickedAdditionals,
+      pricing,
+      additionsTable,
+    });
+  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
+
+  // pick product (⚠️ exact name — used by Drawer)
+  function handlePickProduct(p) {
     const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
     setSelectedProduct(p);
     setSelectedCategory(cat);
@@ -508,35 +500,39 @@ export default function Customization() {
     if (enabled) setCoverColor(palette[0]?.hex || "#D3C6B3");
 
     setCatalogOpen(false);
-  };
+  }
 
-  const pickedAdditionals = useMemo(
-    () => Object.entries(additionalPicked).filter(([, v]) => v).map(([k]) => k),
-    [additionalPicked]
-  );
+  // choose up to 3 reference images → keep as data URLs
+  async function onPickReferenceFiles(e) {
+    const files = Array.from(e.target.files || []);
+    if (!files.length) return;
 
-  const additionsTable = additionalsPricing?.items || pricing?.additions || [];
+    const remain = Math.max(0, 3 - referenceImages.length);
+    const take = files.slice(0, remain);
 
-  const priceBreakdown = useMemo(() => {
-    if (!selectedProduct) return null;
+    const reads = await Promise.all(
+      take.map(
+        (f) =>
+          new Promise((res, rej) => {
+            const r = new FileReader();
+            r.onload = () => res({ name: f.name, dataUrl: String(r.result || "") });
+            r.onerror = rej;
+            r.readAsDataURL(f);
+          })
+      )
+    );
 
-    const base =
-      selectedProduct.basePriceCents != null
-        ? selectedProduct.basePriceCents
-        : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
+    setReferenceImages((prev) => [...prev, ...reads].slice(0, 3));
+    e.target.value = "";
+  }
+  function removeRefImage(i) {
+    setReferenceImages((prev) => prev.filter((_, idx) => idx !== i));
+  }
 
-    // use canonicalized size so your rules like "California King" can map to "King"
-    const sizeForPricing = canonicalSize(selectedCategory, size);
-
-    return computePriceCents({
-      basePriceCents: base,
-      size: sizeForPricing,
-      material: coverMaterialType,
-      additionsSelected: pickedAdditionals,
-      pricing,
-      additionsTable,
-    });
-  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
+  const colorBoxStyle = (c) => ({
+    background: c,
+    outline: coverColor === c ? "2px solid #111" : "none",
+  });
 
   const handlePlaceOrder = async () => {
     try {
@@ -549,6 +545,8 @@ export default function Customization() {
         cover: { materialType: coverMaterialType, color: coverColor },
         additionals: pickedAdditionals,
         notes: notes || "",
+        // ⬇️ include the temporary ref images (data URLs) — uploaded in Payment.jsx
+        referenceImagesData: referenceImages, // [{name, dataUrl}]
         descriptionFromProduct: selectedProduct?.description || null,
         unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null, // PHP
         priceBreakdown: priceBreakdown
@@ -581,11 +579,6 @@ export default function Customization() {
   const toggleAdditional = (label) =>
     setAdditionalPicked((prev) => ({ ...prev, [label]: !prev[label] }));
 
-  const colorBoxStyle = (c) => ({
-    background: c,
-    outline: coverColor === c ? "2px solid #111" : "none",
-  });
-
   /* ───────── UI ───────── */
   return (
     <div className="customization-container">
@@ -600,11 +593,6 @@ export default function Customization() {
             title={selectedProduct ? "Click to change product" : "Open Catalog"}
             style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
           >
-            {productTitle && (
-    <div className="preview-title" title={productTitle} aria-label="Selected product">
-      {productTitle}
-    </div>
-    )}
             {(() => {
               const previewImg = selectedProduct ? pickCardImage(selectedProduct) : "";
               if (previewImg) {
@@ -613,11 +601,6 @@ export default function Customization() {
                     src={previewImg}
                     alt={selectedProduct?.title || selectedProduct?.name || "Selected product"}
                     style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
-                    onError={(e) => {
-                      e.currentTarget.style.display = "none";
-                      const fb = e.currentTarget.parentElement.querySelector("[data-fallback]");
-                      if (fb) fb.style.display = "flex";
-                    }}
                   />
                 );
               }
@@ -630,6 +613,12 @@ export default function Customization() {
                 </div>
               );
             })()}
+
+            {selectedProduct && (
+              <div className="preview-title" title={productTitle} aria-label="Selected product">
+                {productTitle}
+              </div>
+            )}
           </div>
 
           <CatalogDrawer
@@ -659,11 +648,11 @@ export default function Customization() {
         </div>
 
         {/* RIGHT */}
-        <div className="right-side" style={{ position: "relative", zIndex: 1, pointerEvents: "auto" }}>
+        <div className="right-side" style={{ position: "relative", zIndex: 1 }}>
           {/* 1 SIZE */}
           <div className="option">
             <h3 className="option-title">1 CHOOSE SIZE</h3>
-            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", pointerEvents: "auto" }}>
+            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {sizeOptions.map((s) => (
                 <Chip key={s} active={size === s} onClick={() => setSize(s)}>
                   {s}
@@ -673,12 +662,12 @@ export default function Customization() {
           </div>
           <hr />
 
-          {/* 2 COLOR (if enabled) */}
+          {/* 2 COLOR */}
           {coverEnabled && (
             <>
               <div className="option">
                 <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
-                <div className="colors" style={{ pointerEvents: "auto" }}>
+                <div className="colors">
                   {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79"]).map((c) => (
                     <div key={c} className="color-box" style={colorBoxStyle(c)} onClick={() => setCoverColor(c)} title={c} />
                   ))}
@@ -691,7 +680,7 @@ export default function Customization() {
           {/* 3 MATERIAL */}
           <div className="option">
             <h3 className="option-title">3 CHOOSE COVER MATERIAL</h3>
-            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", pointerEvents: "auto" }}>
+            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {["Fabric", "Leather"].map((m) => (
                 <Chip key={m} active={coverMaterialType === m} onClick={() => setCoverMaterialType(m)}>
                   {m}
@@ -706,9 +695,9 @@ export default function Customization() {
             <h3 className="option-title">4 ADDITIONALS</h3>
 
             {additionalChoices.length > 0 && (
-              <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8, pointerEvents: "auto" }}>
+              <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
                 {additionalChoices.map((label) => (
-                  <Chip key={label} active={!!additionalPicked[label]} onClick={() => toggleAdditional(label)}>
+                  <Chip key={label} active={!!additionalPicked[label]} onClick={() => setAdditionalPicked((p)=>({...p, [label]: !p[label]}))}>
                     {label}
                   </Chip>
                 ))}
@@ -719,8 +708,43 @@ export default function Customization() {
               placeholder="Write here..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              style={{ pointerEvents: "auto" }}
+              style={{ marginBottom: 8 }}
             />
+
+            {/* Reference images (no upload button; saved + uploaded later) */}
+            <div style={{ display: "grid", gap: 8 }}>
+              <label style={{ fontSize: 13, color: "#555" }}>Reference images (up to 3)</label>
+              <input
+                type="file"
+                accept="image/*"
+                multiple
+                onChange={onPickReferenceFiles}
+              />
+              {referenceImages.length > 0 && (
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {referenceImages.map((r, i) => (
+                    <div key={i} style={{ position: "relative" }}>
+                      <img
+                        src={r.dataUrl}
+                        alt={`ref-${i}`}
+                        style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => removeRefImage(i)}
+                        title="Remove"
+                        style={{
+                          position: "absolute", top: -6, right: -6, width: 22, height: 22,
+                          borderRadius: 999, border: "none", background: "#111", color: "#fff", cursor: "pointer"
+                        }}
+                      >
+                        ×
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           {/* PRICE SUMMARY */}
@@ -728,10 +752,9 @@ export default function Customization() {
           <div className="option">
             <h3 className="option-title">PRICE SUMMARY</h3>
             {priceBreakdown ? (
-              <div className="text" style={{ pointerEvents: "none" }}>
+              <div className="text">
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Base</span>
-                  <span>{formatPHP(fromCents(priceBreakdown.base))}</span>
+                  <span>Base</span><span>{formatPHP(fromCents(priceBreakdown.base))}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>Size adj.</span>
@@ -741,16 +764,13 @@ export default function Customization() {
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Material multiplier</span>
-                  <span>{priceBreakdown.materialMult}×</span>
+                  <span>Material multiplier</span><span>{priceBreakdown.materialMult}×</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Additions</span>
-                  <span>{formatPHP(fromCents(priceBreakdown.additions))}</span>
+                  <span>Additions</span><span>{formatPHP(fromCents(priceBreakdown.additions))}</span>
                 </div>
                 <div style={{ borderTop: "1px solid #e5e5e5", marginTop: 8, paddingTop: 8, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
-                  <span>Total</span>
-                  <span>{formatPHP(fromCents(priceBreakdown.total))} {currency}</span>
+                  <span>Total</span><span>{formatPHP(fromCents(priceBreakdown.total))} {currency}</span>
                 </div>
               </div>
             ) : (
@@ -759,7 +779,7 @@ export default function Customization() {
           </div>
 
           <hr />
-          <button className="place-order" onClick={handlePlaceOrder} type="button" style={{ pointerEvents: "auto" }}>
+          <button className="place-order" onClick={handlePlaceOrder} type="button">
             PLACE ORDER
           </button>
         </div>

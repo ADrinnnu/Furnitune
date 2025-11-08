@@ -3,8 +3,20 @@ import React, { useEffect, useMemo, useState } from "react";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 import {
-  getFirestore, collection, query, where, orderBy, limit,
-  onSnapshot, startAfter, getDocs, updateDoc, doc, serverTimestamp, writeBatch
+  getFirestore,
+  collection,
+  query,
+  where,
+  orderBy,
+  limit,
+  onSnapshot,
+  startAfter,
+  getDocs,
+  updateDoc,
+  doc,
+  serverTimestamp,
+  writeBatch,
+  documentId, // <-- added
 } from "firebase/firestore";
 import { useNavigate } from "react-router-dom";
 import "../Notification.css";
@@ -21,7 +33,7 @@ export default function Notification() {
   const [bulkLoading, setBulkLoading] = useState(false);
   const [cursor, setCursor] = useState(null);
 
-  useEffect(() => onAuthStateChanged(auth, u => setUid(u?.uid || false)), []);
+  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || false)), []);
 
   const baseCol = useMemo(
     () => (uid ? collection(db, "users", uid, "notifications") : null),
@@ -33,8 +45,8 @@ export default function Notification() {
     if (!baseCol) return;
     setInitialLoading(true);
 
-    // For "all": order by createdAt desc (no index required).
-    // For "unread": NO orderBy to avoid the composite index; we'll sort client-side.
+    // For "all": order by createdAt desc (no composite index needed if you already have it).
+    // For "unread": NO orderBy to avoid forcing a composite index; we'll sort client-side.
     let constraints = [];
     if (filter === "all") {
       constraints = [orderBy("createdAt", "desc"), limit(10)];
@@ -43,18 +55,24 @@ export default function Notification() {
     }
 
     const q = query(baseCol, ...constraints);
-    const stop = onSnapshot(q, (snap) => {
-      let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-      if (filter === "unread") {
-        docs.sort(
-          (a, b) =>
-            (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
-        );
+    const stop = onSnapshot(
+      q,
+      (snap) => {
+        let docs = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+        if (filter === "unread") {
+          docs.sort(
+            (a, b) => (b.createdAt?.seconds || 0) - (a.createdAt?.seconds || 0)
+          );
+        }
+        setItems(docs);
+        setCursor(snap.docs[snap.docs.length - 1] || null);
+        setInitialLoading(false);
+      },
+      (e) => {
+        console.error("Notifications subscription error:", e);
+        setInitialLoading(false);
       }
-      setItems(docs);
-      setCursor(snap.docs[snap.docs.length - 1] || null);
-      setInitialLoading(false);
-    });
+    );
 
     return stop;
   }, [baseCol, filter]);
@@ -132,11 +150,69 @@ export default function Notification() {
     }
   };
 
+  /**
+   * AUTO-CLEANUP:
+   * Delete notifications that point to an order that no longer exists.
+   * Runs whenever the loaded notification list changes.
+   */
+  useEffect(() => {
+    if (!uid || !items.length) return;
+
+    // collect unique orderIds that appear in notifications
+    const orderIds = Array.from(
+      new Set(items.map((n) => n?.orderId).filter(Boolean))
+    );
+    if (!orderIds.length) return;
+
+    // Firestore "in" filters accept max 10 ids at a time
+    const chunks = [];
+    for (let i = 0; i < orderIds.length; i += 10) {
+      chunks.push(orderIds.slice(i, i + 10));
+    }
+
+    (async () => {
+      try {
+        const missing = new Set();
+
+        // detect which orders are missing
+        for (const chunk of chunks) {
+          const q = query(
+            collection(db, "orders"),
+            where(documentId(), "in", chunk)
+          );
+          const snap = await getDocs(q);
+          const found = new Set(snap.docs.map((d) => d.id));
+          chunk.forEach((id) => {
+            if (!found.has(id)) missing.add(id);
+          });
+        }
+
+        if (!missing.size) return;
+
+        // prune notifications that reference missing orders
+        const batch = writeBatch(db);
+        items.forEach((n) => {
+          if (n?.orderId && missing.has(n.orderId)) {
+            const ref = doc(db, "users", uid, "notifications", n.id);
+            batch.delete(ref);
+          }
+        });
+        await batch.commit();
+      } catch (e) {
+        console.warn("Notification cleanup failed:", e?.message || e);
+      }
+    })();
+  }, [db, uid, items]);
+
   if (uid === null) {
     return (
       <div className="notifications-container">
-        <div className="notifications-header"><h2>NOTIFICATIONS</h2></div>
-        <div className="notifications-empty"><p>Please sign in to view notifications.</p></div>
+        <div className="notifications-header">
+          <h2>NOTIFICATIONS</h2>
+        </div>
+        <div className="notifications-empty">
+          <p>Please sign in to view notifications.</p>
+        </div>
       </div>
     );
   }
@@ -168,7 +244,7 @@ export default function Notification() {
             className="mark-all-btn"
             onClick={markAllRead}
             type="button"
-            disabled={bulkLoading}
+            disabled={bulkLoading || !hasUnreadInView}
             aria-busy={bulkLoading ? "true" : "false"}
             title="Mark all unread notifications as read"
             style={{ marginLeft: 12 }}
@@ -181,7 +257,12 @@ export default function Notification() {
       {initialLoading ? (
         <div className="notifications-list">
           {[...Array(4)].map((_, i) => (
-            <div key={i} className="notification-item skeleton" role="status" aria-busy="true">
+            <div
+              key={i}
+              className="notification-item skeleton"
+              role="status"
+              aria-busy="true"
+            >
               <div className="thumb" />
               <div className="notification-text">
                 <h3 className="line" />
@@ -204,7 +285,9 @@ export default function Notification() {
                 onClick={() => markRead(n.id, n.link)}
                 role="button"
                 tabIndex={0}
-                onKeyDown={(e) => (e.key === "Enter" ? markRead(n.id, n.link) : null)}
+                onKeyDown={(e) =>
+                  e.key === "Enter" ? markRead(n.id, n.link) : null
+                }
               >
                 {n.image ? <img src={n.image} alt="" /> : <div className="thumb" />}
                 <div className="notification-text">
@@ -222,7 +305,11 @@ export default function Notification() {
 
           <div className="notifications-footer">
             <button onClick={loadMore} disabled={!cursor || moreLoading} type="button">
-              {moreLoading ? "Loading…" : cursor ? "SEE PREVIOUS NOTIFICATIONS" : "NO MORE NOTIFICATIONS"}
+              {moreLoading
+                ? "Loading…"
+                : cursor
+                ? "SEE PREVIOUS NOTIFICATIONS"
+                : "NO MORE NOTIFICATIONS"}
             </button>
           </div>
         </>

@@ -230,6 +230,27 @@
 }
 .pd-reviews .review-media button { cursor: zoom-in; }
 
+
+
+/* Center and nicely size the measurements image */
+.pd-measure {
+  display: block;          /* lets margin auto work */
+  margin: 12px auto;       /* centers horizontally */
+  width: 100%;             /* responsive */
+  max-width: 720px;        /* nice readable max width */
+  height: auto;            /* keep aspect ratio */
+  object-fit: contain;     /* no cropping */
+}
+
+/* Optional: center the section heading too */
+.pd-desc.slab h3 {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+}
+
+
 /* ---- Responsive ---- */
 @media (max-width: 980px){
   .pd-grid{ grid-template-columns:1fr; }

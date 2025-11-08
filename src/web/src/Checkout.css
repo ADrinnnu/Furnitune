@@ -118,3 +118,55 @@
   border-radius: 6px;
   font-size: 13px;
 }
+
+
+/* --- ADDITIONS --- */
+
+/* Make field wrappers stack label/help with spacing */
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+/* Style tel the same as your other inputs */
+.checkout-form input[type="tel"] {
+  width: 100%;
+  padding: 10px;
+  margin-bottom: 12px;
+  border: 1px solid #ccc;
+  border-radius: 5px;
+}
+
+/* Red highlight on invalid inputs */
+.checkout-form .has-error input {
+  border-color: #d13649 !important;
+  outline-color: #d13649;
+  box-shadow: 0 0 0 3px rgba(209, 54, 73, 0.12);
+}
+
+/* Small red helper text under the input */
+.error-text {
+  color: #d13649;
+  font-size: 12px;
+  line-height: 1.2;
+  margin-top: -6px;   /* pulls helper text closer to the input */
+  margin-bottom: 6px;
+}
+
+/* Warning banner shown at the top of the form after submit */
+.form-banner.warning {
+  background: #fff4e5;
+  border: 1px solid #ffc266;
+  color: #663c00;
+  padding: 10px 12px;
+  border-radius: 8px;
+  margin-bottom: 12px;
+  font-size: 14px;
+  animation: fadeIn 180ms ease-out;
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(-2px); }
+  to   { opacity: 1; transform: translateY(0); }
+}

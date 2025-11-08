@@ -27,6 +27,13 @@ const DEFAULT_SIZES_BY_TYPE = {
   Benches:    ["2 Seater", "3 Seater", "4 Seater"],
 };
 
+// Fallback swatches if a product has none
+const FALLBACK_SWATCHES = [
+  { id: "neutral-1", label: "Neutral 1", sw: "#d1d5db" },
+  { id: "neutral-2", label: "Neutral 2", sw: "#9ca3af" },
+  { id: "neutral-3", label: "Neutral 3", sw: "#6b7280" },
+];
+
 const norm = (s) => String(s || "").trim().toLowerCase();
 const slug = (s) => norm(s).replace(/\s+/g, "-");
 const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
@@ -40,7 +47,7 @@ function normalizeTypeLabel(data, catSlug) {
   const t = (data.baseType || data.type || "").toLowerCase();
   const c = String(catSlug || "").toLowerCase();
   if (t.includes("chair")     || c.includes("chair"))     return "Chairs";
-  if (t.includes("sofa")      || t.includes("couch") || c.includes("sofa")) return "Sofas";
+  if (t.includes("sofa")      || t.includes("c couch") || c.includes("sofa")) return "Sofas";
   if (t.includes("bed")       || c.includes("bed"))       return "Beds";
   if (t.includes("table")     || c.includes("table"))     return "Tables";
   if (t.includes("bench")     || c.includes("bench"))     return "Benches";
@@ -67,33 +74,44 @@ function sortSizesForType(typeLabel, sizes) {
   return byDesired;
 }
 
-/* ---------- Storage URL resolver ---------- */
+/* ---------- Storage URL resolver (robust, silent on missing) ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
+
+  // gs://bucket/path -> "path"
   if (/^gs:\/\//i.test(u)) {
-    const withoutScheme = u.replace(/^gs:\/\//i, "");
-    const firstSlash = withoutScheme.indexOf("/");
-    return firstSlash > -1 ? withoutScheme.slice(firstSlash + 1) : null;
+    const without = u.replace(/^gs:\/\//i, "");
+    const i = without.indexOf("/");
+    return i > -1 ? without.slice(i + 1) : null;
   }
-  if (u.includes("firebasestorage.googleapis.com")) {
+
+  // Firebase Storage HTTPS URL -> extract /o/<objectPath>
+  if (/^https?:\/\//i.test(u) && u.includes("firebasestorage.googleapis.com")) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-  // treat relative paths as object paths
+
+  // Plain object path like "folder/file.png"
   if (!/^https?:\/\//i.test(u)) return u;
+
+  // Other https (CDN/remote) – not storage
   return null;
 }
-async function toDownloadUrl(val) {
+
+async function resolveStorageUrl(val) {
   if (!val) return "";
   try {
     const objPath = objectPathFromAnyStorageUrl(val);
-    if (objPath) return await getDownloadURL(ref(storage, objPath));
-    return val; // already https
-  } catch {
-    return ""; // swallow missing/perm errors to avoid <img> 404
+    if (objPath) {
+      return await getDownloadURL(ref(storage, objPath));
+    }
+    // Already a normal HTTPS (non-Firebase) URL
+    return val;
+  } catch (e) {
+    console.warn("[storage] resolve failed:", val, e?.code || e);
+    return "";
   }
 }
-async function resolveStorageUrl(val) { return await toDownloadUrl(val); }
 
 /* ---------- Variant helpers (color × size) ---------- */
 async function toHttps(u) {
@@ -149,6 +167,15 @@ function mapSizeLabelToId(rawData, label) {
   return { id: null, matched: false };
 }
 
+/* ---------- Size-based measurement picker ---------- */
+function pickMeasurementForSize(raw, sizeLabel) {
+  const mm = raw?.measurementImages || {};
+  if (!sizeLabel || !mm || typeof mm !== "object") return "";
+  if (mm[sizeLabel]) return mm[sizeLabel]; // exact
+  const key = Object.keys(mm).find(k => norm(k) === norm(sizeLabel)); // case-insensitive
+  return key ? mm[key] : (mm.default || "");
+}
+
 /* ------------------ Component ------------------ */
 export default function ProductDetail() {
   const navigate = useNavigate();
@@ -172,6 +199,9 @@ export default function ProductDetail() {
   const [absPrices, setAbsPrices] = useState({});
   const [notes, setNotes] = useState("");
   const [open, setOpen] = useState({ 1: true, 2: true, 3: true });
+
+  // measurement image (depends on size)
+  const [measurementUrl, setMeasurementUrl] = useState("");
 
   const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
 
@@ -212,7 +242,7 @@ export default function ProductDetail() {
           options: data.options || undefined,
         });
 
-        // COLORS
+        // COLORS → build palette
         const optColors = Array.isArray(data?.options?.colors) ? data.options.colors : null;
         let palette = [];
         if (optColors?.length) {
@@ -231,15 +261,23 @@ export default function ProductDetail() {
           palette = mapped.length ? mapped : FALLBACK_SWATCHES;
         }
         setColors(palette);
-        setHasCover(palette.length > 0);
+
+        // Decide whether to show color selection
+        const catSlug = resolveCategorySlug(data);
+        const typeLabel = normalizeTypeLabel(data, catSlug);
+        const forceHideColors =
+          typeLabel === "Tables" ||
+          data.hideColor === true ||
+          data.options?.hideColor === true ||
+          data.disableColorSelection === true ||
+          data.options?.disableColorSelection === true;
+
+        setHasCover(palette.length > 0 && !forceHideColors);
         setFabric(null); // no color selected
 
         // SIZES
         const optSizes = Array.isArray(data?.options?.sizes) ? data.options.sizes : null;
         let displaySizes = optSizes?.length ? optSizes.map(s => s.label || s.id) : null;
-
-        const catSlug = resolveCategorySlug(data);
-        const typeLabel = normalizeTypeLabel(data, catSlug);
 
         if (!displaySizes && catSlug) {
           try {
@@ -288,12 +326,15 @@ export default function ProductDetail() {
           }
         }
 
-        // 🔽 enforce exact ordering you specified
+        // enforce exact ordering you specified
         displaySizes = sortSizesForType(typeLabel, displaySizes);
 
         setSizeOptions(Array.isArray(displaySizes) ? displaySizes : []);
         setSize("");                // no size selected
         setAbsPrices(priceMap);
+
+        // initial measurement reset
+        setMeasurementUrl("");
 
       } catch (err) {
         console.error("Error fetching product:", err);
@@ -327,6 +368,25 @@ export default function ProductDetail() {
       }
     })();
   }, [id, rawData, fabric, size, baseImages]);
+
+  // Resolve measurement image when size changes (no network if empty)
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      if (!rawData || !size) { setMeasurementUrl(""); return; }
+      let val =
+        pickMeasurementForSize(rawData, size) ||
+        rawData.measurementImage ||
+        rawData.specImage ||
+        rawData.sizeChartImage ||
+        rawData.options?.measurementImage ||
+        "";
+      if (!val) { setMeasurementUrl(""); return; }
+      const url = await resolveStorageUrl(val);
+      if (!cancelled) setMeasurementUrl(url || "");
+    })();
+    return () => { cancelled = true; };
+  }, [rawData, size]);
 
   const unitPrice = useMemo(() => {
     if (!product) return 0;
@@ -453,6 +513,19 @@ export default function ProductDetail() {
             </p>
           </div>
 
+          {/* Measurements: only after a size is chosen AND a URL is resolvable */}
+          {size && measurementUrl && (
+            <div className="pd-desc slab">
+              <h3>MEASUREMENTS — {size}</h3>
+              <img
+                src={measurementUrl}
+                alt={`${product.name} measurements (${size})`}
+                className="pd-measure"
+                onError={(e)=>{ e.currentTarget.style.display='none'; }}
+              />
+            </div>
+          )}
+
           {/* REVIEWS */}
           <ReviewsBlock firestore={firestore} productId={product.id} />
         </section>
@@ -520,7 +593,7 @@ export default function ProductDetail() {
                       <div className="chips">
                         {sizeOptions.map((s) => {
                           const { id: sizeId, matched } = mapSizeLabelToId(rawData, s);
-                          // Only disable if we matched a concrete id AND the combo lacks images.
+                          // Only disable if matched a concrete id AND combo lacks images.
                           const available = fabric
                             ? (rawData && matched ? isComboAvailable(rawData, fabric, sizeId) : true)
                             : true;

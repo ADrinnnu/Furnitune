@@ -15,22 +15,53 @@ import {
   where,
   deleteDoc,
 } from "firebase/firestore";
-// ⬇️ provider helpers (unchanged)
-import {
-  ensureShipmentForOrder,
-  deleteShipmentsForOrder,
-} from "../data/firebase/firebaseProvider";
-
-// ⬇️ NEW: tiny assessment/payment helpers (add these functions in your provider or a new module and update the import path)
-import {
-  finalizeAssessment,       // ({ kind: "repair"|"custom", id, assessedTotalCents, notes })
-  addPaymentAccepted,       // ({ kind, id, amountCents, method: "additional" })
-  recordPartialRefund,      // ({ kind, id, amountCents })
-} from "../data/assessmentProvider";
+import { getStorage } from "firebase/storage";
+import { ref as sref, getDownloadURL as sGetURL } from "firebase/storage";
+import { ensureShipmentForOrder, deleteShipmentsForOrder } from "../data/firebase/firebaseProvider";
+import { upsertAssessmentAndRequest } from "../data/assessmentProvider";
 
 import "../Orders.css";
 
-/* --------------------------- constants --------------------------- */
+
+function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
+  const [url, setUrl] = React.useState(
+    typeof pathOrUrl === "string" && pathOrUrl.startsWith("http") ? pathOrUrl : ""
+  );
+
+  React.useEffect(() => {
+    let cancelled = false;
+    async function run() {
+      const val = String(pathOrUrl || "");
+      if (!val) return;
+      if (val.startsWith("http")) {
+        if (!cancelled) setUrl(val);
+        return;
+      }
+      try {
+        const storage = getStorage(auth.app);
+        const u = await sGetURL(sref(storage, val)); // val is fullPath like "payments/....jpg"
+        if (!cancelled) setUrl(u);
+      } catch (e) {
+        // ignore; image just won't show
+      }
+    }
+    run();
+    return () => { cancelled = true; };
+  }, [pathOrUrl]);
+
+  if (!url) return null;
+  return (
+    <a href={url} target="_blank" rel="noreferrer">
+      <img
+        src={url}
+        alt={alt}
+        style={{ width: size, height: size, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
+      />
+    </a>
+  );
+}
+
+/* ========= helpers: status + badges ========= */
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing" },
   { value: "preparing", label: "Preparing" },
@@ -40,13 +71,10 @@ const STATUS_OPTIONS = [
   { value: "refund", label: "Refund / Return" },
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]));
-
-/* Per-section unique Delete button base colors (icon-only buttons use these) */
 const clrOrders = "#d9534f";
 const clrRepairs = "#b33939";
 const clrCustom  = "#c62828";
 
-/* Payment badge */
 function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
   if (v === "paid") return "badge status-completed";
@@ -57,7 +85,53 @@ function paymentBadgeClass(ps) {
   return "badge status-processing";
 }
 
-/* Small icon-only danger button */
+/* ========= NEW: robust date + reference image helpers ========= */
+function pickDate(row) {
+  const cands = [
+    row?.createdAt, row?.created_at, row?.createdOn, row?.created_on,
+    row?.timestamp, row?.timeCreated, row?.created, row?.createdAtClient,
+    row?.createdAtMs, row?.created_at_ms, row?.date,
+  ];
+  for (const ts of cands) {
+    if (ts == null) continue;
+    if (typeof ts?.toDate === "function") return ts;        // Firestore Timestamp
+    if (typeof ts?.seconds === "number") return ts;         // {seconds, nanos}
+    if (typeof ts === "string" && !Number.isNaN(new Date(ts).getTime())) return ts; // ISO
+    const n = Number(ts);
+    if (!Number.isNaN(n) && n > 0) return n;                // secs/millis
+  }
+  return null;
+}
+function tsToMillis(ts) {
+  if (!ts) return 0;
+  if (typeof ts?.toDate === "function") return ts.toDate().getTime();
+  if (typeof ts?.seconds === "number") return ts.seconds * 1000;
+  if (typeof ts === "string") {
+    const d = new Date(ts);
+    return Number.isNaN(d.getTime()) ? 0 : d.getTime();
+  }
+  const n = Number(ts);
+  if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000;     // guess ms vs s
+  return 0;
+}
+function fmtDate(tsLike) {
+  const ms = tsToMillis(tsLike);
+  return ms ? new Date(ms).toLocaleString() : "";
+}
+/** Finds customer-uploaded reference images by common keys. */
+function pickCustomerReferenceImages(obj = {}) {
+  const keys = [
+    "referenceImages","referenceImageUrls","customerUploads","customerUploadUrls",
+    "customerImages","refUrls","refImages","additionalImages","additionalImageUrls",
+  ];
+  for (const k of keys) {
+    const v = obj[k];
+    if (Array.isArray(v) && v.length && v.every(u => typeof u === "string")) return v;
+  }
+  return [];
+}
+
+/* ========= small UI bits ========= */
 function IconTrashBtn({ color, title, disabled, onClick, style }) {
   const [h, setH] = useState(false);
   return (
@@ -69,104 +143,120 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        width: 34,
-        height: 34,
-        borderRadius: 8,
+        width: 34, height: 34, borderRadius: 8,
         border: `1px solid ${color}`,
         background: h && !disabled ? color : "#fff",
         color: h && !disabled ? "#fff" : color,
-        fontSize: 18,
-        lineHeight: "18px",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
+        fontSize: 18, lineHeight: "18px",
+        display: "inline-flex", alignItems: "center", justifyContent: "center",
         cursor: disabled ? "not-allowed" : "pointer",
-        marginLeft: 6,
-        ...style,
+        marginLeft: 6, ...style,
       }}
-    >
-      🗑
-    </button>
+    >🗑</button>
   );
 }
 
-/* --------------------------- Assessment panel (NEW) --------------------------- */
-function AssessmentPanel({
-  kind,               // "repair" | "custom"
-  row,                // repair/custom doc
-  onFinalize,         // (assessedCents, notes) => void
-  onAddPayment,       // (amountCents) => void
-  onPartialRefund,    // (amountCents) => void
-}) {
+/* --------------------------- Assessment panel (unchanged) --------------------------- */
+function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
     row?.assessedTotalCents != null ? Math.round(Number(row.assessedTotalCents) / 100) : ""
   );
-  const [notes, setNotes] = useState(row?.assessmentNotes ?? "");
+  const [note, setNote] = useState(row?.assessmentNotes ?? "");
+  const [amountPHP, setAmountPHP] = useState(
+    row?.requestedAdditionalPaymentCents != null
+      ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100)
+      : ""
+  );
   const dep  = Number(row?.depositCents || 0);
   const adds = Number(row?.additionalPaymentsCents || 0);
   const refs = Number(row?.refundsCents || 0);
   const assessedC = Math.round(Number(assessed || 0) * 100);
   const netPaid = dep + adds - refs;
   const balance = assessedC > 0 ? Math.max(0, assessedC - netPaid) : 0;
-  const overpay = assessedC > 0 ? Math.max(0, netPaid - assessedC) : 0;
+
+  const setToBalance = () => setAmountPHP(Math.round(balance / 100));
 
   return (
     <div className="span-2">
-      <h4>Assessment</h4>
+      <h4>Finalize & Request Payment</h4>
+
       <div className="kv">
         <label>Final Total (₱)</label>
         <input
           className="status-select"
           type="number"
           value={assessed}
-          onChange={(e)=>setAssessed(e.target.value)}
-          placeholder="e.g. 16000"
+          onChange={(e) => setAssessed(e.target.value)}
+          placeholder="e.g. 43441"
         />
       </div>
+
       <div className="kv">
-        <label>Notes</label>
+        <label>Request amount now (₱)</label>
+        <div style={{ display: "flex", gap: 8 }}>
+          <input
+            className="status-select"
+            type="number"
+            value={amountPHP}
+            onChange={(e) => setAmountPHP(e.target.value)}
+            placeholder="leave blank to request computed balance"
+          />
+          <button className="save-btn" type="button" onClick={setToBalance}>
+            Use Balance (₱{(balance / 100).toLocaleString()})
+          </button>
+        </div>
+      </div>
+
+      <div className="kv">
+        <label>Message to customer</label>
         <textarea
           className="note"
-          rows={3}
-          value={notes}
-          onChange={(e)=>setNotes(e.target.value)}
-          placeholder="What needs to be done / price changes"
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Explain why the additional amount is needed"
         />
       </div>
-      <div className="muted small" style={{marginTop:6}}>
-        Deposit: <b>₱{(dep/100).toLocaleString()}</b> · Add’l: <b>₱{(adds/100).toLocaleString()}</b> · Refunds: <b>₱{(refs/100).toLocaleString()}</b>
-      </div>
-      <div className="muted small">
-        {assessedC
-          ? <>Balance due: <b>₱{(balance/100).toLocaleString()}</b> · Overpaid: <b>₱{(overpay/100).toLocaleString()}</b></>
-          : "Set final total to compute balance"}
+
+      <div className="muted small" style={{ marginTop: 6 }}>
+        Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l:{" "}
+        <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> ·
+        Computed Balance: <b>₱{(balance / 100).toLocaleString()}</b>
       </div>
 
-      <div style={{display:"flex",gap:8,flexWrap:"wrap",marginTop:8}}>
-        <button className="save-btn" onClick={()=>onFinalize(assessedC, notes)}>
-          Finalize Assessment
+      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+        <button
+          className="save-btn"
+          onClick={async () => {
+            const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
+            const requestCents =
+              amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
+            await upsertAssessmentAndRequest({
+              kind,
+              id: row.id,
+              assessedTotalCents: assessedCents,
+              requestAmountCents: requestCents, // null → use computed balance
+              note,
+            });
+            alert("Assessment saved and request sent.");
+          }}
+        >
+          Save & Send Request
         </button>
-
-        {balance > 0 && (
-          <button
-            className="save-btn"
-            style={{background:"#111827"}}
-            onClick={()=>onAddPayment(balance)}
-          >
-            Record Additional Payment (₱{(balance/100).toLocaleString()})
-          </button>
-        )}
-
-        {overpay > 0 && (
-          <button
-            className="save-btn"
-            style={{background:"#9ca3af"}}
-            onClick={()=>onPartialRefund(overpay)}
-          >
-            Record Partial Refund (₱{(overpay/100).toLocaleString()})
-          </button>
-        )}
       </div>
+
+      {row?.lastAdditionalPaymentProofUrl && (
+        <div className="span-2" style={{ marginTop: 12 }}>
+          <h4>Latest Additional Payment Proof</h4>
+          <a href={row.lastAdditionalPaymentProofUrl} target="_blank" rel="noreferrer">
+            <img
+              src={row.lastAdditionalPaymentProofUrl}
+              alt="Additional Payment Proof"
+              style={{ maxWidth: 200, borderRadius: 8 }}
+            />
+          </a>
+        </div>
+      )}
     </div>
   );
 }
@@ -206,7 +296,7 @@ export default function Orders() {
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
 
-  /* -------- returns UI state (existing) -------- */
+  /* -------- returns UI state -------- */
   const [returnActing, setReturnActing] = useState({});
   const [returnByOrderId, setReturnByOrderId] = useState({});
 
@@ -262,20 +352,18 @@ export default function Orders() {
     return stop;
   }, [db]);
 
-  /* ------------------- derived lists ------------------- */
+  /* ------------------- derived lists (date-aware) ------------------- */
   const productOrders = useMemo(
     () =>
       rows.filter(
-        (o) =>
-          !o?.repairId &&
-          String(o?.origin || "catalog") !== "customization"
+        (o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"
       ),
     [rows]
   );
 
   const ordered = useMemo(() => {
     const sorted = [...productOrders].sort(
-      (a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt)
+      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
     );
     if (filter === "all") return sorted;
     return sorted.filter((o) => (o?.status || "processing") === filter);
@@ -283,7 +371,7 @@ export default function Orders() {
 
   const repairsOrdered = useMemo(() => {
     const sorted = [...repairs].sort(
-      (a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt)
+      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
     );
     if (repairsFilter === "all") return sorted;
     return sorted.filter((r) => (r?.status || "processing") === repairsFilter);
@@ -291,25 +379,13 @@ export default function Orders() {
 
   const customsOrdered = useMemo(() => {
     const sorted = [...customs].sort(
-      (a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt)
+      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
     );
     if (customsFilter === "all") return sorted;
     return sorted.filter((c) => (c?.status || "draft") === customsFilter);
   }, [customs, customsFilter]);
 
-  /* ------------------- utils --------------------------- */
-  function tsToMillis(ts) {
-    if (!ts) return 0;
-    if (typeof ts?.toDate === "function") return ts.toDate().getTime();
-    if (typeof ts?.seconds === "number") return ts.seconds * 1000;
-    const d = new Date(ts);
-    return isNaN(d.getTime()) ? 0 : d.getTime();
-  }
-  function fmtDate(ts) {
-    const ms = tsToMillis(ts);
-    if (!ms) return "";
-    return new Date(ms).toLocaleString();
-  }
+  /* ------------------- money/date formatters ------------------- */
   function fmtPHP(n) {
     try {
       return new Intl.NumberFormat("en-PH", {
@@ -322,26 +398,101 @@ export default function Orders() {
     }
   }
 
-  /* ------------------- shared payment helpers (NEW, dedup) ------------------- */
+  /* ------------------- payment helpers (unchanged) ------------------- */
   async function updateOrderPayment(orderId, currentRow, nextStatus) {
     const db2 = getFirestore(auth.app);
-    const val = nextStatus;
-    const updates = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
-    if (val === "paid" && !currentRow?.paidAt) updates.paidAt = serverTimestamp();
-    if (val === "refunded") updates.refundedAt = serverTimestamp();
+    const val = String(nextStatus || "").toLowerCase();
 
-    await updateDoc(doc(db2, "orders", orderId), updates);
-    setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...updates } : o)));
+    const patch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+    if (val === "paid" && !currentRow?.paidAt) patch.paidAt = serverTimestamp();
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+
+    if (val === "deposit_paid") {
+      const defaultPHP = Math.round(Number(currentRow?.total || 0));
+      const ans = prompt(
+        `Enter initial payment amount (₱).\nThis will be shown to the customer as “Deposit”.`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(0, Math.round(Number(ans || 0)));
+        patch.depositCents = pesos * 100;
+      }
+    }
+
+    if (val === "paid" && currentRow?.depositCents == null) {
+      const defaultPHP = Math.round(
+        Number(
+          currentRow?.assessedTotalCents != null
+            ? currentRow.assessedTotalCents / 100
+            : currentRow?.total || 0
+        )
+      );
+      const ans = prompt(
+        `Record the total amount received (₱)?\n(Optional, helps the Payment Summary match “Paid”.)`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(0, Math.round(Number(ans || 0)));
+        patch.depositCents = pesos * 100;
+      }
+    }
+
+    await updateDoc(doc(db2, "orders", orderId), patch);
+    setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
   }
+
   async function updateRepairPayment(repairId, currentRepairRow, nextStatus) {
     const db2 = getFirestore(auth.app);
-    const val = nextStatus;
-    const updates = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
-    if (val === "paid" && !currentRepairRow?.paidAt) updates.paidAt = serverTimestamp();
-    if (val === "refunded") updates.refundedAt = serverTimestamp();
+    const val = String(nextStatus || "").toLowerCase();
 
-    await updateDoc(doc(db2, "repairs", repairId), updates);
-    setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...updates } : r)));
+    const patch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+    if (val === "paid" && !currentRepairRow?.paidAt) patch.paidAt = serverTimestamp();
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+
+    const linkedOrder = rows.find((o) => o?.repairId === repairId);
+
+    if (val === "deposit_paid" && linkedOrder?.id) {
+      const defaultPHP = Math.round(Number(linkedOrder?.total || 0));
+      const ans = prompt(
+        `Enter initial payment amount (₱) for this repair order.\nThis will be shown to the customer as “Deposit”.`,
+        String(defaultPHP || "")
+      );
+      const orderPatch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(0, Math.round(Number(ans || 0)));
+        orderPatch.depositCents = pesos * 100;
+      }
+      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
+      setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o)));
+    }
+
+    if (val === "paid" && linkedOrder?.id && linkedOrder?.depositCents == null) {
+      const defaultPHP = Math.round(
+        Number(
+          linkedOrder?.assessedTotalCents != null
+            ? linkedOrder.assessedTotalCents / 100
+            : linkedOrder?.total || 0
+        )
+      );
+      const ans = prompt(
+        `Record the total amount received (₱) for this repair order?`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(0, Math.round(Number(ans || 0)));
+        const orderPatch = {
+          paymentStatus: val,
+          paymentUpdatedAt: serverTimestamp(),
+          depositCents: pesos * 100,
+          paidAt: serverTimestamp(),
+        };
+        await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
+        setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o)));
+      }
+    }
+
+    await updateDoc(doc(db2, "repairs", repairId), patch);
+    setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...patch } : r)));
   }
 
   const setOrderDraft = (id, status) => setDraft((prev) => ({ ...prev, [id]: status }));
@@ -421,7 +572,7 @@ export default function Orders() {
     }
   };
 
-
+  /* ---- notifications helpers for deletes (unchanged) ---- */
   async function deleteUserNotifs(db, uid, { orderId = null, repairId = null } = {}) {
     if (!uid) return;
     const base = collection(db, "users", uid, "notifications");
@@ -434,7 +585,6 @@ export default function Orders() {
     }
   }
 
-  // ✅ STRICT delete: only remove from UI after Firestore delete succeeds
   async function deleteOrderCascade(orderId, orderDataFromRows) {
     setDeleting((p) => ({ ...p, [orderId]: true }));
     try {
@@ -450,8 +600,7 @@ export default function Orders() {
         console.error("deleteShipmentsForOrder failed", e);
       }
 
-      await deleteDoc(doc(db, "orders", orderId)); // <-- this will throw if not admin (per your rules)
-      // only now mutate local state
+      await deleteDoc(doc(db, "orders", orderId));
       setRows((prev) => prev.filter((o) => o.id !== orderId));
     } catch (e) {
       console.error("deleteOrderCascade failed:", e);
@@ -461,7 +610,7 @@ export default function Orders() {
     }
   }
 
-  /* ------------------- helpers (returns) ------------------- */
+  /* ---- returns helpers (unchanged) ---- */
   async function getLatestReturnDoc(orderId) {
     const qy = query(collection(db, "returns"), where("orderId", "==", orderId));
     const snap = await getDocs(qy);
@@ -473,7 +622,6 @@ export default function Orders() {
     });
     return latest;
   }
-
   async function primeReturnForOrder(orderId) {
     try {
       const r = await getLatestReturnDoc(orderId);
@@ -482,7 +630,6 @@ export default function Orders() {
       console.warn("primeReturnForOrder:", e?.message || e);
     }
   }
-
   async function approveReturn(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "approve" }));
@@ -515,7 +662,6 @@ export default function Orders() {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
-
   async function rejectReturn(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "reject" }));
@@ -549,7 +695,6 @@ export default function Orders() {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
-
   async function markReturnReceived(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "received" }));
@@ -565,7 +710,6 @@ export default function Orders() {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
-
   async function issueRefund(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "refund" }));
@@ -664,9 +808,8 @@ export default function Orders() {
     } finally {
       setRepairsSaving((prev) => ({ ...prev, [id]: false }));
     }
-  };
+  }
 
-  // ✅ STRICT delete for repairs
   async function deleteRepairCascade(repairId) {
     setRepDeleting((p) => ({ ...p, [repairId]: true }));
     try {
@@ -727,7 +870,6 @@ export default function Orders() {
     }
   }
 
-  // ✅ STRICT delete for custom orders
   async function deleteCustomCascade(customId) {
     setCustomDeleting((p) => ({ ...p, [customId]: true }));
     try {
@@ -835,7 +977,7 @@ export default function Orders() {
                 <tbody>
                   {ordered.map((o) => {
                     const id = o?.id || "";
-                    const when = fmtDate(o?.createdAt);
+                    const when = fmtDate(pickDate(o));
                     const name =
                       o?.shippingAddress?.fullName ||
                       [o?.shippingAddress?.firstName, o?.shippingAddress?.lastName].filter(Boolean).join(" ") ||
@@ -888,7 +1030,6 @@ export default function Orders() {
                               {saving[id] ? "Saving…" : "Save"}
                             </button>
 
-                            {/* icon delete */}
                             <IconTrashBtn
                               color={clrOrders}
                               disabled={!!deleting[id]}
@@ -1007,7 +1148,7 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* ---------- RETURN ACTIONS ---------- */}
+                                {/* Return actions block kept as-is */}
                                 <div className="span-2">
                                   <h4>Return Actions</h4>
                                   {(() => {
@@ -1062,7 +1203,6 @@ export default function Orders() {
                                     );
                                   })()}
                                 </div>
-                                {/* ---------- /RETURN ACTIONS ---------- */}
                               </div>
                             </td>
                           </tr>
@@ -1131,7 +1271,7 @@ export default function Orders() {
                 <tbody>
                   {repairsOrdered.map((r) => {
                     const id = r?.id || "";
-                    const when = fmtDate(r?.createdAt);
+                    const when = fmtDate(pickDate(r));
                     const name = r?.contactEmail || r?.userId || "—";
                     const total =
                       Number(
@@ -1321,29 +1461,12 @@ export default function Orders() {
 
                                 {r?.notes && (
                                   <div className="span-2">
-                                    <h4>Note</h4>
+                                    <h4>Notes</h4>
                                     <pre className="note">{r.notes}</pre>
                                   </div>
                                 )}
 
-                                {/* ---------- ASSESSMENT (NEW) ---------- */}
-                                <AssessmentPanel
-                                  kind="repair"
-                                  row={r}
-                                  onFinalize={async (assessedCents, notes) => {
-                                    await finalizeAssessment({ kind: "repair", id, assessedTotalCents: assessedCents, notes });
-                                    alert("Assessment saved.");
-                                  }}
-                                  onAddPayment={async (amountCents) => {
-                                    await addPaymentAccepted({ kind: "repair", id, amountCents, method: "additional" });
-                                    alert("Additional payment recorded.");
-                                  }}
-                                  onPartialRefund={async (amountCents) => {
-                                    await recordPartialRefund({ kind: "repair", id, amountCents });
-                                    alert("Partial refund recorded on this repair record.");
-                                  }}
-                                />
-                                {/* ---------- /ASSESSMENT ---------- */}
+                                <AssessmentPanel kind="repair" row={r} />
                               </div>
                             </td>
                           </tr>
@@ -1414,9 +1537,10 @@ export default function Orders() {
                 <tbody>
                   {customsOrdered.map((c) => {
                     const id = c?.id || "";
-                    const when = fmtDate(c?.createdAt);
+                    const when = fmtDate(pickDate(c));
                     const cust = c?.contactEmail || c?.userId || "—";
                     const images = Array.isArray(c?.images) ? c.images : [];
+                    const refImgs = pickCustomerReferenceImages(c); // <-- NEW
                     const unit = c?.unitPrice != null ? Number(c.unitPrice) : null;
                     const status = String(c?.status || "draft");
                     const draftStatus = customsDraft[id] ?? status;
@@ -1439,23 +1563,19 @@ export default function Orders() {
                               : "—"}
                           </td>
                           <td>
-                            {images.length ? (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {images.slice(0, 3).map((url, i) => (
-                                  <a key={i} href={url} target="_blank" rel="noreferrer">
-                                    <img
-                                      src={url}
-                                      alt={`Custom ${i + 1}`}
-                                      style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }}
-                                    />
-                                  </a>
-                                ))}
-                                {images.length > 3 && <span className="muted">+{images.length - 3}</span>}
-                              </div>
-                            ) : (
-                              "—"
-                            )}
-                          </td>
+                            {(images.length || refImgs.length) ? (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {[...images, ...refImgs].slice(0, 3).map((url, i) => (
+        <ResolvedImg key={i} pathOrUrl={url} alt={`Custom ${i + 1}`} size={40} />
+      ))}
+      {[...images, ...refImgs].length > 3 && (
+        <span className="muted">+{[...images, ...refImgs].length - 3}</span>
+      )}
+    </div>
+  ) : (
+    "—"
+  )}
+</td>
                           <td className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</td>
                           <td>
                             <span className={`badge status-${status === "draft" ? "processing" : status}`}>
@@ -1492,7 +1612,6 @@ export default function Orders() {
                               {customsSaving[id] ? "Saving…" : "Save"}
                             </button>
 
-                            {/* icon delete */}
                             <IconTrashBtn
                               color={clrCustom}
                               disabled={!!customDeleting[id]}
@@ -1606,7 +1725,7 @@ export default function Orders() {
 
                                 {images.length > 0 && (
                                   <div className="span-2">
-                                    <h4>Images</h4>
+                                    <h4>Product Images</h4>
                                     <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                                       {images.map((url, i) => (
                                         <a key={i} href={url} target="_blank" rel="noreferrer">
@@ -1620,6 +1739,19 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
+
+                                {/* NEW: Customer uploads */}
+                               {refImgs.length > 0 && (
+  <div className="span-2">
+    <h4>Reference Images (customer)</h4>
+    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+      {refImgs.map((url, i) => (
+        <ResolvedImg key={i} pathOrUrl={url} alt={`Reference ${i + 1}`} size={100} />
+      ))}
+    </div>
+  </div>
+)}
+
 
                                 {c?.descriptionFromProduct && (
                                   <div className="span-2">
@@ -1637,24 +1769,7 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* ---------- ASSESSMENT (NEW) ---------- */}
-                                <AssessmentPanel
-                                  kind="custom"
-                                  row={c}
-                                  onFinalize={async (assessedCents, notes) => {
-                                    await finalizeAssessment({ kind: "custom", id, assessedTotalCents: assessedCents, notes });
-                                    alert("Assessment saved.");
-                                  }}
-                                  onAddPayment={async (amountCents) => {
-                                    await addPaymentAccepted({ kind: "custom", id, amountCents, method: "additional" });
-                                    alert("Additional payment recorded.");
-                                  }}
-                                  onPartialRefund={async (amountCents) => {
-                                    await recordPartialRefund({ kind: "custom", id, amountCents });
-                                    alert("Partial refund recorded on this customization record.");
-                                  }}
-                                />
-                                {/* ---------- /ASSESSMENT ---------- */}
+                                <AssessmentPanel kind="custom" row={c} />
                               </div>
                             </td>
                           </tr>
