@@ -53,17 +53,55 @@ function deepSanitizeForFirestore(value) {
 const toC = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
 const Nint = (x) => Math.max(0, Math.round(Number(x || 0)));
 
-async function uploadFileToStorage(storage, path, file) {
-  const sRef = ref(storage, path);
-  const metadata = file?.type ? { contentType: file.type } : undefined;
-  const result = await uploadBytes(sRef, file, metadata);
-  let url = null;
-  try {
-    url = await getDownloadURL(sRef);
-  } catch {
-    // If your Storage rules block reads for customers, URL will be null.
+function validateFile(f, setErrMsg) {
+  setErrMsg("");
+  if (!f) {
+    setErrMsg("Please upload your payment screenshot.");
+    return false;
   }
-  return { fullPath: result.metadata.fullPath, url };
+  const allowed = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+  if (f.type && !allowed.includes(f.type)) {
+    setErrMsg("File must be an image (jpg, png, webp).");
+    return false;
+  }
+  const maxMB = 15;
+  if (f.size > maxMB * 1024 * 1024) {
+    setErrMsg(`Image is too large. Max ${maxMB}MB.`);
+    return false;
+  }
+  return true;
+}
+
+/** Try uploading to payments/{orderId}/..., else fall back to userPayments/{uid}/... */
+async function uploadPaymentProofWithFallback(storage, { orderId, uid, file, kind }) {
+  // kind: "initial" | "additional" | "ref"
+  const stamp = Date.now();
+  const cleanName = file?.name ? file.name.replace(/[^\w.\-]+/g, "_") : "proof.jpg";
+  const metadata = file?.type ? { contentType: file.type } : undefined;
+
+  // 1) Primary path: payments/{orderId}/...
+  const primaryName =
+    kind === "additional" ? `additional_${stamp}_${cleanName}`
+    : kind === "ref"       ? `ref_${stamp}_${cleanName}`
+    :                        `${stamp}_${cleanName}`;
+  const primaryPath = `payments/${orderId}/${primaryName}`;
+
+  try {
+    const pRef = ref(storage, primaryPath);
+    const res = await uploadBytes(pRef, file, metadata);
+    let url = null;
+    try { url = await getDownloadURL(pRef); } catch {}
+    return { storagePath: res.metadata.fullPath || primaryPath, url, used: "payments" };
+  } catch (e) {
+    // 2) Fallback path: userPayments/{uid}/order-{orderId}_{...}
+    const fallbackName = `order-${orderId}_${stamp}_${cleanName}`;
+    const fallbackPath = `userPayments/${uid}/${fallbackName}`;
+    const fRef = ref(storage, fallbackPath);
+    const res = await uploadBytes(fRef, file, metadata);
+    let url = null;
+    try { url = await getDownloadURL(fRef); } catch {}
+    return { storagePath: res.metadata.fullPath || fallbackPath, url, used: "userPayments" };
+  }
 }
 
 export default function Payment() {
@@ -242,25 +280,6 @@ export default function Payment() {
         }
       : null;
 
-  function validateFile(f) {
-    setErrMsg("");
-    if (!f) {
-      setErrMsg("Please upload your payment screenshot.");
-      return false;
-    }
-    const allowed = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
-    if (f.type && !allowed.includes(f.type)) {
-      setErrMsg("File must be an image (jpg, png, webp).");
-      return false;
-    }
-    const maxMB = 15;
-    if (f.size > maxMB * 1024 * 1024) {
-      setErrMsg(`Image is too large. Max ${maxMB}MB.`);
-      return false;
-    }
-    return true;
-  }
-
   async function addAdminNotification({ orderId, userId, cents, storagePath, url, kind }) {
     try {
       await addDoc(
@@ -296,13 +315,25 @@ export default function Payment() {
     }
   }
 
+  // Utility: convert dataURL → Blob (for customization refs)
+  function dataURLtoBlob(dataUrl) {
+    const m = String(dataUrl || "").match(/^data:(.+?);base64,(.+)$/);
+    if (!m) throw new Error("Bad data URL");
+    const contentType = m[1];
+    const bstr = atob(m[2]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: contentType });
+  }
+
   const handleUpload = async () => {
     if (!pending && !existingOrderId) {
       alert("Your session expired. Please checkout again.");
       navigate("/cart", { replace: true });
       return;
     }
-    if (!validateFile(file)) return;
+    if (!validateFile(file, setErrMsg)) return;
 
     setUploading(true);
     try {
@@ -339,10 +370,13 @@ export default function Payment() {
           return;
         }
 
-        // upload proof
-        const fileName = `${Date.now()}_${file.name || "proof"}`;
-        const path = `payments/${existingOrderId}/additional_${fileName}`;
-        const { fullPath, url } = await uploadFileToStorage(storage, path, file);
+        // upload proof with fallback
+        const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
+          orderId: existingOrderId,
+          uid,
+          file,
+          kind: "additional",
+        });
 
         const addsAfter = addsPrev + payableC;
         const netPaidAfter = Math.max(0, depositC + addsAfter - refundsC);
@@ -354,7 +388,7 @@ export default function Payment() {
             additionalPaymentsCents: addsAfter,
             lastAdditionalPaymentCents: payableC,
             lastAdditionalPaymentProofUrl: url || null,
-            lastAdditionalPaymentProofPath: fullPath || path,
+            lastAdditionalPaymentProofPath: storagePath, // <— always have a path
             requestedAdditionalPaymentCents: 0,
             paymentStatus: paidOff ? "paid" : o.paymentStatus || "deposit_paid",
             paymentUpdatedAt: serverTimestamp(),
@@ -365,7 +399,7 @@ export default function Payment() {
           orderId: existingOrderId,
           userId: uid,
           cents: payableC,
-          storagePath: fullPath || path,
+          storagePath,
           url,
           kind: "additional",
         });
@@ -373,7 +407,7 @@ export default function Payment() {
         await addOrderEvent(existingOrderId, {
           type: "additional_payment_submitted",
           amountCents: payableC,
-          storagePath: fullPath || path,
+          storagePath,
           url: url || null,
         });
 
@@ -437,16 +471,19 @@ export default function Payment() {
       // create order
       const orderRef = await addDoc(collection(db, "orders"), orderPayload);
 
-      // upload payment proof
-      const fileName = `${Date.now()}_${file.name || "proof"}`;
-      const path = `payments/${orderRef.id}/${fileName}`;
-      const { fullPath, url } = await uploadFileToStorage(storage, path, file);
+      // upload payment proof (fallback aware)
+      const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
+        orderId: orderRef.id,
+        uid,
+        file,
+        kind: "initial",
+      });
 
       await updateDoc(
         doc(db, "orders", orderRef.id),
         deepSanitizeForFirestore({
           paymentProofUrl: url || null,       // may be null if read is disallowed
-          paymentProofPath: fullPath || path, // always present for admin
+          paymentProofPath: storagePath,      // always present for admin
           paymentUpdatedAt: serverTimestamp(),
           paymentStatus: "pending",
         })
@@ -456,7 +493,7 @@ export default function Payment() {
         orderId: orderRef.id,
         userId: uid,
         cents: toC(total),
-        storagePath: fullPath || path,
+        storagePath,
         url,
         kind: "initial",
       });
@@ -464,11 +501,11 @@ export default function Payment() {
       await addOrderEvent(orderRef.id, {
         type: "payment_proof_submitted",
         amountCents: toC(total),
-        storagePath: fullPath || path,
+        storagePath,
         url: url || null,
       });
 
-      // create linked customization record (LEAN) + (optional) refs
+      // create linked customization record (LEAN) + (optional) refs with fallback
       if (isCustomization && customDraft) {
         let referenceImages = [];
         try {
@@ -477,16 +514,17 @@ export default function Payment() {
             customDraft.referenceImagesData.length
           ) {
             const toUpload = customDraft.referenceImagesData.slice(0, 3);
-            const uploads = toUpload.map((r, i) =>
-              uploadFileToStorage(
-                storage,
-                `payments/${orderRef.id}/ref_${Date.now()}_${i}.jpg`,
-                // Convert dataURL to Blob for consistency
-                dataURLtoBlob(r.dataUrl)
+            const results = await Promise.all(
+              toUpload.map((r, i) =>
+                uploadPaymentProofWithFallback(storage, {
+                  orderId: orderRef.id,
+                  uid,
+                  file: dataURLtoBlob(r.dataUrl),
+                  kind: "ref",
+                })
               )
             );
-            const results = await Promise.all(uploads);
-            referenceImages = results.map((r) => r.url || r.fullPath);
+            referenceImages = results.map((r) => r.url || r.storagePath);
           }
         } catch (e) {
           console.warn("Reference image upload failed; continuing without refs:", e);
@@ -572,18 +610,6 @@ export default function Payment() {
       setUploading(false);
     }
   };
-
-  // Utility: convert dataURL → Blob (for customization refs)
-  function dataURLtoBlob(dataUrl) {
-    const m = String(dataUrl || "").match(/^data:(.+?);base64,(.+)$/);
-    if (!m) throw new Error("Bad data URL");
-    const contentType = m[1];
-    const bstr = atob(m[2]);
-    let n = bstr.length;
-    const u8arr = new Uint8Array(n);
-    while (n--) u8arr[n] = bstr.charCodeAt(n);
-    return new Blob([u8arr], { type: contentType });
-  }
 
   const summaryOrder =
     existingOrderId && existingOrder
