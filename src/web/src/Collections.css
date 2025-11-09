@@ -47,8 +47,10 @@
 
 .product-imgs {
   width: 100%;
-  height: 160px;
-  object-fit: contain;
+  aspect-ratio: 4 / 3;   /* consistent height from width */
+  height: auto;
+  object-fit: cover;     /* no empty bands; crop instead of letterbox */
+  display: block;
   margin-bottom: 10px;
   background: #dfe5dd;
   border-radius: 6px;
@@ -90,3 +92,46 @@
   margin: 20px 0;      
   border-radius: 8px;   
 }
+
+
+.collection .product-cards {
+  overflow: hidden; /* clip the bleed cleanly */
+}
+
+.collection .product-cards .product-imgs {
+  /* extend past the 15px card padding on left+right */
+  width: calc(100% + 30px);
+  margin: -15px -15px 10px;  /* top/left/right pull to edges, keep 10px gap below */
+  aspect-ratio: 4 / 3;
+  height: auto !important;
+  object-fit: cover !important;
+  border-radius: 0;          /* no rounded inner corners */
+  background: transparent;   /* remove the gray strip */
+  display: block;
+}
+
+
+/* Kill the remaining hairline by over-bleeding 1px on each side */
+.collection .product-cards {
+  position: relative;
+  overflow: hidden;
+}
+
+.collection .product-cards > a {
+  display: block;
+  margin: -15px -16px 12px;   /* 1px extra bleed left & right */
+}
+
+.collection .product-cards > a > .product-imgs {
+  display: block;
+  width: calc(100% + 2px);    /* bleed 1px each side */
+  margin-left: -1px;
+  margin-right: -1px;
+  aspect-ratio: 4 / 3;
+  height: auto;
+  object-fit: cover;
+  background: transparent;
+  border-radius: 0;
+}
+
+
