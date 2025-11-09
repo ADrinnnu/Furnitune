@@ -1,3 +1,4 @@
+// src/pages/Payment.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -52,24 +53,15 @@ function deepSanitizeForFirestore(value) {
 const toC = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
 const Nint = (x) => Math.max(0, Math.round(Number(x || 0)));
 
-/** Upload a dataURL to Storage. Returns { fullPath, url|null }. */
-async function uploadDataUrl(storage, path, dataUrl) {
+async function uploadFileToStorage(storage, path, file) {
   const sRef = ref(storage, path);
-
-  // Extract base64
-  const m = String(dataUrl || "").match(/^data:(.+?);base64,(.+)$/);
-  if (!m) throw new Error("Bad data URL");
-  const contentType = m[1];
-  const base64 = m[2];
-  const bytes = Uint8Array.from(atob(base64), (c) => c.charCodeAt(0));
-
-  const result = await uploadBytes(sRef, bytes, { contentType });
+  const metadata = file?.type ? { contentType: file.type } : undefined;
+  const result = await uploadBytes(sRef, file, metadata);
   let url = null;
   try {
-    // This requires read permission in your Storage rules for this path
     url = await getDownloadURL(sRef);
   } catch {
-    // If read is disallowed for customers, we'll silently fall back to null
+    // If your Storage rules block reads for customers, URL will be null.
   }
   return { fullPath: result.metadata.fullPath, url };
 }
@@ -82,6 +74,7 @@ export default function Payment() {
 
   const [file, setFile] = useState(null);
   const [uploading, setUploading] = useState(false);
+  const [errMsg, setErrMsg] = useState("");
 
   // what customer must pay right now (₱, string)
   const [amountPHP, setAmountPHP] = useState("");
@@ -219,7 +212,6 @@ export default function Payment() {
     if (deletions.length) await Promise.all(deletions);
   }
 
-  // ───────────────── First checkout WHITELIST builders ─────────────────
   const buildItemsLean = (sourceItems) =>
     (Array.isArray(sourceItems) ? sourceItems : []).map((it) => ({
       title:
@@ -250,16 +242,67 @@ export default function Payment() {
         }
       : null;
 
+  function validateFile(f) {
+    setErrMsg("");
+    if (!f) {
+      setErrMsg("Please upload your payment screenshot.");
+      return false;
+    }
+    const allowed = ["image/jpeg", "image/png", "image/webp", "image/heic", "image/heif"];
+    if (f.type && !allowed.includes(f.type)) {
+      setErrMsg("File must be an image (jpg, png, webp).");
+      return false;
+    }
+    const maxMB = 15;
+    if (f.size > maxMB * 1024 * 1024) {
+      setErrMsg(`Image is too large. Max ${maxMB}MB.`);
+      return false;
+    }
+    return true;
+  }
+
+  async function addAdminNotification({ orderId, userId, cents, storagePath, url, kind }) {
+    try {
+      await addDoc(
+        collection(db, "admin_notifications"),
+        deepSanitizeForFirestore({
+          type: kind === "additional" ? "additional_payment_submitted" : "payment_proof_submitted",
+          orderId,
+          userId,
+          amountCents: Nint(cents),
+          storagePath: storagePath || null,
+          url: url || null,
+          createdAt: serverTimestamp(),
+          read: false,
+        })
+      );
+    } catch (e) {
+      // Non-blocking
+      console.warn("Failed to write admin_notifications", e);
+    }
+  }
+
+  async function addOrderEvent(orderId, payload) {
+    try {
+      await addDoc(
+        collection(db, "orders", orderId, "events"),
+        deepSanitizeForFirestore({
+          ...payload,
+          createdAt: serverTimestamp(),
+        })
+      );
+    } catch {
+      // ignore
+    }
+  }
+
   const handleUpload = async () => {
     if (!pending && !existingOrderId) {
       alert("Your session expired. Please checkout again.");
       navigate("/cart", { replace: true });
       return;
     }
-    if (!file) {
-      alert("Please upload your payment screenshot.");
-      return;
-    }
+    if (!validateFile(file)) return;
 
     setUploading(true);
     try {
@@ -297,10 +340,9 @@ export default function Payment() {
         }
 
         // upload proof
-        const payRef = ref(storage, `payments/${existingOrderId}/additional_${Date.now()}.jpg`);
-        await uploadBytes(payRef, file);
-        let proofUrl = null;
-        try { proofUrl = await getDownloadURL(payRef); } catch {}
+        const fileName = `${Date.now()}_${file.name || "proof"}`;
+        const path = `payments/${existingOrderId}/additional_${fileName}`;
+        const { fullPath, url } = await uploadFileToStorage(storage, path, file);
 
         const addsAfter = addsPrev + payableC;
         const netPaidAfter = Math.max(0, depositC + addsAfter - refundsC);
@@ -311,12 +353,29 @@ export default function Payment() {
           deepSanitizeForFirestore({
             additionalPaymentsCents: addsAfter,
             lastAdditionalPaymentCents: payableC,
-            lastAdditionalPaymentProofUrl: proofUrl, // may be null if rules disallow read
+            lastAdditionalPaymentProofUrl: url || null,
+            lastAdditionalPaymentProofPath: fullPath || path,
             requestedAdditionalPaymentCents: 0,
             paymentStatus: paidOff ? "paid" : o.paymentStatus || "deposit_paid",
             paymentUpdatedAt: serverTimestamp(),
           })
         );
+
+        await addAdminNotification({
+          orderId: existingOrderId,
+          userId: uid,
+          cents: payableC,
+          storagePath: fullPath || path,
+          url,
+          kind: "additional",
+        });
+
+        await addOrderEvent(existingOrderId, {
+          type: "additional_payment_submitted",
+          amountCents: payableC,
+          storagePath: fullPath || path,
+          url: url || null,
+        });
 
         try {
           await addDoc(
@@ -379,44 +438,59 @@ export default function Payment() {
       const orderRef = await addDoc(collection(db, "orders"), orderPayload);
 
       // upload payment proof
-      const payRef = ref(storage, `payments/${orderRef.id}/${Date.now()}_${file.name}`);
-      await uploadBytes(payRef, file);
-      let proofUrl = null;
-      try { proofUrl = await getDownloadURL(payRef); } catch {}
+      const fileName = `${Date.now()}_${file.name || "proof"}`;
+      const path = `payments/${orderRef.id}/${fileName}`;
+      const { fullPath, url } = await uploadFileToStorage(storage, path, file);
 
       await updateDoc(
         doc(db, "orders", orderRef.id),
         deepSanitizeForFirestore({
-          paymentProofUrl: proofUrl, // may be null if owner read is disallowed
+          paymentProofUrl: url || null,       // may be null if read is disallowed
+          paymentProofPath: fullPath || path, // always present for admin
           paymentUpdatedAt: serverTimestamp(),
           paymentStatus: "pending",
         })
       );
 
-      // create linked customization record (LEAN) + upload reference images (optional)
+      await addAdminNotification({
+        orderId: orderRef.id,
+        userId: uid,
+        cents: toC(total),
+        storagePath: fullPath || path,
+        url,
+        kind: "initial",
+      });
+
+      await addOrderEvent(orderRef.id, {
+        type: "payment_proof_submitted",
+        amountCents: toC(total),
+        storagePath: fullPath || path,
+        url: url || null,
+      });
+
+      // create linked customization record (LEAN) + (optional) refs
       if (isCustomization && customDraft) {
         let referenceImages = [];
-        if (
-          Array.isArray(customDraft.referenceImagesData) &&
-          customDraft.referenceImagesData.length
-        ) {
-          try {
-            const toUpload = customDraft.referenceImagesData.slice(0, 3); // max 3
+        try {
+          if (
+            Array.isArray(customDraft.referenceImagesData) &&
+            customDraft.referenceImagesData.length
+          ) {
+            const toUpload = customDraft.referenceImagesData.slice(0, 3);
             const uploads = toUpload.map((r, i) =>
-              uploadDataUrl(
+              uploadFileToStorage(
                 storage,
-                // path under /payments matches your Storage rules
                 `payments/${orderRef.id}/ref_${Date.now()}_${i}.jpg`,
-                r.dataUrl
+                // Convert dataURL to Blob for consistency
+                dataURLtoBlob(r.dataUrl)
               )
             );
             const results = await Promise.all(uploads);
-            // prefer URL when available; otherwise keep fullPath
             referenceImages = results.map((r) => r.url || r.fullPath);
-          } catch (e) {
-            console.warn("Reference image upload failed; continuing without refs:", e);
-            referenceImages = [];
           }
+        } catch (e) {
+          console.warn("Reference image upload failed; continuing without refs:", e);
+          referenceImages = [];
         }
 
         const customLean = {
@@ -447,7 +521,6 @@ export default function Payment() {
             ? customDraft.images.filter((u) => typeof u === "string")
             : [],
 
-          // Store URLs where possible; falls back to storage fullPath strings.
           referenceImages,
         };
 
@@ -500,6 +573,18 @@ export default function Payment() {
     }
   };
 
+  // Utility: convert dataURL → Blob (for customization refs)
+  function dataURLtoBlob(dataUrl) {
+    const m = String(dataUrl || "").match(/^data:(.+?);base64,(.+)$/);
+    if (!m) throw new Error("Bad data URL");
+    const contentType = m[1];
+    const bstr = atob(m[2]);
+    let n = bstr.length;
+    const u8arr = new Uint8Array(n);
+    while (n--) u8arr[n] = bstr.charCodeAt(n);
+    return new Blob([u8arr], { type: contentType });
+  }
+
   const summaryOrder =
     existingOrderId && existingOrder
       ? existingOrder
@@ -545,6 +630,9 @@ export default function Payment() {
           onChange={(e) => setFile(e.target.files?.[0] || null)}
           disabled={uploading}
         />
+        {errMsg ? (
+          <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 6 }}>{errMsg}</div>
+        ) : null}
 
         <div className="form-actions">
           <button
