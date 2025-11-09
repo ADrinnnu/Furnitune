@@ -32,18 +32,29 @@ function objectPathFromAnyStorageUrl(u) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-  if (!/^https?:\/\//i.test(u)) return u; // already a storage path
-  return null; // plain http(s) URL
+  if (!/^https?:\/\//i.test(u)) return u; // looks like a storage path already
+  return null;
+}
+function isStorageLikeUrl(u) {
+  return !!objectPathFromAnyStorageUrl(u);
 }
 async function resolveStorageUrl(val) {
   if (!val) return "";
   try {
     const path = objectPathFromAnyStorageUrl(val);
     if (path) return await getDownloadURL(ref(storage, path));
-    return val;
+    return val; // plain http(s) URL
   } catch {
     return "";
   }
+}
+function safeImageSrc(primaryResolvedUrl, original) {
+  // Prefer resolved URL when present.
+  if (primaryResolvedUrl) return primaryResolvedUrl;
+  // If original looks like a Storage URL and we couldn't resolve it, DO NOT render it.
+  if (isStorageLikeUrl(original)) return PLACEHOLDER;
+  // Otherwise (external http image), try original; onError will still fall back.
+  return original || PLACEHOLDER;
 }
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 const toCents = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
@@ -61,25 +72,25 @@ export default function OrderSummaryCard({
   showAddress = false,
   shippingAddress = null,
   showSupport = true,
-  order: orderFromParent = null, // optional: parent can give a ready order
+  order: orderFromParent = null,
 }) {
   const [order, setOrder] = useState(orderFromParent === null ? undefined : orderFromParent);
   const [items, setItems] = useState([]);
   const [proofUrlResolved, setProofUrlResolved] = useState("");
 
-  // allow parent to override the order entirely (live snapshots in OrderSummary.jsx)
+  // allow parent override
   useEffect(() => {
     if (orderFromParent !== null) setOrder(orderFromParent);
   }, [orderFromParent]);
 
-  // when items are passed directly, resolve URLs and stop fetching orders
+  // items passed directly
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
       const withUrls = await Promise.all(
         passedItems.map(async (it) => ({
           ...it,
-          imageUrl: await resolveStorageUrl(it.image || it.imageUrl || ""),
+          imageResolved: await resolveStorageUrl(it.image || it.imageUrl || ""),
         }))
       );
       setItems(withUrls);
@@ -87,7 +98,7 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems, orderFromParent]);
 
-  // fetch order (latest or by id) only if parent didn't supply an order and we don't have passedItems
+  // fetch order if needed
   useEffect(() => {
     if (passedItems || orderFromParent) return;
     let stopAuth = () => {};
@@ -97,10 +108,7 @@ export default function OrderSummaryCard({
       setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null);
     }
     async function fetchLatest(uid) {
-      if (!uid) {
-        setOrder(null);
-        return;
-      }
+      if (!uid) return setOrder(null);
       const qRef = query(collection(firestore, "orders"), where("userId", "==", uid));
       const snap = await getDocs(qRef);
       const list = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -131,7 +139,7 @@ export default function OrderSummaryCard({
     };
   }, [orderId, passedItems, orderFromParent]);
 
-  // keep item image URLs resolved when order changes
+  // resolve item images from order
   useEffect(() => {
     if (passedItems) return;
     (async () => {
@@ -139,14 +147,14 @@ export default function OrderSummaryCard({
       const withUrls = await Promise.all(
         src.map(async (it) => ({
           ...it,
-          imageUrl: await resolveStorageUrl(it.image || it.imageUrl || it.photo || ""),
+          imageResolved: await resolveStorageUrl(it.image || it.imageUrl || it.photo || ""),
         }))
       );
       setItems(withUrls);
     })();
   }, [order, passedItems]);
 
-  // resolve a readable payment proof URL (or hide if not allowed)
+  // resolve readable proof URL (or hide)
   useEffect(() => {
     (async () => {
       const raw =
@@ -154,7 +162,7 @@ export default function OrderSummaryCard({
         order?.lastAdditionalPaymentProofUrl ||
         "";
       const resolved = await resolveStorageUrl(raw);
-      setProofUrlResolved(resolved); // empty string if not readable
+      setProofUrlResolved(resolved); // empty if not readable
     })();
   }, [order?.paymentProofUrl, order?.lastAdditionalPaymentProofUrl]);
 
@@ -175,19 +183,15 @@ export default function OrderSummaryCard({
 
   const addr = useMemo(() => shippingAddress || order?.shippingAddress || null, [order, shippingAddress]);
 
-  // ---- rollups with "pending -> do not count deposit" rule
   const rollups = useMemo(() => {
     const o = order || {};
     const isPending = String(o.paymentStatus || "").toLowerCase() === "pending";
-
     const assessedC = Number(o.assessedTotalCents ?? toCents(total));
     const depositC = isPending ? 0 : Number(o.depositCents ?? toCents(total));
     const addsC = Number(o.additionalPaymentsCents || 0);
     const refundsC = Number(o.refundsCents || 0);
-
     const netPaidC = Math.max(0, depositC + addsC - refundsC);
     const balanceC = Math.max(0, assessedC - netPaidC);
-
     return { assessedC, depositC, addsC, refundsC, netPaidC, balanceC };
   }, [order, total]);
 
@@ -228,7 +232,6 @@ export default function OrderSummaryCard({
       </div>
     );
   }
-
   if (order === null && !passedItems) {
     return (
       <div className={`checkout-summary ${className}`}>
@@ -256,7 +259,6 @@ export default function OrderSummaryCard({
     <div className={`checkout-summary ${className}`}>
       <h3>{title}</h3>
 
-      {/* status/payment header (compact) */}
       <div className="kv">
         <label>Status</label>
         <div>{String(order?.status || "processing").toUpperCase()}</div>
@@ -284,10 +286,13 @@ export default function OrderSummaryCard({
         const name = it.name || it.title || `Item #${i + 1}`;
         const qty = Number(it.qty || 1);
         const price = Number(it.price || 0);
+
+        const src = safeImageSrc(it.imageResolved, it.image || it.imageUrl || it.photo);
+
         return (
           <div className="cart-item" key={(it.id || it.productId || i) + ""}>
             <img
-              src={it.imageUrl || it.image || PLACEHOLDER}
+              src={src}
               alt={name}
               onError={(e) => {
                 e.currentTarget.onerror = null;
@@ -328,7 +333,6 @@ export default function OrderSummaryCard({
         <strong>{peso(total)}</strong>
       </div>
 
-      {/* Payment Summary */}
       <h4 style={{ marginTop: 12 }}>PAYMENT SUMMARY</h4>
       <div className="summary-totals">
         <div><span>Assessed Total</span><span>{peso(rollups.assessedC / 100)}</span></div>
