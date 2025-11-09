@@ -1,7 +1,12 @@
 // src/web/src/firebase.js
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
-import { getFirestore, initializeFirestore, persistentLocalCache, persistentMultipleTabManager } from "firebase/firestore";
+import {
+  initializeFirestore,
+  persistentLocalCache,
+  persistentMultipleTabManager,
+  // re-exports below will pull from this module later
+} from "firebase/firestore";
 import { getStorage } from "firebase/storage";
 
 const NEW_BUCKET = "furnitune-64458.firebasestorage.app";
@@ -53,11 +58,18 @@ function loadFirebaseConfig() {
 
 export const app = initializeApp(loadFirebaseConfig());
 
-export const db = initializeFirestore(app, {
-  localCache: persistentLocalCache({ tabManager: persistentMultipleTabManager() }),
+// ---- Firestore (single instance, long-polling to avoid 400 Write/channel noise)
+export const firestore = initializeFirestore(app, {
+  experimentalForceLongPolling: true,
+  useFetchStreams: false,
+  localCache: persistentLocalCache({
+    tabManager: persistentMultipleTabManager(),
+  }),
 });
+// Optional alias for legacy imports in your codebase:
+export const db = firestore;
+
 export const auth = getAuth(app);
-export const firestore = getFirestore(app);
 export const storage = getStorage(app);
 
 // (re-exports)
