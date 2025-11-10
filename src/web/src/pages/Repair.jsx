@@ -25,7 +25,7 @@ const FURNITURE_TYPES = [
   { id: "chair",        label: "Chair",        price: 1200 },
   { id: "dining_table", label: "Dining Table", price: 2800 },
   { id: "ottoman",      label: "Ottoman",      price: 1400 },
-  { id: "benches",      label: "Benches",      price: 1600 },
+  { id: "sofa",         label: "sofa",         price: 1600 },
   { id: "sectionals",   label: "Sectionals",   price: 3600 },
 ];
 const COVER_MATERIALS = [

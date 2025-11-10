@@ -319,7 +319,12 @@ export default function ProductDetail() {
                 aligned.push(hit ? hit.label : s);
               }
               displaySizes = aligned.length ? [...new Set(aligned)] : [...new Set(rules.map(r => String(r.size)))];
-              for (const [, rec] of byKey) priceMap[rec.label] = rec.price;
+              // store multiple keys for tolerant lookup
+              for (const [, rec] of byKey) {
+                priceMap[rec.label] = rec.price;           // exact label
+                priceMap[norm(rec.label)] = rec.price;     // normalized (lowercased, trimmed)
+                priceMap[slug(rec.label)] = rec.price;     // slug (spaces→hyphen)
+              }
             }
           } catch (e) {
             console.warn("sizePriceRules(type) read:", e?.code || e);
@@ -388,9 +393,16 @@ export default function ProductDetail() {
     return () => { cancelled = true; };
   }, [rawData, size]);
 
+  // PRICE: exact → normalized → slug; otherwise base
   const unitPrice = useMemo(() => {
     if (!product) return 0;
-    if (size && absPrices[size] != null) return Number(absPrices[size]);
+    if (size) {
+      if (absPrices[size] != null) return Number(absPrices[size]);
+      const normKey = Object.keys(absPrices || {}).find(k => norm(k) === norm(size));
+      if (normKey) return Number(absPrices[normKey]);
+      const slugKey = Object.keys(absPrices || {}).find(k => slug(k) === slug(size));
+      if (slugKey) return Number(absPrices[slugKey]);
+    }
     return Number(product.basePrice || 0);
   }, [product, size, absPrices]);
 
