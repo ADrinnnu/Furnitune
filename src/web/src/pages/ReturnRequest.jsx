@@ -7,6 +7,7 @@ import {
   doc,
   getDoc,
   addDoc,
+  setDoc,
   collection,
   serverTimestamp,
   updateDoc,
@@ -75,6 +76,13 @@ function daysLeft(order) {
   if (!deadline) return 0;
   return Math.max(0, Math.ceil((deadline - Date.now()) / 86400000));
 }
+// GCash helpers
+function onlyDigits(s) {
+  return String(s || "").replace(/[^\d]/g, "");
+}
+function is11DigitsLoose(s) {
+  return onlyDigits(s).length === 11;
+}
 
 /* ---------- constants ---------- */
 const REASONS = [
@@ -86,10 +94,8 @@ const REASONS = [
   { value: "other", label: "Other" },
 ];
 
-const REFUND_METHODS = [
-  { value: "original", label: "Refund to original payment method" },
-  { value: "exchange", label: "Exchange" },
-];
+// Only ONE refund method now — locked to original (GCash)
+const REFUND_METHOD = { value: "original", label: "Refund to original payment method (GCash)" };
 
 export default function ReturnRequest() {
   const navigate = useNavigate();
@@ -102,15 +108,19 @@ export default function ReturnRequest() {
   const [order, setOrder] = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [err, setErr] = useState("");
-  
 
   const items = Array.isArray(order?.items) ? order.items : [];
   const [qtyMap, setQtyMap] = useState({});
   const [reason, setReason] = useState(REASONS[0].value);
-  const [refundMethod, setRefundMethod] = useState(REFUND_METHODS[0].value);
   const [desc, setDesc] = useState("");
-  const [file, setFile] = useState(null);
+
+  // Multiple images state (up to 6)
+  const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
+
+  // GCash fields
+  const [gcashName, setGcashName] = useState("");
+  const [gcashNumber, setGcashNumber] = useState("");
 
   const eligible = canReturn(order);
   const daysRemaining = daysLeft(order);
@@ -158,69 +168,22 @@ export default function ReturnRequest() {
     setQtyMap((p) => ({ ...p, [idx]: v }));
   }
 
-  async function submit() {
-  if (!orderId) { alert("Missing order."); return; }
-  const uid = auth.currentUser?.uid;
-  if (!uid) { alert("Please sign in."); return; }
-  if (!order) { alert("Order not loaded."); return; }
+  async function submit(e) {
+    e?.preventDefault?.();
 
-  if (!eligible) {
-    alert(
-      originKey !== "CATALOG"
-        ? "This order type is not eligible for returns."
-        : "Return window has ended."
-    );
-    return;
-  }
+    if (!orderId) { alert("Missing order."); return; }
+    const uid = auth.currentUser?.uid;
+    if (!uid) { alert("Please sign in."); return; }
+    if (!order) { alert("Order not loaded."); return; }
 
-  setSubmitting(true);
-  try {
-    // optional photo (first file only)
-    let imageUrl = null;
-    if (file) {
-      const p = `returns/${uid}/${orderId}/${Date.now()}_${file.name}`;
-      const r = ref(storage, p);
-      await uploadBytes(r, file);
-      imageUrl = await getDownloadURL(r);
+    if (!eligible) {
+      alert(
+        originKey !== "CATALOG"
+          ? "This order type is not eligible for returns."
+          : "Return window has ended."
+      );
+      return;
     }
-
-    // create the return request (this is allowed by your rules)
-    await addDoc(collection(db, "returns"), {
-      userId: uid,
-      orderId,
-      message: desc.trim(),
-      imageUrl,
-      status: "requested",
-      createdAt: serverTimestamp(),
-    });
-
-    // try to flip order to "refund" (ok if rules deny it)
-    try {
-  await updateDoc(doc(db, "orders", orderId), { status: "refund" });
-
-} catch (e) {
-  // Only warn if it's NOT a permission issue; otherwise ignore silently.
-  const code = e?.code || "";
-  const msg  = e?.message || "";
-  if (code !== "permission-denied" && !/insufficient permissions|permission/i.test(msg)) {
-    console.warn("Order status update skipped (non-permission error):", e);
-  }
-  // else do nothing – request is created and admin/CF will move the status
-}
-
-
-    alert("Return/Refund request sent. We’ll review and update your order status shortly.");
-    navigate(`/ordersummary?orderId=${orderId}`, { replace: true });
-  } catch (e) {
-    console.error(e);
-    alert("Failed to submit request.");
-  } finally {
-    setSubmitting(false);
-  }
-
-
-
-
 
     const totalSelected = sumSelected();
     if (totalSelected <= 0) {
@@ -228,26 +191,36 @@ export default function ReturnRequest() {
       return;
     }
 
+    // GCash validation (tolerant)
+    const gcashDigits = onlyDigits(gcashNumber);
+    if (gcashName.trim().length < 2 || gcashDigits.length !== 11) {
+      alert("Enter a valid GCash Account Name and 11-digit Account Number.");
+      return;
+    }
+
     setSubmitting(true);
     setErr("");
 
     try {
-      // prevent duplicate open requests
-      const qy = query(collection(db, "return_requests"), where("orderId", "==", orderId));
-      const snap = await getDocs(qy);
-      const openStatuses = new Set(["requested","approved","awaiting_pickup","in_transit","received_pending_check"]);
-      const alreadyOpen = snap.docs.some(d => openStatuses.has(String(d.data()?.status || "requested")));
-      if (alreadyOpen) {
+      // prevent duplicate open requests (treat only rejected/refund_issued as closed)
+      const dupQ = query(collection(db, "return_requests"), where("orderId", "==", orderId));
+      const dupSnap = await getDocs(dupQ);
+      const open = dupSnap.docs.find(d => {
+        const s = String(d.data()?.status || "requested").toLowerCase();
+        return s !== "rejected" && s !== "refund_issued";
+      });
+      if (open) {
         alert("You already have a return in progress for this order.");
         setSubmitting(false);
         return;
       }
 
-      // upload images
+      // upload images (up to 6)
       let imageUrls = [];
       if (files && files.length > 0) {
+        const slice = Array.from(files).slice(0, 6);
         imageUrls = await Promise.all(
-          Array.from(files).slice(0, 6).map(async (f) => {
+          slice.map(async (f) => {
             const p = `return_requests/${uid}/${orderId}/${Date.now()}_${f.name}`;
             const r = ref(storage, p);
             await uploadBytes(r, f);
@@ -268,31 +241,81 @@ export default function ReturnRequest() {
             qty,
             maxQty: Number(it.qty || 1),
             variant: it.size || it.variant || it.color || null,
+            image: it?.image || it?.img || null,
           };
         })
         .filter(Boolean);
 
-      const refDoc = await addDoc(collection(db, "return_requests"), {
+      // compute estimated refund (sum of unitPrice * qty)
+      const requestedAmount = selectedItems.reduce((s, it) => s + Number(it.unitPrice || 0) * Number(it.qty || 0), 0);
+
+      // payload (include createdAtMs to avoid composite-index dependence in admin)
+      const nowMs = Date.now();
+      const payload = {
         userId: uid,
         orderId,
+        status: "requested",
+        origin: originKey,                 // CATALOG | CUSTOMIZATION | REPAIR
+        source: "user",
+        createdAt: serverTimestamp(),
+        createdAtMs: nowMs,
+        updatedAt: serverTimestamp(),
+
+        // order context
+        orderNumber: order?.orderNumber || null,
+        paymentMethod: order?.paymentMethod || "GCASH",
+        deliveredAt: order?.deliveredAt || null,
+
+        // customer contact
+        contactEmail: order?.contactEmail || order?.shippingAddress?.email || null,
+        contactPhone: order?.shippingAddress?.phone || order?.phone || null,
+
+        // request details
         reasonCode: reason,
-        refundMethod,
         message: String(desc || "").trim(),
         images: imageUrls,
         items: selectedItems,
-        status: "requested",
-        createdAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        source: "user",
-        origin: originKey,
-        contactEmail: order?.contactEmail || order?.shippingAddress?.email || null,
+        requestedAmount,                   // numeric (PHP)
+
+        // refund channel is locked to original via GCash
+        refundMethod: REFUND_METHOD.value, // "original"
+        refundChannel: "GCASH",
+        gcash: {
+          accountName: gcashName.trim(),
+          accountNumber: gcashDigits,
+          last4: String(gcashDigits).slice(-4),
+        },
+
+        // convenience flags for Admin UI
+        hasPhotos: imageUrls.length > 0,
+        hasMessage: String(desc || "").trim().length > 0,
+        totals: {
+          itemCount: selectedItems.reduce((s, it) => s + Number(it.qty || 0), 0),
+          lineCount: selectedItems.length,
+        },
+      };
+
+      // 1) master record
+      const masterRef = await addDoc(collection(db, "return_requests"), payload);
+
+      // 2) subcollection under the order (same id)
+      await setDoc(doc(db, "orders", orderId, "returns", masterRef.id), {
+        id: masterRef.id,
+        ...payload,
       });
 
+      // 3) top-level mirror (legacy)
+      await setDoc(doc(collection(db, "returns"), masterRef.id), {
+        id: masterRef.id,
+        ...payload,
+      });
+
+      // mark order
       await updateDoc(doc(db, "orders", orderId), {
         hasOpenReturn: true,
-        lastReturnRequestId: refDoc.id,
+        lastReturnRequestId: masterRef.id,
         lastReturnRequestedAt: serverTimestamp(),
-      });
+      }).catch(() => {});
 
       alert("Return/Refund request submitted.");
       navigate(`/ordersummary?orderId=${orderId}`, { replace: true });
@@ -302,6 +325,21 @@ export default function ReturnRequest() {
     } finally {
       setSubmitting(false);
     }
+  }
+
+  // ---------- derived UI state for Submit button ----------
+  const selectedCount = sumSelected();
+  let disabledReason = "";
+  if (!eligible) {
+    disabledReason = (getOriginKey(order || {}) !== "CATALOG")
+      ? "This order type isn't eligible for returns."
+      : "Return window has ended.";
+  } else if (selectedCount <= 0) {
+    disabledReason = "Select at least one item to return.";
+  } else if (gcashName.trim().length < 2) {
+    disabledReason = "Enter your GCash account name.";
+  } else if (!is11DigitsLoose(gcashNumber)) {
+    disabledReason = "GCash number must be exactly 11 digits.";
   }
 
   return (
@@ -373,7 +411,7 @@ export default function ReturnRequest() {
               </div>
             )}
 
-            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12, marginBottom: 8 }}>
               <label style={{ fontSize: 12 }}>
                 Reason
                 <select
@@ -384,26 +422,52 @@ export default function ReturnRequest() {
                   {REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </label>
-              <label style={{ fontSize: 12 }}>
+
+              {/* Refund method is locked to original (GCash) */}
+              <div style={{ fontSize: 12 }}>
                 Refund method
-                <select
-                  value={refundMethod}
-                  onChange={(e) => setRefundMethod(e.target.value)}
-                  style={{ width: "100%", marginTop: 4, padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
-                >
-                  {REFUND_METHODS.map((m) => <option key={m.value} value={m.value}>{m.label}</option>)}
-                </select>
-              </label>
+                <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#f8fafc" }}>
+                  {REFUND_METHOD.label}
+                </div>
+              </div>
+
+              {/* GCash fields */}
+              <div className="card" style={{ padding: 0, border: "none" }}>
+                <div style={{ fontSize: 12, marginTop: 4 }}>GCash Details</div>
+
+                <label className="field-label" style={{ fontSize: 12, marginTop: 6 }}>Account Name</label>
+                <input
+                  type="text"
+                  placeholder="e.g. Juan Dela Cruz"
+                  value={gcashName}
+                  onChange={(e) => setGcashName(e.target.value)}
+                  required
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
+                />
+
+                <label className="field-label" style={{ fontSize: 12, marginTop: 8 }}>Account Number</label>
+                <input
+                  type="tel"
+                  placeholder="11-digit GCash number"
+                  inputMode="numeric"
+                  value={gcashNumber}
+                  onChange={(e) => setGcashNumber(e.target.value)}
+                  required
+                  style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
+                />
+                <small style={{ opacity: 0.8 }}>
+                  We accept “0917 123 4567” or “0917-123-4567” — we’ll clean it automatically.
+                </small>
+              </div>
             </div>
 
             <label style={{ marginTop: 12, fontSize: 12 }}>Upload Photos (optional, up to 6)</label>
             <input
-        type="file"
-  accept="image/*"
-  multiple   
-  onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-/>
-
+              type="file"
+              accept="image/*"
+              multiple
+              onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
+            />
 
             <label style={{ marginTop: 12, fontSize: 12 }}>Message / Description (optional)</label>
             <textarea
@@ -421,11 +485,16 @@ export default function ReturnRequest() {
               <button
                 className="order-btn"
                 onClick={submit}
-                disabled={submitting || !eligible || sumSelected() <= 0}
-                title={!eligible ? "Not eligible for return" : (sumSelected() <= 0 ? "Select at least one item" : "")}
+                disabled={submitting || !!disabledReason}
+                title={disabledReason || ""}
               >
                 {submitting ? "SUBMITTING…" : "SUBMIT"}
               </button>
+              {disabledReason && (
+                <div className="err" style={{ marginTop: 8, fontSize: 12 }}>
+                  {disabledReason}
+                </div>
+              )}
             </div>
           </>
         )}

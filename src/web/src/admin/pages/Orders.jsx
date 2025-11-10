@@ -134,6 +134,12 @@ function fmtDate(tsLike) {
   const ms = tsToMillis(tsLike);
   return ms ? new Date(ms).toLocaleString() : "";
 }
+// put this next to your other helpers (e.g., after fmtDate)
+function fmtGCash(num) {
+  const d = String(num || "").replace(/\D/g, "");
+  // 0917 123 4567 style if 11 digits, otherwise just return whatever digits exist
+  return d.length === 11 ? `${d.slice(0,4)} ${d.slice(4,7)} ${d.slice(7)}` : d || "—";
+}
 /** Finds customer-uploaded reference images by common keys. */
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
@@ -378,23 +384,73 @@ function AssessmentPanel({ kind, row }) {
 
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button
-          className="save-btn"
-          onClick={async () => {
-            const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
-            const requestCents =
-              amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
-            await upsertAssessmentAndRequest({
-              kind,
-              id: row.id,
-              assessedTotalCents: assessedCents,
-              requestAmountCents: requestCents, // null → use computed balance
-              note,
-            });
-            alert("Assessment saved and request sent.");
-          }}
-        >
-          Save & Send Request
-        </button>
+  className="save-btn"
+  onClick={async () => {
+    const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
+    const requestCentsInput =
+      amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
+
+    try {
+      // Try shared provider (works when a linked orders doc exists)
+      await upsertAssessmentAndRequest({
+        kind,
+        id: row.id,
+        assessedTotalCents: assessedCents,
+        requestAmountCents: requestCentsInput, // null → provider computes balance
+        note,
+      });
+      alert("Assessment saved and request sent.");
+      return;
+    } catch (e) {
+      // If there is no linked order, fall back to direct write
+      if (!/linked order not found/i.test(String(e?.message || ""))) {
+        alert(e?.message || "Failed to save assessment.");
+        return;
+      }
+
+      try {
+        const db = getFirestore(auth.app);
+
+        // compute request if left blank
+        const dep = Number(row?.depositCents || 0);
+        const adds = Number(row?.additionalPaymentsCents || 0);
+        const refs = Number(row?.refundsCents || 0);
+        const computedBalance = Math.max(0, assessedCents - (dep + adds - refs));
+        const requestCents = requestCentsInput == null ? computedBalance : requestCentsInput;
+
+        const coll = kind === "repair" ? "repairs" : "custom_orders";
+        await updateDoc(doc(db, coll, row.id), {
+          assessedTotalCents: assessedCents,
+          requestedAdditionalPaymentCents: requestCents,
+          assessmentNotes: note || "",
+          assessedAt: serverTimestamp(),
+          requestedAt: serverTimestamp(),
+        });
+
+        // notify customer if we know their uid
+        const uid =
+          row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+        if (uid) {
+          await addDoc(collection(db, "users", uid, "notifications"), {
+            type: "additional_payment_request",
+            ...(kind === "repair" ? { repairId: row.id } : { customId: row.id }),
+            title: "Additional payment requested",
+            body: `Please pay ₱${Math.round(requestCents / 100).toLocaleString()} to proceed.`,
+            createdAt: serverTimestamp(),
+            read: false,
+          });
+        }
+
+        alert("Assessment saved and request sent (no linked order).");
+      } catch (e2) {
+        alert(e2?.message || "Fallback save failed.");
+      }
+    }
+  }}
+>
+  Save & Send Request
+</button>
+
       </div>
 
       {row?.lastAdditionalPaymentProofUrl && (
@@ -732,56 +788,59 @@ export default function Orders() {
   }
 
   // --- helper: delete a subcollection under a parent doc ---
-async function deleteSubcollection(db, parentColl, parentId, subcoll) {
-  const subRef = collection(db, parentColl, parentId, subcoll);
-  const snap = await getDocs(subRef);
-  const tasks = snap.docs.map(d => deleteDoc(d.ref));
-  await Promise.all(tasks);
-}
+  async function deleteSubcollection(db, parentColl, parentId, subcoll) {
+    const subRef = collection(db, parentColl, parentId, subcoll);
+    const snap = await getDocs(subRef);
+    const tasks = snap.docs.map(d => deleteDoc(d.ref));
+    await Promise.all(tasks);
+  }
 
   async function deleteOrderCascade(orderId, orderDataFromRows) {
-  setDeleting((p) => ({ ...p, [orderId]: true }));
-  try {
-    const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
-
-    if (orderData?.userId) {
-      await deleteUserNotifs(db, orderData.userId, { orderId });
-    }
-
+    setDeleting((p) => ({ ...p, [orderId]: true }));
     try {
-      await deleteShipmentsForOrder(orderId);
+      const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
+
+      if (orderData?.userId) {
+        await deleteUserNotifs(db, orderData.userId, { orderId });
+      }
+
+      try {
+        await deleteShipmentsForOrder(orderId);
+      } catch (e) {
+        console.error("deleteShipmentsForOrder failed", e);
+      }
+
+      // 🔻 NEW: remove known subcollections under this order
+      await deleteSubcollection(db, "orders", orderId, "events");
+
+      // finally remove the order doc itself
+      await deleteDoc(doc(db, "orders", orderId));
+
+      setRows((prev) => prev.filter((o) => o.id !== orderId));
     } catch (e) {
-      console.error("deleteShipmentsForOrder failed", e);
+      console.error("deleteOrderCascade failed:", e);
+      alert(e?.message || "Failed to delete order. Make sure your account is admin.");
+    } finally {
+      setDeleting((p) => ({ ...p, [orderId]: false }));
     }
-
-    // 🔻 NEW: remove known subcollections under this order
-    await deleteSubcollection(db, "orders", orderId, "events");
-
-    // finally remove the order doc itself
-    await deleteDoc(doc(db, "orders", orderId));
-
-    setRows((prev) => prev.filter((o) => o.id !== orderId));
-  } catch (e) {
-    console.error("deleteOrderCascade failed:", e);
-    alert(e?.message || "Failed to delete order. Make sure your account is admin.");
-  } finally {
-    setDeleting((p) => ({ ...p, [orderId]: false }));
   }
+
+  /* ---- returns helpers (UPDATED: use `return_requests`, show details) ---- */
+  async function getLatestReturnDoc(orderId) {
+  // Avoid composite index requirement: no orderBy in the query.
+  const qy = query(collection(db, "return_requests"), where("orderId", "==", orderId));
+  const snap = await getDocs(qy);
+
+  // Sort client-side by createdAtMs (if present) then createdAt timestamp.
+  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  const getMs = (r) =>
+    (typeof r.createdAtMs === "number" && r.createdAtMs) ||
+    (r.createdAt ? tsToMillis(r.createdAt) : 0);
+  rows.sort((a, b) => getMs(b) - getMs(a));
+
+  return rows[0] || null;
 }
 
-
-  /* ---- returns helpers (unchanged) ---- */
-  async function getLatestReturnDoc(orderId) {
-    const qy = query(collection(db, "returns"), where("orderId", "==", orderId));
-    const snap = await getDocs(qy);
-    let latest = null;
-    snap.forEach((d) => {
-      const r = { id: d.id, ...d.data() };
-      const ts = (r.createdAt?.seconds ?? 0) * 1000;
-      if (!latest || ts > (latest?.createdAt?.seconds ?? 0) * 1000) latest = r;
-    });
-    return latest;
-  }
   async function primeReturnForOrder(orderId) {
     try {
       const r = await getLatestReturnDoc(orderId);
@@ -790,6 +849,7 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
       console.warn("primeReturnForOrder:", e?.message || e);
     }
   }
+
   async function approveReturn(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "approve" }));
@@ -797,9 +857,16 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
 
-      await updateDoc(doc(db, "returns", r.id), {
+      await updateDoc(doc(db, "return_requests", r.id), {
         status: "approved",
         approvedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
+      });
+
+      // 🔻 Move the order to the Refund/Return tab immediately after approval
+      await updateDoc(doc(db, "orders", id), {
+        status: "refund",
+        statusUpdatedAt: serverTimestamp(),
       });
 
       if (orderRow.userId) {
@@ -822,6 +889,7 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
+
   async function rejectReturn(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "reject" }));
@@ -829,9 +897,11 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
       const reason = prompt("Reason for rejection? (optional)") || "";
-      await updateDoc(doc(db, "returns", r.id), {
+
+      await updateDoc(doc(db, "return_requests", r.id), {
         status: "rejected",
         rejectedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
         reason,
       });
 
@@ -855,21 +925,24 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
+
   async function markReturnReceived(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "received" }));
     try {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
-      await updateDoc(doc(db, "returns", r.id), {
+      await updateDoc(doc(db, "return_requests", r.id), {
         status: "received",
         receivedAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
       await primeReturnForOrder(id);
     } finally {
       setReturnActing((p) => ({ ...p, [id]: null }));
     }
   }
+
   async function issueRefund(orderRow) {
     const id = orderRow.id;
     setReturnActing((p) => ({ ...p, [id]: "refund" }));
@@ -879,13 +952,14 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
 
       const full = Number(orderRow.total || 0) || 0;
       const amount = Number(prompt("Refund amount (leave blank for full):", full)) || full;
-      const method = prompt("Refund method (e.g., original payment method):", "original") || "original";
+      const method = "original"; // locked
 
-      await updateDoc(doc(db, "returns", r.id), {
+      await updateDoc(doc(db, "return_requests", r.id), {
         status: "refund_issued",
         refundAmount: amount,
         refundMethod: method,
         refundAt: serverTimestamp(),
+        updatedAt: serverTimestamp(),
       });
 
       await updateDoc(doc(db, "orders", id), {
@@ -911,129 +985,9 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
           read: false,
         });
       }
-
       await primeReturnForOrder(id);
     } finally {
       setReturnActing((p) => ({ ...p, [id]: null }));
-    }
-  }
-
-  /* ------------------- helpers (repairs) ------------------- */
-  const setRepairDraft = (id, status) => setRepairsDraft((prev) => ({ ...prev, [id]: status }));
-
-  const saveRepairStatus = async (id) => {
-    const newStatus = repairsDraft[id];
-    if (!newStatus) return;
-
-    try {
-      setRepairsSaving((prev) => ({ ...prev, [id]: true }));
-
-      await updateDoc(doc(db, "repairs", id), {
-        status: newStatus,
-        statusUpdatedAt: serverTimestamp(),
-      });
-
-      setRepairs((prev) => prev.map((r) => (r.id === id ? { ...r, status: newStatus } : r)));
-
-      const linkedOrder = rows.find((o) => o?.repairId === id);
-      if (linkedOrder?.id) {
-        await updateDoc(doc(db, "orders", linkedOrder.id), {
-          status: newStatus,
-          statusUpdatedAt: serverTimestamp(),
-        });
-        setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, status: newStatus } : o)));
-      }
-
-      const repair = repairs.find((r) => r.id === id);
-      const uid = repair?.userId;
-      if (uid) {
-        await addDoc(collection(db, "users", uid, "notifications"), {
-          type: "repair_status",
-          repairId: id,
-          ...(linkedOrder?.id ? { orderId: linkedOrder.id } : {}),
-          status: newStatus,
-          title: `Repair order ${String(linkedOrder?.id || id).slice(0, 6)} status updated`,
-          body: `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`,
-          image: Array.isArray(repair?.images) ? repair.images[0] : null,
-          link: linkedOrder?.id ? `/ordersummary?orderId=${linkedOrder.id}` : null,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
-    } catch (e) {
-      alert(e?.message || "Failed to update repair status.");
-    } finally {
-      setRepairsSaving((prev) => ({ ...prev, [id]: false }));
-    }
-  };
-
-  async function deleteRepairCascade(repairId) {
-    setRepDeleting((p) => ({ ...p, [repairId]: true }));
-    try {
-      const repairData = repairs.find((r) => r.id === repairId);
-
-      const ordersQ = query(collection(db, "orders"), where("repairId", "==", repairId));
-      const ordersSnap = await getDocs(ordersQ);
-      for (const ord of ordersSnap.docs) {
-        await deleteOrderCascade(ord.id, ord.data());
-      }
-
-      if (repairData?.userId) {
-        await deleteUserNotifs(db, repairData.userId, { repairId });
-      }
-
-      await deleteDoc(doc(db, "repairs", repairId));
-      setRepairs((prev) => prev.filter((r) => r.id !== repairId));
-    } catch (e) {
-      console.error("deleteRepairCascade failed:", e);
-      alert(e?.message || "Failed to delete repair. Make sure your account is admin.");
-    } finally {
-      setRepDeleting((p) => ({ ...p, [repairId]: false }));
-    }
-  }
-
-  /* ------------------- helpers (customization) ------------------- */
-  const setCustomDraft = (id, status) => setCustomsDraft((prev) => ({ ...prev, [id]: status }));
-
-  const saveCustomStatus = async (id) => {
-    const newStatus = customsDraft[id];
-    if (!newStatus) return;
-    try {
-      setCustomsSaving((p) => ({ ...p, [id]: true }));
-      await updateDoc(doc(db, "custom_orders", id), {
-        status: newStatus,
-        statusUpdatedAt: serverTimestamp(),
-      });
-      setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, status: newStatus } : c)));
-    } catch (e) {
-      alert(e?.message || "Failed to update status.");
-    } finally {
-      setCustomsSaving((p) => ({ ...p, [id]: false }));
-    }
-  };
-
-  async function updateCustomPayment(id, newPayStatus) {
-    try {
-      await updateDoc(doc(db, "custom_orders", id), {
-        paymentStatus: newPayStatus,
-        paymentUpdatedAt: serverTimestamp(),
-      });
-      setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, paymentStatus: newPayStatus } : c)));
-    } catch (e) {
-      alert(e?.message || "Failed to update payment status.");
-    }
-  }
-
-  async function deleteCustomCascade(customId) {
-    setCustomDeleting((p) => ({ ...p, [customId]: true }));
-    try {
-      await deleteDoc(doc(db, "custom_orders", customId));
-      setCustoms((prev) => prev.filter((c) => c.id !== customId));
-    } catch (e) {
-      console.error("deleteCustomCascade failed:", e);
-      alert(e?.message || "Failed to delete customization order. Make sure your account is admin.");
-    } finally {
-      setCustomDeleting((p) => ({ ...p, [customId]: false }));
     }
   }
 
@@ -1364,6 +1318,94 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
                                   })()}
                                 </div>
                               </div>
+                              {/* Return Request Details */}
+{(() => {
+  const r = returnByOrderId[o.id];
+  if (!r) return null;
+
+  const createdMs =
+    (typeof r.createdAtMs === "number" && r.createdAtMs) ||
+    (r.createdAt ? tsToMillis(r.createdAt) : 0);
+
+  return (
+    <div className="span-2">
+      <h4>Return Request Details</h4>
+
+      <div className="kv">
+        <label>Status</label>
+        <div><span className="badge">{String(r.status || "requested").toUpperCase()}</span></div>
+      </div>
+
+      <div className="kv">
+        <label>Requested</label>
+        <div>{fmtDate(createdMs)}</div>
+      </div>
+
+      <div className="kv">
+        <label>Reason</label>
+        <div>{r.reasonCode || "—"}</div>
+      </div>
+
+      <div className="kv">
+        <label>Requested Amount</label>
+        <div className="mono strong">{fmtPHP(r.requestedAmount || 0)}</div>
+      </div>
+
+      <div className="kv">
+        <label>Refund Method</label>
+        <div>
+          {(r.refundMethod === "original" || r.refundChannel === "GCASH")
+            ? "Original payment method (GCash)"
+            : (r.refundMethod || r.refundChannel || "—")}
+        </div>
+      </div>
+
+     <div className="kv">
+  <label>GCash</label>
+  <div>
+    {r.gcash
+      ? `${r.gcash.accountName || "—"} — ${fmtGCash(r.gcash.accountNumber || r.gcash.last4)}`
+      : "—"}
+  </div>
+</div>
+
+      {r.message && (
+        <div className="span-2">
+          <h4>Message</h4>
+          <pre className="note">{r.message}</pre>
+        </div>
+      )}
+
+      {Array.isArray(r.items) && r.items.length > 0 && (
+        <div className="span-2">
+          <h4>Returned Items</h4>
+          <ul className="items">
+            {r.items.map((it, i) => (
+              <li key={i} className="item">
+                <div className="item-title">{it.title || "Item"}</div>
+                <div className="muted">
+                  {it.variant ? `${it.variant} · ` : ""}Qty: {it.qty} · Unit: {fmtPHP(it.unitPrice || 0)}
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {Array.isArray(r.images) && r.images.length > 0 && (
+        <div className="span-2">
+          <h4>Photos</h4>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            {r.images.map((url, i) => (
+              <ResolvedImg key={i} pathOrUrl={url} alt={`Return ${i + 1}`} size={100} />
+            ))}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+})()}
+
                             </td>
                           </tr>
                         )}
@@ -1377,7 +1419,7 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
         </>
       )}
 
-      {/* ----------------------- REPAIRS ----------------------- */}
+            {/* ----------------------- REPAIRS ----------------------- */}
       {activeTab === "repairs" && (
         <>
           <div className="orders-topbar">
@@ -1953,3 +1995,4 @@ async function deleteSubcollection(db, parentColl, parentId, subcoll) {
     </div>
   );
 }
+

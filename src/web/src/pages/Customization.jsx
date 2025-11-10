@@ -14,6 +14,7 @@ import {
   storage,
   ref,
   getDownloadURL,
+  auth, // ← added
 } from "../firebase";
 
 // If your wrapper doesn't re-export query/where, import from Firestore directly:
@@ -466,37 +467,37 @@ export default function Customization() {
     [additionalPicked]
   );
 
- const additionsTable = additionalsPricing?.items || pricing?.additions || [];
-const additionsArePesos = !!additionalsPricing?.items; // true when using additionals_pricing
+  const additionsTable = additionalsPricing?.items || pricing?.additions || [];
+  const additionsArePesos = !!additionalsPricing?.items; // true when using additionals_pricing
 
-const priceBreakdown = useMemo(() => {
-  if (!selectedProduct) return null;
+  const priceBreakdown = useMemo(() => {
+    if (!selectedProduct) return null;
 
-  const base =
-    selectedProduct.basePriceCents != null
-      ? selectedProduct.basePriceCents
-      : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
+    const base =
+      selectedProduct.basePriceCents != null
+        ? selectedProduct.basePriceCents
+        : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
 
-  const sizeForPricing = canonicalSize(selectedCategory, size);
+    const sizeForPricing = canonicalSize(selectedCategory, size);
 
-  return computePriceCents({
-    basePriceCents: base,
-    size: sizeForPricing,
-    material: coverMaterialType,
-    additionsSelected: pickedAdditionals,
+    return computePriceCents({
+      basePriceCents: base,
+      size: sizeForPricing,
+      material: coverMaterialType,
+      additionsSelected: pickedAdditionals,
+      pricing,
+      additionsTable,
+      additionsArePesos, // <— pass the flag
+    });
+  }, [
+    selectedProduct,
+    size,
+    coverMaterialType,
+    pickedAdditionals,
     pricing,
-    additionsTable,
-    additionsArePesos, // <— pass the flag
-  });
-}, [
-  selectedProduct,
-  size,
-  coverMaterialType,
-  pickedAdditionals,
-  pricing,
-  additionalsPricing,
-  selectedCategory,
-]);
+    additionalsPricing,
+    selectedCategory,
+  ]);
 
   // pick product (⚠️ exact name — used by Drawer)
   function handlePickProduct(p) {
@@ -557,6 +558,7 @@ const priceBreakdown = useMemo(() => {
 
   const handlePlaceOrder = async () => {
     try {
+      // Build draft first so it survives redirect to Login
       const draft = {
         type: "customization",
         productId: selectedProduct?.id || null,
@@ -590,7 +592,19 @@ const priceBreakdown = useMemo(() => {
       };
 
       sessionStorage.setItem("custom_draft", JSON.stringify(draft));
-      navigate("/Checkout?custom=1");
+
+      // NEW: require real login before checkout; block anonymous users too
+      const nextPath = "/Checkout?custom=1";
+      const user = auth.currentUser;
+      if (!user || user.isAnonymous) {
+        // So we can continue to checkout right after logging in
+        sessionStorage.setItem("post_login_redirect", nextPath);
+        navigate(`/login?next=${encodeURIComponent(nextPath)}`);
+        return;
+      }
+
+      // Already logged in (non-anonymous) → proceed
+      navigate(nextPath);
     } catch (e) {
       console.error("Prepare custom draft failed:", e);
       alert("Something went wrong. Please try again.");

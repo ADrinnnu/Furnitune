@@ -25,22 +25,12 @@ const STATUS_TABS = [
   { key: "to_ship",    label: "TO SHIP" },
   { key: "to_receive", label: "TO RECEIVE" },
   { key: "completed",  label: "COMPLETED" },
-  { key: "to_rate",    label: "TO RATE" },           // used for rating/editing
+  { key: "to_rate",    label: "TO RATE" },
   { key: "cancelled",  label: "CANCELLED" },
   { key: "refund",     label: "RETURN/REFUND" },
 ];
 
-/* Cancel disabled in late statuses (also in to_rate) */
-const LOCK_CANCEL = [
-  "preparing",
-  "to_ship",
-  "to_receive",
-  "completed",
-  "to_rate",
-  "cancelled",
-  "refund",
-];
-
+const LOCK_CANCEL = ["preparing","to_ship","to_receive","completed","to_rate","cancelled","refund"];
 const SHOW_TEXT_WHEN_EMPTY = true;
 
 const fmtPHP = (n) => {
@@ -78,12 +68,9 @@ const statusText = (s) => {
   return map[s] || String(s || "processing").toUpperCase().replaceAll("_", " ");
 };
 
-/* ---------- NEW: origin helpers (non-breaking) ---------- */
+/* Origin helpers */
 const getOriginKey = (o) => {
-  // REPAIR if the order links to a repair doc
   if (o?.repairId) return "REPAIR";
-
-  // CUSTOMIZATION if checkout/payment flow tagged it
   if (
     o?.origin === "customization" ||
     o?.orderType === "customization" ||
@@ -99,8 +86,6 @@ const getOriginKey = (o) => {
   ) {
     return "CUSTOMIZATION";
   }
-
-  // Otherwise it's a normal catalog/cart order
   return "CATALOG";
 };
 
@@ -121,38 +106,46 @@ const originPillStyle = (key) => {
   if (key === "CUSTOMIZATION") {
     return { ...base, color: "#5e31a6", borderColor: "#e1d1f7", background: "#f2eaff" };
   }
-  // CATALOG
   return { ...base, color: "#2c5f4a", borderColor: "#dfe6e2", background: "#f5fbf8" };
 };
-/* ---------- /NEW ---------- */
 
-/* ---------- NEW: robust return window helper ---------- */
+/* Return window helper */
 const DAY = 24 * 60 * 60 * 1000;
-/**
- * Decide the return window using:
- * 1) deliveredAt (preferred – set on customer confirm OR admin marking completed)
- * 2) statusUpdatedAt
- * 3) createdAt
- * Defaults to 7 days if returnPolicyDays not present.
- */
 function getReturnInfo(order) {
   const startMs =
     tsToMillis(order?.deliveredAt) ||
     tsToMillis(order?.statusUpdatedAt) ||
     tsToMillis(order?.createdAt) ||
     0;
-
   const days = Number(order?.returnPolicyDays ?? 7);
   const endMs = startMs ? startMs + days * DAY : 0;
-
-  return {
-    startMs,
-    endMs,
-    ended: endMs ? Date.now() > endMs : false,
-    days,
-  };
+  return { startMs, endMs, ended: endMs ? Date.now() > endMs : false, days };
 }
-/* ---------- /NEW ---------- */
+
+/* Fields where child (custom/repair) should override base order */
+const PRIORITY_FIELDS = [
+  "status",
+  "paymentStatus",
+  "paymentProofUrl",
+  "depositPaymentProofUrl",
+  "lastAdditionalPaymentProofUrl",
+  "paymentProofType",
+  "paymentProofPendingReview",
+  "paymentProofUpdatedAt",
+  "statusUpdatedAt",
+  "deliveredAt",
+  "returnLocked",
+];
+
+/* Create a merged view: child’s defined fields override base */
+function mergeOverlay(base, child) {
+  if (!child) return base;
+  const out = { ...base };
+  for (const k of PRIORITY_FIELDS) {
+    if (child[k] !== undefined && child[k] !== null) out[k] = child[k];
+  }
+  return out;
+}
 
 export default function MyPurchases() {
   const navigate = useNavigate();
@@ -165,30 +158,42 @@ export default function MyPurchases() {
   const [orders, setOrders] = useState([]);
   const [filter, setFilter] = useState("all");
 
-  // ---- Rating / Editing modal state ----
+  // Rating / Editing modal state
   const [ratingOpen, setRatingOpen] = useState(false);
   const [ratingOrder, setRatingOrder] = useState(null);
   const [stars, setStars] = useState(5);
   const [message, setMessage] = useState("");
   const [file, setFile] = useState(null);
   const [submittingReview, setSubmittingReview] = useState(false);
+  const [editingReview, setEditingReview] = useState({ enabled: false, reviewId: null, existing: null });
 
-  // edit mode for reviews
-  const [editingReview, setEditingReview] = useState({
-    enabled: false,
-    reviewId: null,
-    existing: null, // latest review data
-  });
+  const [confirmReceive, setConfirmReceive] = useState({ open: false, order: null, submitting: false });
 
-  // Confirm ORDER RECEIVE (completed -> to_rate)
-  const [confirmReceive, setConfirmReceive] = useState({
-    open: false,
-    order: null,
-    submitting: false,
-  });
-
-  // 🔎 All of my reviews, grouped by orderId → { latest, count }
   const [reviewsByOrder, setReviewsByOrder] = useState({});
+
+  /* NEW: caches for live merge */
+  const ordersMapRef = React.useRef(new Map());        // orderId -> order doc
+  const customsByOrderIdRef = React.useRef(new Map()); // orderId -> custom_orders doc
+  const repairsByIdRef = React.useRef(new Map());      // repairId -> repairs doc
+
+  /* Emit merged list */
+  const recomputeMerged = React.useCallback(() => {
+    const list = [];
+    ordersMapRef.current.forEach((o) => {
+      let row = { ...o };
+      // overlay from customization by orderId
+      const custom = customsByOrderIdRef.current.get(o.id);
+      if (custom) row = mergeOverlay(row, custom);
+      // overlay from repair by repairId
+      if (o.repairId) {
+        const rep = repairsByIdRef.current.get(o.repairId);
+        if (rep) row = mergeOverlay(row, rep);
+      }
+      list.push(row);
+    });
+    list.sort((a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt));
+    setOrders(list);
+  }, []);
 
   useEffect(() => {
     const stop = onAuthStateChanged(auth, (u) => {
@@ -198,17 +203,11 @@ export default function MyPurchases() {
     return stop;
   }, []);
 
-  // Live: orders by uid or contactEmail
+  /* Live: ORDERS by uid OR email */
   useEffect(() => {
-    if (!uid && !email) { setOrders([]); return; }
-
-    const cache = new Map();
-    const emit = () => {
-      const list = Array.from(cache.values()).sort(
-        (a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt)
-      );
-      setOrders(list);
-    };
+    ordersMapRef.current.clear();
+    setOrders([]);
+    if (!uid && !email) return;
 
     const unsubs = [];
 
@@ -216,9 +215,13 @@ export default function MyPurchases() {
       const q1 = query(collection(db, "orders"), where("userId", "==", uid));
       unsubs.push(
         onSnapshot(q1, (snap) => {
-          snap.forEach((d) => cache.set(d.id, { id: d.id, ...d.data() }));
-          emit();
-        }, (e) => console.error("orders(uid) listener:", e))
+          snap.docChanges().forEach((ch) => {
+            const id = ch.doc.id;
+            if (ch.type === "removed") ordersMapRef.current.delete(id);
+            else ordersMapRef.current.set(id, { id, ...ch.doc.data() });
+          });
+          recomputeMerged();
+        })
       );
     }
 
@@ -226,16 +229,100 @@ export default function MyPurchases() {
       const q2 = query(collection(db, "orders"), where("contactEmail", "==", email));
       unsubs.push(
         onSnapshot(q2, (snap) => {
-          snap.forEach((d) => cache.set(d.id, { id: d.id, ...d.data() }));
-          emit();
-        }, (e) => console.error("orders(email) listener:", e))
+          snap.docChanges().forEach((ch) => {
+            const id = ch.doc.id;
+            if (ch.type === "removed") ordersMapRef.current.delete(id);
+            else ordersMapRef.current.set(id, { id, ...ch.doc.data() });
+          });
+          recomputeMerged();
+        })
       );
     }
 
     return () => unsubs.forEach((fn) => fn && fn());
-  }, [db, uid, email]);
+  }, [db, uid, email, recomputeMerged]);
 
-  // Live: my reviews (only by userId to avoid composite indexes)
+  /* Live: CUSTOM_ORDERS by uid OR email (to overlay status/payment/proofs) */
+  useEffect(() => {
+    customsByOrderIdRef.current.clear();
+    if (!uid && !email) return;
+
+    const unsubs = [];
+
+    if (uid) {
+      const q1 = query(collection(db, "custom_orders"), where("userId", "==", uid));
+      unsubs.push(
+        onSnapshot(q1, (snap) => {
+          snap.docChanges().forEach((ch) => {
+            const d = { id: ch.doc.id, ...ch.doc.data() };
+            const key = d.orderId;
+            if (!key) return;
+            if (ch.type === "removed") customsByOrderIdRef.current.delete(key);
+            else customsByOrderIdRef.current.set(key, d);
+          });
+          recomputeMerged();
+        })
+      );
+    }
+
+    if (email) {
+      const q2 = query(collection(db, "custom_orders"), where("contactEmail", "==", email));
+      unsubs.push(
+        onSnapshot(q2, (snap) => {
+          snap.docChanges().forEach((ch) => {
+            const d = { id: ch.doc.id, ...ch.doc.data() };
+            const key = d.orderId;
+            if (!key) return;
+            if (ch.type === "removed") customsByOrderIdRef.current.delete(key);
+            else customsByOrderIdRef.current.set(key, d);
+          });
+          recomputeMerged();
+        })
+      );
+    }
+
+    return () => unsubs.forEach((fn) => fn && fn());
+  }, [db, uid, email, recomputeMerged]);
+
+  /* Live: REPAIRS by uid OR email (to overlay status/payment/proofs) */
+  useEffect(() => {
+    repairsByIdRef.current.clear();
+    if (!uid && !email) return;
+
+    const unsubs = [];
+
+    if (uid) {
+      const q1 = query(collection(db, "repairs"), where("userId", "==", uid));
+      unsubs.push(
+        onSnapshot(q1, (snap) => {
+          snap.docChanges().forEach((ch) => {
+            const id = ch.doc.id;
+            if (ch.type === "removed") repairsByIdRef.current.delete(id);
+            else repairsByIdRef.current.set(id, { id, ...ch.doc.data() });
+          });
+          recomputeMerged();
+        })
+      );
+    }
+
+    if (email) {
+      const q2 = query(collection(db, "repairs"), where("contactEmail", "==", email));
+      unsubs.push(
+        onSnapshot(q2, (snap) => {
+          snap.docChanges().forEach((ch) => {
+            const id = ch.doc.id;
+            if (ch.type === "removed") repairsByIdRef.current.delete(id);
+            else repairsByIdRef.current.set(id, { id, ...ch.doc.data() });
+          });
+          recomputeMerged();
+        })
+      );
+    }
+
+    return () => unsubs.forEach((fn) => fn && fn());
+  }, [db, uid, email, recomputeMerged]);
+
+  /* Live: my reviews (unchanged) */
   useEffect(() => {
     if (!uid) { setReviewsByOrder({}); return; }
     const q = query(collection(db, "reviews"), where("userId", "==", uid));
@@ -325,7 +412,7 @@ export default function MyPurchases() {
       setConfirmReceive((p) => ({ ...p, submitting: true }));
       await markOrderReceived(confirmReceive.order);
       closeConfirmReceive();
-      setFilter("to_rate"); // jump user to To Rate
+      setFilter("to_rate");
     } catch (e) {
       console.error(e);
       alert("Failed to mark as received.");
@@ -333,7 +420,7 @@ export default function MyPurchases() {
     }
   };
 
-  // ----- Rate / Edit handlers -----
+  // ----- Rating / Edit handlers -----
   const openRatePanel = (order, existingReview = null, isEdit = false) => {
     setRatingOrder(order);
     setStars(existingReview?.rating ?? 5);
@@ -354,7 +441,6 @@ export default function MyPurchases() {
     try {
       setSubmittingReview(true);
 
-      // upload (optional)
       let imageUrl = editingReview.enabled
         ? (editingReview.existing?.imageUrl || null)
         : null;
@@ -366,7 +452,6 @@ export default function MyPurchases() {
       }
 
       if (editingReview.enabled && editingReview.reviewId) {
-        // try update first
         try {
           await updateDoc(doc(db, "reviews", editingReview.reviewId), {
             rating: stars,
@@ -376,7 +461,6 @@ export default function MyPurchases() {
             editedOnce: true,
           });
         } catch {
-          // fallback: add a new versioned review if direct update not allowed
           await addDoc(collection(db, "reviews"), {
             userId: uid,
             userName:
@@ -403,7 +487,6 @@ export default function MyPurchases() {
           });
         }
       } else {
-        // first rating
         const uName =
           auth.currentUser?.displayName ||
           ratingOrder?.shippingAddress?.fullName ||
@@ -473,31 +556,19 @@ export default function MyPurchases() {
         const hasReview = rInfo.count >= 1;
         const alreadyEditedOnce = !!rInfo.latest?.editedOnce || rInfo.count > 1;
 
-        // Only show Return/Refund in Completed and if not yet locked
         const showReturnInCompleted = status === "completed" && !o?.returnLocked;
-        // Show ORDER RECEIVE only in Completed and not yet locked
         const canConfirmReceive = status === "completed" && !o?.returnLocked;
 
-        // TO RATE: show Rate if not rated; show Edit once if rated but not edited yet
         const canRateHere = status === "to_rate" && !hasReview;
         const canEditReview = status === "to_rate" && hasReview && !alreadyEditedOnce;
 
-        // Right-most cancel label
-        let cancelLabel = "CANCEL ORDER";
-        if (status === "refund") cancelLabel = "WAITING FOR SELLER RESPONDS";
-        else if (status === "cancelled") cancelLabel = "CANCELLED";
-
-        /* NEW: figure out where the order came from */
-        const originKey = getOriginKey(o); // "CATALOG" | "REPAIR" | "CUSTOMIZATION"
-
-        /* NEW: compute return window safely */
+        const originKey = getOriginKey(o);
         const { startMs, endMs, ended } = getReturnInfo(o);
 
         return (
           <div className="order-card" key={o.id}>
             <div className="order-header">
               <span>🪑 FURNITUNE</span>
-              {/* NEW: tiny origin pill */}
               <span style={originPillStyle(originKey)}>{originKey}</span>
             </div>
 
@@ -530,21 +601,17 @@ export default function MyPurchases() {
             <div className="order-footer">
               <p className="order-total">Order Total: {fmtPHP(o?.total)}</p>
 
-              {/* NEW: Return window line (only if we have a valid start) */}
               {startMs > 0 && (
                 <div className="muted" style={{ marginTop: 6 }}>
-                  Return window ends on{" "}
-                  {new Date(endMs).toLocaleDateString()} • {ended ? "ended" : "active"}
+                  Return window ends on {new Date(endMs).toLocaleDateString()} • {ended ? "ended" : "active"}
                 </div>
               )}
 
               <div className="order-actions">
-                {/* status pill (read-only) */}
                 <button className="pending" type="button" disabled>
                   {statusText(status)}
                 </button>
 
-                {/* COMPLETED: ORDER RECEIVE + optional RETURN/REFUND */}
                 {status === "completed" && (
                   <>
                     {canConfirmReceive && (
@@ -569,13 +636,8 @@ export default function MyPurchases() {
                   </>
                 )}
 
-                {/* TO RATE: only here */}
                 {canRateHere && (
-                  <button
-                    className="pending"
-                    onClick={() => openRatePanel(o)}
-                    type="button"
-                  >
+                  <button className="pending" onClick={() => openRatePanel(o)} type="button">
                     RATE PRODUCTS
                   </button>
                 )}
@@ -590,12 +652,10 @@ export default function MyPurchases() {
                   </button>
                 )}
 
-                {/* Always: contact seller */}
                 <button className="pending" onClick={contactSeller} type="button">
                   CONTACT SELLER
                 </button>
 
-                {/* Cancel (disabled for late statuses) */}
                 <button
                   className="pending"
                   onClick={() => cancelOrder(o.id)}
@@ -603,7 +663,11 @@ export default function MyPurchases() {
                   disabled={cancelDisabled}
                   title={cancelDisabled ? "Order can no longer be cancelled." : "Cancel order"}
                 >
-                  {cancelLabel}
+                  {status === "refund"
+                    ? "WAITING FOR SELLER RESPONDS"
+                    : status === "cancelled"
+                    ? "CANCELLED"
+                    : "CANCEL ORDER"}
                 </button>
               </div>
             </div>

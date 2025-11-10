@@ -1,3 +1,4 @@
+// src/pages/Repair.jsx
 import React, { useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import "../Repair.css";
@@ -16,7 +17,6 @@ import {
   uploadBytes,
   getDownloadURL,
 } from "firebase/storage";
-import { signInAnonymously } from "firebase/auth";
 
 const MAX_UPLOADS = 5;
 
@@ -113,10 +113,17 @@ export default function Repair() {
       return;
     }
 
+    // 🔒 Require login first; DO NOT create anonymous users
+    const user = auth.currentUser;
+    if (!user || user.isAnonymous) {
+      const next = "/Repair";
+      sessionStorage.setItem("post_login_redirect", next);
+      navigate(`/login?next=${encodeURIComponent(next)}`);
+      return;
+    }
+
     setSubmitting(true);
     try {
-      // ensure a user (anonymous ok if enabled)
-      const user = auth.currentUser || (await signInAnonymously(auth)).user;
       const uid   = user.uid;
       const email = user.email ?? auth.currentUser?.email ?? null;
 

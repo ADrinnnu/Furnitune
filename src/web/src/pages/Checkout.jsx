@@ -5,10 +5,11 @@ import OrderSummaryCard from "../components/OrderSummaryCard";
 import { getCheckoutItems } from "../utils/checkoutSelection";
 import { auth, firestore } from "../firebase";
 import { doc, getDoc } from "firebase/firestore";
-import { signInAnonymously } from "firebase/auth";
 import "../Checkout.css";
 
 const PENDING_KEY = "PENDING_CHECKOUT";
+const LOGIN_PATH = "/login";
+const COUNTRY_DEFAULT = "Philippines";
 
 /* --- helpers --- */
 const onlyDigits = (v = "") => v.replace(/\D+/g, "");
@@ -26,8 +27,10 @@ const slimItems = (items = []) =>
     name: it.name || it.title || "Item",
     qty: Number(it.qty || 1),
     price: Number(it.price || 0),
-    // keep a small preview URL if you want, but NOT data URLs / blobs
-    image: typeof it.image === "string" && it.image.startsWith("http") ? it.image : null,
+    image:
+      typeof it.image === "string" && it.image.startsWith("http")
+        ? it.image
+        : null,
   }));
 
 export default function Checkout() {
@@ -52,7 +55,9 @@ export default function Checkout() {
       const image =
         (Array.isArray(draft.images) && draft.images[0]) ||
         (draft.imageUrls && draft.imageUrls[0]) ||
-        (typeof draft.image === "string" && draft.image.startsWith("http") ? draft.image : null);
+        (typeof draft.image === "string" && draft.image.startsWith("http")
+          ? draft.image
+          : null);
 
       setItems([
         {
@@ -84,11 +89,12 @@ export default function Checkout() {
         const price =
           Number(
             r?.total ??
-              ((r?.typePrice || 0) +
+              (r?.typePrice || 0) +
                 (r?.coverMaterialPrice || 0) +
-                (r?.frameMaterialPrice || 0))
+                (r?.frameMaterialPrice || 0)
           ) || 0;
-        const image = Array.isArray(r?.images) && r.images[0] ? r.images[0] : null;
+        const image =
+          Array.isArray(r?.images) && r.images[0] ? r.images[0] : null;
 
         setItems([
           {
@@ -161,20 +167,24 @@ export default function Checkout() {
     else if (!isValidPHZip(zipDigits)) nextErrors.zip = "ZIP should be 4 digits.";
 
     if (!phoneDigits) nextErrors.phone = "Mobile number is required.";
-    else if (!isValidMobilePH(phoneDigits)) nextErrors.phone = "Mobile should be 10–11 digits.";
+    else if (!isValidMobilePH(phoneDigits))
+      nextErrors.phone = "Mobile should be 10–11 digits.";
 
     const missingLabels = Object.entries(nextErrors)
       .filter(([, msg]) => /required/i.test(String(msg)))
-      .map(([k]) => ({
-        email: "Email",
-        first: "First Name",
-        last: "Last Name",
-        street: "Street Address",
-        city: "City",
-        stateProv: "State/Province",
-        zip: "ZIP/Postal Code",
-        phone: "Phone Number",
-      }[k] || k));
+      .map(
+        ([k]) =>
+          ({
+            email: "Email",
+            first: "First Name",
+            last: "Last Name",
+            street: "Street Address",
+            city: "City",
+            stateProv: "State/Province",
+            zip: "ZIP/Postal Code",
+            phone: "Phone Number",
+          }[k] || k)
+      );
 
     return { nextErrors, missingLabels, valid: Object.keys(nextErrors).length === 0 };
   };
@@ -215,14 +225,7 @@ export default function Checkout() {
       return;
     }
 
-    try {
-      if (!auth.currentUser) {
-        await signInAnonymously(auth);
-      }
-    } catch (e) {
-      console.warn("Anonymous sign-in failed (continuing):", e);
-    }
-
+    // Build shipping + pending payload now (so we can save before redirecting)
     const shippingAddress = {
       fullName: `${first} ${last}`.trim(),
       firstName: first,
@@ -234,12 +237,10 @@ export default function Checkout() {
       city,
       province: stateProv,
       zip: onlyDigits(zip),
+      country: COUNTRY_DEFAULT, // added
       newsletterOptIn: !!news,
     };
 
-    // Build a SMALL pending payload:
-    // - DO NOT include the customization draft here (it may contain image data URLs).
-    //   Payment will read 'custom_draft' directly from sessionStorage.
     const pendingPayload = {
       items: slimItems(items),
       subtotal,
@@ -247,6 +248,29 @@ export default function Checkout() {
       shippingFee,
       total,
       shippingAddress,
+
+      // helpful top-level mirrors for admin readers
+      contactEmail: shippingAddress.email,
+      contactPhone: shippingAddress.phone,
+      nameFull: shippingAddress.fullName,
+      userId: auth.currentUser?.uid || null,
+
+      // common “customer” shape (some readers expect this)
+      customer: {
+        name: shippingAddress.fullName,
+        email: shippingAddress.email,
+        phone: shippingAddress.phone,
+        address: {
+          line1: shippingAddress.line1,
+          line2: shippingAddress.line2,
+          city: shippingAddress.city,
+          province: shippingAddress.province,
+          zip: shippingAddress.zip,
+          country: shippingAddress.country,
+        },
+        uid: auth.currentUser?.uid || null,
+      },
+
       repairId: repairId || null,
       createdAtClient: Date.now(),
       custom: !!customMode,
@@ -258,7 +282,6 @@ export default function Checkout() {
       sessionStorage.setItem(PENDING_KEY, payloadStr);
     } catch (e1) {
       try {
-        // last-resort: ultra-slim items
         const ultraSlim = {
           ...pendingPayload,
           items: pendingPayload.items.map((i) => ({
@@ -271,7 +294,6 @@ export default function Checkout() {
         };
         sessionStorage.setItem(PENDING_KEY, JSON.stringify(ultraSlim));
       } catch (e2) {
-        // give up storing; Payment will still work for customization
         sessionStorage.removeItem(PENDING_KEY);
         alert(
           "Your selection is too large to save temporarily. We'll continue, but if you go back you may need to re-enter details."
@@ -279,12 +301,22 @@ export default function Checkout() {
       }
     }
 
-    // Go to Payment (no orderId yet)
+    // Build target (Payment) URL now
     const qsParts = [];
     if (repairId) qsParts.push(`repairId=${encodeURIComponent(repairId)}`);
     if (customMode) qsParts.push("custom=1");
     const qs = qsParts.length ? `?${qsParts.join("&")}` : "";
-    navigate(`/Payment${qs}`);
+    const paymentUrl = `/Payment${qs}`;
+
+    // If not logged in, send to login first (then resume)
+    if (!auth.currentUser) {
+      const next = encodeURIComponent(paymentUrl);
+      navigate(`${LOGIN_PATH}?next=${next}&checkout=1`);
+      return;
+    }
+
+    // Already logged in -> proceed straight to Payment
+    navigate(paymentUrl);
   };
 
   const renderBanner = () => {
@@ -336,7 +368,11 @@ export default function Checkout() {
             aria-invalid={!!errors.email}
             aria-describedby={errors.email ? "err-email" : undefined}
           />
-          {errors.email && <small id="err-email" className="error-text">{errors.email}</small>}
+          {errors.email && (
+            <small id="err-email" className="error-text">
+              {errors.email}
+            </small>
+          )}
         </div>
 
         <label className="checkbox">
@@ -362,7 +398,11 @@ export default function Checkout() {
               aria-invalid={!!errors.first}
               aria-describedby={errors.first ? "err-first" : undefined}
             />
-            {errors.first && <small id="err-first" className="error-text">{errors.first}</small>}
+            {errors.first && (
+              <small id="err-first" className="error-text">
+                {errors.first}
+              </small>
+            )}
           </div>
 
           <div className={`field ${errors.last ? "has-error" : ""}`}>
@@ -377,7 +417,11 @@ export default function Checkout() {
               aria-invalid={!!errors.last}
               aria-describedby={errors.last ? "err-last" : undefined}
             />
-            {errors.last && <small id="err-last" className="error-text">{errors.last}</small>}
+            {errors.last && (
+              <small id="err-last" className="error-text">
+                {errors.last}
+              </small>
+            )}
           </div>
         </div>
 
@@ -393,7 +437,11 @@ export default function Checkout() {
             aria-invalid={!!errors.street}
             aria-describedby={errors.street ? "err-street" : undefined}
           />
-          {errors.street && <small id="err-street" className="error-text">{errors.street}</small>}
+          {errors.street && (
+            <small id="err-street" className="error-text">
+              {errors.street}
+            </small>
+          )}
         </div>
 
         <input
@@ -418,7 +466,11 @@ export default function Checkout() {
               aria-invalid={!!errors.city}
               aria-describedby={errors.city ? "err-city" : undefined}
             />
-            {errors.city && <small id="err-city" className="error-text">{errors.city}</small>}
+            {errors.city && (
+              <small id="err-city" className="error-text">
+                {errors.city}
+              </small>
+            )}
           </div>
 
           <div className={`field ${errors.stateProv ? "has-error" : ""}`}>
@@ -433,7 +485,11 @@ export default function Checkout() {
               aria-invalid={!!errors.stateProv}
               aria-describedby={errors.stateProv ? "err-state" : undefined}
             />
-            {errors.stateProv && <small id="err-state" className="error-text">{errors.stateProv}</small>}
+            {errors.stateProv && (
+              <small id="err-state" className="error-text">
+                {errors.stateProv}
+              </small>
+            )}
           </div>
 
           <div className={`field ${errors.zip ? "has-error" : ""}`}>
@@ -451,7 +507,11 @@ export default function Checkout() {
               aria-invalid={!!errors.zip}
               aria-describedby={errors.zip ? "err-zip" : undefined}
             />
-            {errors.zip && <small id="err-zip" className="error-text">{errors.zip}</small>}
+            {errors.zip && (
+              <small id="err-zip" className="error-text">
+                {errors.zip}
+              </small>
+            )}
           </div>
         </div>
 
@@ -470,12 +530,20 @@ export default function Checkout() {
             aria-invalid={!!errors.phone}
             aria-describedby={errors.phone ? "err-phone" : undefined}
           />
-          {errors.phone && <small id="err-phone" className="error-text">{errors.phone}</small>}
+          {errors.phone && (
+            <small id="err-phone" className="error-text">
+              {errors.phone}
+            </small>
+          )}
         </div>
 
         <div className="form-actions">
-          <button className="cancel-btn" onClick={() => navigate(-1)}>CANCEL</button>
-          <button className="pay-btn" onClick={handleContinueToPay}>CONTINUE TO PAY</button>
+          <button className="cancel-btn" onClick={() => navigate(-1)}>
+            CANCEL
+          </button>
+          <button className="pay-btn" onClick={handleContinueToPay}>
+            CONTINUE TO PAY
+          </button>
         </div>
       </div>
 
