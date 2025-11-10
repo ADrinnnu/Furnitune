@@ -14,7 +14,6 @@ const chips = [
   { label: 'Sofas', image: SofaImg },
   { label: 'Chairs', image: ChairImg },
   { label: 'Tables', image: TableImg },
-  {label: 'Benches', image: benchImg },
   { label: 'Sectionals', image: SectionalImg },
  { label: 'Ottomans', image: OttoImg },
 
