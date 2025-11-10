@@ -22,7 +22,7 @@ import { upsertAssessmentAndRequest } from "../data/assessmentProvider";
 
 import "../Orders.css";
 
-
+/* ------------------------- Image resolver ------------------------- */
 function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
   const [url, setUrl] = React.useState(
     typeof pathOrUrl === "string" && pathOrUrl.startsWith("http") ? pathOrUrl : ""
@@ -41,12 +41,14 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
         const storage = getStorage(auth.app);
         const u = await sGetURL(sref(storage, val)); // val is fullPath like "payments/....jpg"
         if (!cancelled) setUrl(u);
-      } catch (e) {
+      } catch {
         // ignore; image just won't show
       }
     }
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pathOrUrl]);
 
   if (!url) return null;
@@ -55,7 +57,13 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       <img
         src={url}
         alt={alt}
-        style={{ width: size, height: size, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
+        style={{
+          width: size,
+          height: size,
+          objectFit: "cover",
+          borderRadius: 8,
+          border: "1px solid #e5e5e5",
+        }}
       />
     </a>
   );
@@ -73,7 +81,7 @@ const STATUS_OPTIONS = [
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]));
 const clrOrders = "#d9534f";
 const clrRepairs = "#b33939";
-const clrCustom  = "#c62828";
+const clrCustom = "#c62828";
 
 function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
@@ -85,20 +93,28 @@ function paymentBadgeClass(ps) {
   return "badge status-processing";
 }
 
-/* ========= NEW: robust date + reference image helpers ========= */
+/* ========= robust date + reference image helpers ========= */
 function pickDate(row) {
   const cands = [
-    row?.createdAt, row?.created_at, row?.createdOn, row?.created_on,
-    row?.timestamp, row?.timeCreated, row?.created, row?.createdAtClient,
-    row?.createdAtMs, row?.created_at_ms, row?.date,
+    row?.createdAt,
+    row?.created_at,
+    row?.createdOn,
+    row?.created_on,
+    row?.timestamp,
+    row?.timeCreated,
+    row?.created,
+    row?.createdAtClient,
+    row?.createdAtMs,
+    row?.created_at_ms,
+    row?.date,
   ];
   for (const ts of cands) {
     if (ts == null) continue;
-    if (typeof ts?.toDate === "function") return ts;        // Firestore Timestamp
-    if (typeof ts?.seconds === "number") return ts;         // {seconds, nanos}
+    if (typeof ts?.toDate === "function") return ts; // Firestore Timestamp
+    if (typeof ts?.seconds === "number") return ts; // {seconds, nanos}
     if (typeof ts === "string" && !Number.isNaN(new Date(ts).getTime())) return ts; // ISO
     const n = Number(ts);
-    if (!Number.isNaN(n) && n > 0) return n;                // secs/millis
+    if (!Number.isNaN(n) && n > 0) return n; // secs/millis
   }
   return null;
 }
@@ -111,7 +127,7 @@ function tsToMillis(ts) {
     return Number.isNaN(d.getTime()) ? 0 : d.getTime();
   }
   const n = Number(ts);
-  if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000;     // guess ms vs s
+  if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000; // guess ms vs s
   return 0;
 }
 function fmtDate(tsLike) {
@@ -121,12 +137,19 @@ function fmtDate(tsLike) {
 /** Finds customer-uploaded reference images by common keys. */
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
-    "referenceImages","referenceImageUrls","customerUploads","customerUploadUrls",
-    "customerImages","refUrls","refImages","additionalImages","additionalImageUrls",
+    "referenceImages",
+    "referenceImageUrls",
+    "customerUploads",
+    "customerUploadUrls",
+    "customerImages",
+    "refUrls",
+    "refImages",
+    "additionalImages",
+    "additionalImageUrls",
   ];
   for (const k of keys) {
     const v = obj[k];
-    if (Array.isArray(v) && v.length && v.every(u => typeof u === "string")) return v;
+    if (Array.isArray(v) && v.length && v.every((u) => typeof u === "string")) return v;
   }
   return [];
 }
@@ -143,16 +166,145 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        width: 34, height: 34, borderRadius: 8,
+        width: 34,
+        height: 34,
+        borderRadius: 8,
         border: `1px solid ${color}`,
         background: h && !disabled ? color : "#fff",
         color: h && !disabled ? "#fff" : color,
-        fontSize: 18, lineHeight: "18px",
-        display: "inline-flex", alignItems: "center", justifyContent: "center",
+        fontSize: 18,
+        lineHeight: "18px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         cursor: disabled ? "not-allowed" : "pointer",
-        marginLeft: 6, ...style,
+        marginLeft: 6,
+        ...style,
       }}
-    >🗑</button>
+    >
+      🗑
+    </button>
+  );
+}
+
+/* ========= Unified Customer block (labels + robust extraction) ========= */
+function CustomerBlock({ row, title = "Customer" }) {
+  // Prefer nested address objects, then fallbacks
+  const addr =
+    row?.shippingAddress ||
+    row?.address ||
+    row?.customer?.address ||
+    row?.customerInfo?.address ||
+    row?.customer_address ||
+    {};
+
+  const firstName =
+    addr?.firstName ??
+    addr?.firstname ??
+    row?.firstName ??
+    row?.firstname ??
+    row?.customer?.firstName ??
+    "";
+  const lastName =
+    addr?.lastName ??
+    addr?.lastname ??
+    row?.lastName ??
+    row?.lastname ??
+    row?.customer?.lastName ??
+    "";
+  const fullName =
+    addr?.fullName ??
+    addr?.name ??
+    row?.nameFull ??
+    row?.fullName ??
+    row?.name ??
+    row?.customer?.name ??
+    [firstName, lastName].filter(Boolean).join(" ");
+
+  const email =
+    addr?.email ??
+    row?.shippingAddress?.email ??
+    row?.contactEmail ??
+    row?.email ??
+    row?.customer?.email ??
+    row?.customerInfo?.email ??
+    "";
+
+  const phone =
+    addr?.phone ??
+    row?.contactPhone ??
+    row?.phone ??
+    row?.customer?.phone ??
+    row?.customerInfo?.phone ??
+    "";
+
+  const line1 = addr?.line1 ?? addr?.address1 ?? row?.line1 ?? row?.address1 ?? "";
+  const line2 = addr?.line2 ?? addr?.address2 ?? row?.line2 ?? row?.address2 ?? "";
+
+  const city = addr?.city ?? row?.city ?? row?.shippingCity ?? row?.customer?.city ?? row?.customerInfo?.city ?? "";
+  const province =
+    addr?.province ?? addr?.state ?? row?.province ?? row?.state ?? row?.shippingProvince ?? "";
+  const zip =
+    addr?.zip ?? addr?.postalCode ?? addr?.postcode ?? row?.zip ?? row?.postalCode ?? row?.postcode ?? "";
+
+  const country =
+    addr?.country ??
+    addr?.countryCode ??
+    row?.country ??
+    row?.shippingCountry ??
+    row?.countryCode ??
+    "";
+
+  const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? "";
+
+  return (
+    <div className="span-2">
+      <h4>{title}</h4>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "160px 1fr",
+          gap: "8px 16px",
+          alignItems: "center",
+          maxWidth: 720,
+        }}
+      >
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Name</label>
+        </div>
+        <div>{fullName || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Email</label>
+        </div>
+        <div>{email || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Phone</label>
+        </div>
+        <div>{phone || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Address</label>
+        </div>
+        <div>{[line1, line2].filter(Boolean).join(", ") || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>City / Province / ZIP</label>
+        </div>
+        <div>{[city, province, zip].filter(Boolean).join(" · ") || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Country</label>
+        </div>
+        <div>{country || "—"}</div>
+
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>User ID</label>
+        </div>
+        <div className="mono">{uid || "—"}</div>
+      </div>
+    </div>
   );
 }
 
@@ -167,7 +319,7 @@ function AssessmentPanel({ kind, row }) {
       ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100)
       : ""
   );
-  const dep  = Number(row?.depositCents || 0);
+  const dep = Number(row?.depositCents || 0);
   const adds = Number(row?.additionalPaymentsCents || 0);
   const refs = Number(row?.refundsCents || 0);
   const assessedC = Math.round(Number(assessed || 0) * 100);
@@ -220,8 +372,8 @@ function AssessmentPanel({ kind, row }) {
 
       <div className="muted small" style={{ marginTop: 6 }}>
         Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l:{" "}
-        <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> ·
-        Computed Balance: <b>₱{(balance / 100).toLocaleString()}</b>
+        <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> · Computed
+        Balance: <b>₱{(balance / 100).toLocaleString()}</b>
       </div>
 
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
@@ -355,9 +507,7 @@ export default function Orders() {
   /* ------------------- derived lists (date-aware) ------------------- */
   const productOrders = useMemo(
     () =>
-      rows.filter(
-        (o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"
-      ),
+      rows.filter((o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"),
     [rows]
   );
 
@@ -370,17 +520,13 @@ export default function Orders() {
   }, [productOrders, filter]);
 
   const repairsOrdered = useMemo(() => {
-    const sorted = [...repairs].sort(
-      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
-    );
+    const sorted = [...repairs].sort((a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a)));
     if (repairsFilter === "all") return sorted;
     return sorted.filter((r) => (r?.status || "processing") === repairsFilter);
   }, [repairs, repairsFilter]);
 
   const customsOrdered = useMemo(() => {
-    const sorted = [...customs].sort(
-      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
-    );
+    const sorted = [...customs].sort((a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a)));
     if (customsFilter === "all") return sorted;
     return sorted.filter((c) => (c?.status || "draft") === customsFilter);
   }, [customs, customsFilter]);
@@ -585,30 +731,44 @@ export default function Orders() {
     }
   }
 
+  // --- helper: delete a subcollection under a parent doc ---
+async function deleteSubcollection(db, parentColl, parentId, subcoll) {
+  const subRef = collection(db, parentColl, parentId, subcoll);
+  const snap = await getDocs(subRef);
+  const tasks = snap.docs.map(d => deleteDoc(d.ref));
+  await Promise.all(tasks);
+}
+
   async function deleteOrderCascade(orderId, orderDataFromRows) {
-    setDeleting((p) => ({ ...p, [orderId]: true }));
-    try {
-      const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
+  setDeleting((p) => ({ ...p, [orderId]: true }));
+  try {
+    const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
 
-      if (orderData?.userId) {
-        await deleteUserNotifs(db, orderData.userId, { orderId });
-      }
-
-      try {
-        await deleteShipmentsForOrder(orderId);
-      } catch (e) {
-        console.error("deleteShipmentsForOrder failed", e);
-      }
-
-      await deleteDoc(doc(db, "orders", orderId));
-      setRows((prev) => prev.filter((o) => o.id !== orderId));
-    } catch (e) {
-      console.error("deleteOrderCascade failed:", e);
-      alert(e?.message || "Failed to delete order. Make sure your account is admin.");
-    } finally {
-      setDeleting((p) => ({ ...p, [orderId]: false }));
+    if (orderData?.userId) {
+      await deleteUserNotifs(db, orderData.userId, { orderId });
     }
+
+    try {
+      await deleteShipmentsForOrder(orderId);
+    } catch (e) {
+      console.error("deleteShipmentsForOrder failed", e);
+    }
+
+    // 🔻 NEW: remove known subcollections under this order
+    await deleteSubcollection(db, "orders", orderId, "events");
+
+    // finally remove the order doc itself
+    await deleteDoc(doc(db, "orders", orderId));
+
+    setRows((prev) => prev.filter((o) => o.id !== orderId));
+  } catch (e) {
+    console.error("deleteOrderCascade failed:", e);
+    alert(e?.message || "Failed to delete order. Make sure your account is admin.");
+  } finally {
+    setDeleting((p) => ({ ...p, [orderId]: false }));
   }
+}
+
 
   /* ---- returns helpers (unchanged) ---- */
   async function getLatestReturnDoc(orderId) {
@@ -618,7 +778,7 @@ export default function Orders() {
     snap.forEach((d) => {
       const r = { id: d.id, ...d.data() };
       const ts = (r.createdAt?.seconds ?? 0) * 1000;
-      if (!latest || ts > ((latest?.createdAt?.seconds ?? 0) * 1000)) latest = r;
+      if (!latest || ts > (latest?.createdAt?.seconds ?? 0) * 1000) latest = r;
     });
     return latest;
   }
@@ -650,7 +810,7 @@ export default function Orders() {
           title: `Return approved for ${String(id).slice(0, 6)}`,
           body: "We’ve approved your return request. We’ll be in touch about pickup/next steps.",
           image: Array.isArray(orderRow.items)
-            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
             : null,
           link: `/ordersummary?orderId=${id}`,
           createdAt: serverTimestamp(),
@@ -683,7 +843,7 @@ export default function Orders() {
           title: `Return rejected for ${String(id).slice(0, 6)}`,
           body: reason ? `Reason: ${reason}` : "Your return request was rejected.",
           image: Array.isArray(orderRow.items)
-            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
             : null,
           link: `/ordersummary?orderId=${id}`,
           createdAt: serverTimestamp(),
@@ -744,7 +904,7 @@ export default function Orders() {
           title: `Refund issued for ${String(id).slice(0, 6)}`,
           body: `We’ve issued your refund of ${amount}.`,
           image: Array.isArray(orderRow.items)
-            ? (orderRow.items[0]?.image || orderRow.items[0]?.img || null)
+            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
             : null,
           link: `/ordersummary?orderId=${id}`,
           createdAt: serverTimestamp(),
@@ -759,8 +919,7 @@ export default function Orders() {
   }
 
   /* ------------------- helpers (repairs) ------------------- */
-  const setRepairDraft = (id, status) =>
-    setRepairsDraft((prev) => ({ ...prev, [id]: status }));
+  const setRepairDraft = (id, status) => setRepairsDraft((prev) => ({ ...prev, [id]: status }));
 
   const saveRepairStatus = async (id) => {
     const newStatus = repairsDraft[id];
@@ -782,9 +941,7 @@ export default function Orders() {
           status: newStatus,
           statusUpdatedAt: serverTimestamp(),
         });
-        setRows((prev) =>
-          prev.map((o) => (o.id === linkedOrder.id ? { ...o, status: newStatus } : o))
-        );
+        setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, status: newStatus } : o)));
       }
 
       const repair = repairs.find((r) => r.id === id);
@@ -808,7 +965,7 @@ export default function Orders() {
     } finally {
       setRepairsSaving((prev) => ({ ...prev, [id]: false }));
     }
-  }
+  };
 
   async function deleteRepairCascade(repairId) {
     setRepDeleting((p) => ({ ...p, [repairId]: true }));
@@ -836,8 +993,7 @@ export default function Orders() {
   }
 
   /* ------------------- helpers (customization) ------------------- */
-  const setCustomDraft = (id, status) =>
-    setCustomsDraft((prev) => ({ ...prev, [id]: status }));
+  const setCustomDraft = (id, status) => setCustomsDraft((prev) => ({ ...prev, [id]: status }));
 
   const saveCustomStatus = async (id) => {
     const newStatus = customsDraft[id];
@@ -862,9 +1018,7 @@ export default function Orders() {
         paymentStatus: newPayStatus,
         paymentUpdatedAt: serverTimestamp(),
       });
-      setCustoms((prev) =>
-        prev.map((c) => (c.id === id ? { ...c, paymentStatus: newPayStatus } : c))
-      );
+      setCustoms((prev) => prev.map((c) => (c.id === id ? { ...c, paymentStatus: newPayStatus } : c)));
     } catch (e) {
       alert(e?.message || "Failed to update payment status.");
     }
@@ -921,9 +1075,15 @@ export default function Orders() {
     <div className="admin-orders">
       {/* Tabs */}
       <div className="orders-topbar" style={{ marginBottom: 16, justifyContent: "space-between" }}>
-        <div className="status-toolbar"><TabButton id="orders" label="Orders" count={productOrders.length} /></div>
-        <div className="status-toolbar"><TabButton id="repairs" label="Repair" count={repairs.length} /></div>
-        <div className="status-toolbar"><TabButton id="custom" label="Customization" count={customs.length} /></div>
+        <div className="status-toolbar">
+          <TabButton id="orders" label="Orders" count={productOrders.length} />
+        </div>
+        <div className="status-toolbar">
+          <TabButton id="repairs" label="Repair" count={repairs.length} />
+        </div>
+        <div className="status-toolbar">
+          <TabButton id="custom" label="Customization" count={customs.length} />
+        </div>
       </div>
 
       {/* ----------------------- ORDERS ----------------------- */}
@@ -1054,16 +1214,29 @@ export default function Orders() {
                           <tr>
                             <td colSpan={8}>
                               <div className="details-grid">
-                                {o?.paymentProofUrl && (
+                                {/* ✅ Initial payment proof (URL or storage path) */}
+                                {(o?.paymentProofUrl || o?.paymentProofPath) && (
                                   <div className="span-2">
-                                    <h4>Payment Proof</h4>
-                                    <a href={o.paymentProofUrl} target="_blank" rel="noreferrer">
-                                      <img
-                                        src={o.paymentProofUrl}
-                                        alt="Payment Proof"
-                                        style={{ maxWidth: 200, borderRadius: 8 }}
-                                      />
-                                    </a>
+                                    <h4>Initial Payment Proof</h4>
+                                    <ResolvedImg
+                                      pathOrUrl={o.paymentProofUrl || o.paymentProofPath}
+                                      alt="Initial Payment Proof"
+                                      size={200}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* ✅ Additional payment proof (URL or storage path) */}
+                                {(o?.lastAdditionalPaymentProofUrl || o?.lastAdditionalPaymentProofPath) && (
+                                  <div className="span-2">
+                                    <h4>Additional Payment Proof</h4>
+                                    <ResolvedImg
+                                      pathOrUrl={
+                                        o.lastAdditionalPaymentProofUrl || o.lastAdditionalPaymentProofPath
+                                      }
+                                      alt="Additional Payment Proof"
+                                      size={200}
+                                    />
                                   </div>
                                 )}
 
@@ -1108,23 +1281,8 @@ export default function Orders() {
                                   )}
                                 </div>
 
-                                <div>
-                                  <h4>Customer</h4>
-                                  <div className="muted">
-                                    {[
-                                      o?.shippingAddress?.line1,
-                                      o?.shippingAddress?.line2,
-                                      o?.shippingAddress?.city,
-                                      o?.shippingAddress?.province,
-                                      o?.shippingAddress?.zip,
-                                    ]
-                                      .filter(Boolean)
-                                      .join(", ")}
-                                  </div>
-                                  {o?.shippingAddress?.email && (
-                                    <div className="muted">{o.shippingAddress.email}</div>
-                                  )}
-                                </div>
+                                {/* ✅ Customer */}
+                                <CustomerBlock title="Customer" row={o} />
 
                                 <div className="span-2">
                                   <h4>Items</h4>
@@ -1180,7 +1338,9 @@ export default function Orders() {
 
                                         <button
                                           className="save-btn"
-                                          disabled={busy || !r || !["approved","in_transit","out_for_delivery"].includes(r.status)}
+                                          disabled={
+                                            busy || !r || !["approved", "in_transit", "out_for_delivery"].includes(r.status)
+                                          }
                                           onClick={() => markReturnReceived(o)}
                                           title="Mark item received"
                                           style={{ background: "#6b7e76" }}
@@ -1190,7 +1350,7 @@ export default function Orders() {
 
                                         <button
                                           className="save-btn"
-                                          disabled={busy || !r || !["received","approved"].includes(r.status)}
+                                          disabled={busy || !r || !["received", "approved"].includes(r.status)}
                                           onClick={() => issueRefund(o)}
                                           title="Issue refund and lock order"
                                           style={{ background: "#111827" }}
@@ -1276,17 +1436,13 @@ export default function Orders() {
                     const total =
                       Number(
                         r?.total ??
-                          ((r?.typePrice || 0) +
-                            (r?.coverMaterialPrice || 0) +
-                            (r?.frameMaterialPrice || 0))
+                          (r?.typePrice || 0) + (r?.coverMaterialPrice || 0) + (r?.frameMaterialPrice || 0)
                       ) || 0;
                     const status = String(r?.status || "processing");
                     const draftStatus = repairsDraft[id] ?? status;
 
                     const linkedOrder = rows.find((o) => o?.repairId === id);
-                    const paymentProofUrl =
-                      linkedOrder?.paymentProofUrl || r?.paymentProofUrl || null;
-                    const paymentStatus = (linkedOrder?.paymentStatus || r?.paymentStatus || "pending");
+                    const paymentStatus = linkedOrder?.paymentStatus || r?.paymentStatus || "pending";
                     const isOpen = expandedRepairId === id;
 
                     return (
@@ -1377,16 +1533,39 @@ export default function Orders() {
                           <tr>
                             <td colSpan={11}>
                               <div className="details-grid">
-                                {paymentProofUrl && (
+                                {/* ✅ Initial payment proof from linked order or repair (URL or storage path) */}
+                                {(linkedOrder?.paymentProofUrl ||
+                                  linkedOrder?.paymentProofPath ||
+                                  r?.paymentProofUrl ||
+                                  r?.paymentProofPath) && (
                                   <div className="span-2">
-                                    <h4>Payment Proof</h4>
-                                    <a href={paymentProofUrl} target="_blank" rel="noreferrer">
-                                      <img
-                                        src={paymentProofUrl}
-                                        alt="Payment Proof"
-                                        style={{ maxWidth: 200, borderRadius: 8 }}
-                                      />
-                                    </a>
+                                    <h4>Initial Payment Proof</h4>
+                                    <ResolvedImg
+                                      pathOrUrl={
+                                        linkedOrder?.paymentProofUrl ||
+                                        linkedOrder?.paymentProofPath ||
+                                        r?.paymentProofUrl ||
+                                        r?.paymentProofPath
+                                      }
+                                      alt="Initial Payment Proof"
+                                      size={200}
+                                    />
+                                  </div>
+                                )}
+
+                                {/* ✅ Additional payment proof from linked order (URL or storage path) */}
+                                {(linkedOrder?.lastAdditionalPaymentProofUrl ||
+                                  linkedOrder?.lastAdditionalPaymentProofPath) && (
+                                  <div className="span-2">
+                                    <h4>Additional Payment Proof</h4>
+                                    <ResolvedImg
+                                      pathOrUrl={
+                                        linkedOrder?.lastAdditionalPaymentProofUrl ||
+                                        linkedOrder?.lastAdditionalPaymentProofPath
+                                      }
+                                      alt="Additional Payment Proof"
+                                      size={200}
+                                    />
                                   </div>
                                 )}
 
@@ -1396,9 +1575,7 @@ export default function Orders() {
                                     <select
                                       className="status-select"
                                       value={linkedOrder?.paymentStatus || "pending"}
-                                      onChange={(e) =>
-                                        updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)
-                                      }
+                                      onChange={(e) => updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)}
                                     >
                                       <option value="pending">Pending</option>
                                       <option value="deposit_paid">Deposit_Paid</option>
@@ -1441,6 +1618,9 @@ export default function Orders() {
                                     <div className="mono strong">{fmtPHP(linkedOrder?.total ?? total)}</div>
                                   </div>
                                 </div>
+
+                                {/* ✅ Customer for repair */}
+                                <CustomerBlock title="Customer" row={r} />
 
                                 {Array.isArray(r?.images) && r.images.length > 0 && (
                                   <div className="span-2">
@@ -1512,7 +1692,9 @@ export default function Orders() {
 
           {customsErr && <p className="err">{customsErr}</p>}
           {customsLoading && <p className="muted">Loading…</p>}
-          {!customsLoading && customsOrdered.length === 0 && <p className="muted">No customization orders found.</p>}
+          {!customsLoading && customsOrdered.length === 0 && (
+            <p className="muted">No customization orders found.</p>
+          )}
 
           {!customsLoading && customsOrdered.length > 0 && (
             <div className="orders-card">
@@ -1540,7 +1722,7 @@ export default function Orders() {
                     const when = fmtDate(pickDate(c));
                     const cust = c?.contactEmail || c?.userId || "—";
                     const images = Array.isArray(c?.images) ? c.images : [];
-                    const refImgs = pickCustomerReferenceImages(c); // <-- NEW
+                    const refImgs = pickCustomerReferenceImages(c);
                     const unit = c?.unitPrice != null ? Number(c.unitPrice) : null;
                     const status = String(c?.status || "draft");
                     const draftStatus = customsDraft[id] ?? status;
@@ -1558,24 +1740,22 @@ export default function Orders() {
                           <td>{c?.size || "—"}</td>
                           <td>{c?.cover ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}` : "—"}</td>
                           <td>
-                            {Array.isArray(c?.additionals) && c.additionals.length
-                              ? c.additionals.join(", ")
-                              : "—"}
+                            {Array.isArray(c?.additionals) && c.additionals.length ? c.additionals.join(", ") : "—"}
                           </td>
                           <td>
-                            {(images.length || refImgs.length) ? (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {[...images, ...refImgs].slice(0, 3).map((url, i) => (
-        <ResolvedImg key={i} pathOrUrl={url} alt={`Custom ${i + 1}`} size={40} />
-      ))}
-      {[...images, ...refImgs].length > 3 && (
-        <span className="muted">+{[...images, ...refImgs].length - 3}</span>
-      )}
-    </div>
-  ) : (
-    "—"
-  )}
-</td>
+                            {images.length || refImgs.length ? (
+                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                                {[...images, ...refImgs].slice(0, 3).map((url, i) => (
+                                  <ResolvedImg key={i} pathOrUrl={url} alt={`Custom ${i + 1}`} size={40} />
+                                ))}
+                                {[...images, ...refImgs].length > 3 && (
+                                  <span className="muted">+{[...images, ...refImgs].length - 3}</span>
+                                )}
+                              </div>
+                            ) : (
+                              "—"
+                            )}
+                          </td>
                           <td className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</td>
                           <td>
                             <span className={`badge status-${status === "draft" ? "processing" : status}`}>
@@ -1684,9 +1864,7 @@ export default function Orders() {
                                   </div>
                                   <div className="kv">
                                     <label>Unit Price</label>
-                                    <div className="mono strong">
-                                      {unit != null ? fmtPHP(unit) : "—"}
-                                    </div>
+                                    <div className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</div>
                                   </div>
                                 </div>
 
@@ -1694,9 +1872,7 @@ export default function Orders() {
                                   <div className="kv">
                                     <label>Cover</label>
                                     <div>
-                                      {c?.cover
-                                        ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}`
-                                        : "—"}
+                                      {c?.cover ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}` : "—"}
                                     </div>
                                   </div>
                                   <div className="kv">
@@ -1713,15 +1889,8 @@ export default function Orders() {
                                   </div>
                                 </div>
 
-                                {(c?.contactEmail || c?.userId) && (
-                                  <div className="span-2">
-                                    <h4>Customer</h4>
-                                    <div className="muted">
-                                      {c?.contactEmail ? `Email: ${c.contactEmail}` : null}
-                                      {c?.userId ? (c?.contactEmail ? " • " : "") + `UID: ${c.userId}` : null}
-                                    </div>
-                                  </div>
-                                )}
+                                {/* ✅ Customer for custom */}
+                                <CustomerBlock title="Customer" row={c} />
 
                                 {images.length > 0 && (
                                   <div className="span-2">
@@ -1740,18 +1909,16 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* NEW: Customer uploads */}
-                               {refImgs.length > 0 && (
-  <div className="span-2">
-    <h4>Reference Images (customer)</h4>
-    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-      {refImgs.map((url, i) => (
-        <ResolvedImg key={i} pathOrUrl={url} alt={`Reference ${i + 1}`} size={100} />
-      ))}
-    </div>
-  </div>
-)}
-
+                                {refImgs.length > 0 && (
+                                  <div className="span-2">
+                                    <h4>Reference Images (customer)</h4>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      {refImgs.map((url, i) => (
+                                        <ResolvedImg key={i} pathOrUrl={url} alt={`Reference ${i + 1}`} size={100} />
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
 
                                 {c?.descriptionFromProduct && (
                                   <div className="span-2">
