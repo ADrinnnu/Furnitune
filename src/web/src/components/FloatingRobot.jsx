@@ -92,7 +92,6 @@ const TYPE_ALIASES = {
   chair: ["chair","chairs","armchair","dining chair","stool","stools"],
   sectional: ["sectional","sectionals"],
   ottoman: ["ottoman","ottomans","footstool","pouf"],
-  bench: ["bench","benches"],
 };
 const str = (v) => (v ?? "").toString().toLowerCase();
 function itemLooksLikeType(item, type) {

@@ -71,7 +71,7 @@ const COLLECTION_META = {
     title: "SIT & STAY",
     banner: repsImg,
     description:
-      "Durable and versatile chairs and benches built for long-lasting comfort and style.",
+      "Durable and versatile chairs built for long-lasting comfort and style.",
     synonyms: ["Sit & Stay", "Sit Stay"],
   },
 };

@@ -39,7 +39,6 @@ const LAYOUT = {
   sofas:      ["1seater","2seater","3seater","4seater","5-seater","default"],
   chairs:     ["standard","counter","bar","default"],
   tables:     ["2-people","4-people","6-people","8-people","default"],
-  benches:    ["2-seater","3-seater","4-seater","default"],
   sectionals: ["3-seater","5-seater","6-seater","7-seater","default"],
   ottomans:   ["standard","cube","footstool","cocktail","default"],
 };

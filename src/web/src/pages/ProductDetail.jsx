@@ -24,7 +24,6 @@ const DEFAULT_SIZES_BY_TYPE = {
   Tables:     ["2 people", "4 people", "6 people", "8 people"],
   Beds:       ["Single", "Double", "Queen", "King"],
   Ottomans:   ["Standard", "Cube", "Footstool", "Cocktail"],
-  Benches:    ["2 Seater", "3 Seater", "4 Seater"],
 };
 
 // Fallback swatches if a product has none
@@ -50,7 +49,6 @@ function normalizeTypeLabel(data, catSlug) {
   if (t.includes("sofa")      || t.includes("c couch") || c.includes("sofa")) return "Sofas";
   if (t.includes("bed")       || c.includes("bed"))       return "Beds";
   if (t.includes("table")     || c.includes("table"))     return "Tables";
-  if (t.includes("bench")     || c.includes("bench"))     return "Benches";
   if (t.includes("ottoman")   || c.includes("ottoman"))   return "Ottomans";
   if (t.includes("sectional") || c.includes("sectional")) return "Sectionals";
   return titleCase(catSlug || t || "Furniture");

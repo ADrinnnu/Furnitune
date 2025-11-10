@@ -8,12 +8,12 @@ import "../AllFurnitures.css";
 
 const slug = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
 
-const TYPE_LABELS_ALL = ["Beds", "Sofas", "Chairs", "Tables", "Benches", "Sectionals", "Ottomans"];
+const TYPE_LABELS_ALL = ["Beds", "Sofas", "Chairs", "Tables", "Sectionals", "Ottomans"];
 const TYPES_BY_ROOM = {
-  "living-room": ["Sofas", "Chairs", "Tables", "Benches", "Sectionals", "Ottomans"],
-  bedroom: ["Beds", "Chairs", "Tables", "Benches", "Ottomans"],
+  "living-room": ["Sofas", "Chairs", "Tables", "Sectionals", "Ottomans"],
+  bedroom: ["Beds", "Chairs", "Tables", "Ottomans"],
   "dining-room": ["Chairs", "Tables"],
-  outdoor: ["Chairs", "Tables", "Benches", "Ottomans"],
+  outdoor: ["Chairs", "Tables", "Ottomans"],
 };
 
 const MATERIAL_LABELS = ["Fabrics", "Leather"];
@@ -57,7 +57,6 @@ function normalizeType(d) {
   if (raw.includes("bed")) return "Beds";
   if (raw.includes("chair")) return "Chairs";
   if (raw.includes("table")) return "Tables";
-  if (raw.includes("bench")) return "Benches";
   if (raw.includes("ottoman")) return "Ottomans";
   const n = (d.name || "").toLowerCase();
   if (n.includes("sectional")) return "Sectionals";
@@ -65,7 +64,6 @@ function normalizeType(d) {
   if (n.includes("bed")) return "Beds";
   if (n.includes("chair")) return "Chairs";
   if (n.includes("table")) return "Tables";
-  if (n.includes("bench")) return "Benches";
   if (n.includes("ottoman")) return "Ottomans";
   return "Other";
 }

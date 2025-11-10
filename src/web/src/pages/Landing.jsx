@@ -109,7 +109,7 @@ export default function Landing() {
     { id: 1, title: "Comfort Core Collection", img: comImg, description: "Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.", to: "/collections/comfort-core", link: "/collections/comfort-core", href: "/collections/comfort-core" },
     { id: 2, title: "Social Sitting Collection", img: soctImg, description: "Perfect for gatherings, this collection offers stylish seating that brings people together.", to: "/collections/social-sitting", link: "/collections/social-sitting", href: "/collections/social-sitting" },
     { id: 3, title: "Rest & Recharge", img: restImg, description: "Beds and loungers made for ultimate rest, giving you the energy to face each day refreshed.", to: "/collections/rest-recharge", link: "/collections/rest-recharge", href: "/collections/rest-recharge" },
-    { id: 4, title: "Sit & Stay", img: sitImg, description: "Durable and versatile chairs and benches built for long-lasting comfort and style.", to: "/collections/sit-stay", link: "/collections/sit-stay", href: "/collections/sit-stay" },
+    { id: 4, title: "Sit & Stay", img: sitImg, description: "Durable and versatile chairs built for long-lasting comfort and style.", to: "/collections/sit-stay", link: "/collections/sit-stay", href: "/collections/sit-stay" },
   ];
 
   return (

@@ -46,7 +46,7 @@ function sizeFolderToId(folderName) {
   if (n === 'king') return 'king';
   if (n === 'california king' || n === 'cal-king') return 'cal-king';
 
-  // Chairs / Sofas / Sectionals / Tables / Benches / Ottomans
+  // Chairs / Sofas / Sectionals / Tables /  / Ottomans
   const people = n.match(/^(\d+)\s*people$/);
   if (people) return `${people[1]}p`;
   const seater = n.match(/^(\d+)\s*seater$/);

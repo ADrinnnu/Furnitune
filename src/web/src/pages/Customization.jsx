@@ -67,7 +67,6 @@ const normalizeCategory = (raw) => {
   if (s.includes("sofa")) return "Sofas";
   if (s.includes("sectional")) return "Sectionals";
   if (s.includes("ottoman")) return "Ottomans";
-  if (s.includes("bench")) return "Benches";
   if (s.includes("table")) return "Tables";
   return titleCase(raw);
 };
@@ -80,7 +79,6 @@ const DEFAULT_SIZES_BY_TYPE = {
   "Dining Tables": ["2 people", "4 people", "6 people", "8 people"],
   Beds: ["Single", "Double", "Queen", "King"],
   Ottomans: ["Standard", "Cube", "Footstool", "Cocktail"],
-  Benches: ["2 Seater", "3 Seater", "4 Seater"],
   Others: ["Standard"],
 };
 
@@ -90,7 +88,6 @@ const COMMON_ADDITIONALS = {
   Sofas: ["Cushions", "Footrest"],
   "Dining Tables": ["Glass on top", "Padded foam on top"],
   Tables: ["Glass on top", "Padded foam on top"],
-  Benches: ["With storage", "Pillows"],
   Sectionals: ["Throw Pillow", "Footrest"],
   Ottomans: ["Decorative Tray", "With storage"],
   Others: [],
@@ -383,7 +380,7 @@ export default function Customization() {
           return acc;
         }, {});
 
-        const order = ["Beds","Dining Tables","Chairs","Sofas","Sectionals","Ottomans","Benches","Tables","Others"];
+        const order = ["Beds","Dining Tables","Chairs","Sofas","Sectionals","Ottomans","Tables","Others"];
         const ordered = {};
         order.forEach((k) => { if (grouped[k]?.length) ordered[k] = grouped[k]; });
         Object.keys(grouped).forEach((k) => { if (!(k in ordered)) ordered[k] = grouped[k]; });
