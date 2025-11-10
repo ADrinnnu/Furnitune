@@ -12,41 +12,66 @@ import { LlmClient } from "./lib/llm-client.js"; // exposes chat(messages, opts)
 const app = express();
 app.set("trust proxy", 1); // needed on Render/behind proxy
 
-// Parse ALLOW_ORIGIN as CSV (supports multiple)
-const DEFAULT_ORIGINS = [
-  "http://localhost:5173",
-  "http://localhost:3000",
-  "https://adrinnnu.github.io",
-];
-const ALLOW_ORIGINS = (process.env.ALLOW_ORIGIN || "")
-  .split(",")
-  .map(s => s.trim())
-  .filter(Boolean);
-const ORIGINS = ALLOW_ORIGINS.length ? ALLOW_ORIGINS : DEFAULT_ORIGINS;
-
-// CORS (server-to-server requests have no Origin -> allow)
-app.use(
-  cors({
-    origin: (origin, cb) => {
-      if (!origin) return cb(null, true);
-      if (ORIGINS.some(o => origin.startsWith(o))) return cb(null, true);
-      return cb(new Error("CORS blocked"));
-    },
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "x-bizchat-session", "x-user-id", "x-user-name"],
-    credentials: false,
-    optionsSuccessStatus: 204,
-  })
-);
-
-// Body parsing
+// Body parsing FIRST (safe either way, but do it before routes)
 app.use(express.json({ limit: "16mb" }));
+
+// ----------------------------------------------------------------------------
+// CORS - allow your Vercel site(s), localhost, and your Render URL
+// ----------------------------------------------------------------------------
+const STATIC_ALLOW = [
+  /^https?:\/\/localhost(?::\d+)?$/i,
+  /^https?:\/\/127\.0\.0\.1(?::\d+)?$/i,
+  /\.vercel\.app$/i,                                // any *.vercel.app
+  /^https?:\/\/furnitune-chats\.onrender\.com$/i,   // your Render URL
+];
+
+/** Return true if origin matches any allow-list rule */
+function isOriginAllowed(origin) {
+  try {
+    const u = new URL(origin);
+    const host = `${u.protocol}//${u.host}`;
+    // exact host rules
+    if ([
+      "http://localhost:5173",
+      "http://localhost:3000",
+      "https://adrinnnu.github.io",
+    ].includes(host)) return true;
+    // regex/domain rules
+    return STATIC_ALLOW.some((rx) => rx.test(origin));
+  } catch {
+    return false;
+  }
+}
+
+const corsOptions = {
+  origin: (origin, cb) => {
+    // server-to-server/health checks may have no Origin – allow them
+    if (!origin) return cb(null, true);
+    if (isOriginAllowed(origin)) return cb(null, true);
+    return cb(new Error("CORS blocked"));
+  },
+  methods: ["GET", "POST", "OPTIONS"],
+  allowedHeaders: [
+    "Content-Type",
+    "Authorization",
+    "x-bizchat-session",
+    "x-user-id",
+    "x-user-name",
+  ],
+  credentials: false,
+  optionsSuccessStatus: 204,
+};
+
+app.use(cors(corsOptions));
+// IMPORTANT: handle preflight for all routes
+app.options("*", cors(corsOptions));
 
 // ----------------------------------------------------------------------------
 // Model / client (GPT-4o-mini primary, Gemma free fallback)
 // ----------------------------------------------------------------------------
 const MODEL = process.env.OPENROUTER_MODEL || "openai/gpt-4o-mini";
-const FALLBACK = process.env.OPENROUTER_FALLBACK_MODEL || "google/gemma-2-9b-it:free";
+const FALLBACK =
+  process.env.OPENROUTER_FALLBACK_MODEL || "google/gemma-2-9b-it:free";
 const llm = new LlmClient({ model: MODEL, fallbackModel: FALLBACK });
 
 // ----------------------------------------------------------------------------
@@ -60,10 +85,18 @@ and offer repair services even for items not purchased from us.
 
 function loadInfo() {
   try {
-    const p = path.join(process.cwd(), "src", "web", "server", "seed", "furnituneInfo.json");
+    const p = path.join(
+      process.cwd(),
+      "src",
+      "web",
+      "server",
+      "seed",
+      "furnituneInfo.json"
+    );
     if (fs.existsSync(p)) {
       const j = JSON.parse(fs.readFileSync(p, "utf8"));
-      if (j?.info && typeof j.info === "string" && j.info.trim().length > 0) return j.info.trim();
+      if (j?.info && typeof j.info === "string" && j.info.trim().length > 0)
+        return j.info.trim();
     }
   } catch {}
   if (process.env.FURNITUNE_INFO && process.env.FURNITUNE_INFO.trim()) {
@@ -81,22 +114,29 @@ const lastHitPerSid = new Map();
 const THROTTLE_MS = Number(process.env.BIZCHAT_THROTTLE_MS || 900);
 
 // ----------------------------------------------------------------------------
-/** Health + reload */
+// Health + reload (expose both /health and /bizchat/health)
 // ----------------------------------------------------------------------------
-app.get("/health", (_req, res) => res.json({ ok: true })); // generic health for Render
-app.get("/bizchat/health", (_req, res) => res.json({ ok: true, model: MODEL, fallback: FALLBACK }));
+const healthHandler = (_req, res) =>
+  res.json({ ok: true, model: MODEL, fallback: FALLBACK });
+app.get("/health", healthHandler);
+app.get("/bizchat/health", healthHandler);
 
-app.post("/bizchat/reload-info", (_req, res) => {
+const reloadInfoHandler = (_req, res) => {
   FURNITUNE_INFO = loadInfo();
   res.json({ ok: true, len: FURNITUNE_INFO.length });
-});
+};
+app.post("/reload-info", reloadInfoHandler);
+app.post("/bizchat/reload-info", reloadInfoHandler);
 
 // ----------------------------------------------------------------------------
 // Ask — EXACT app flow: system + user; concise; no RAG
+// (expose both /ask and /bizchat/ask so rewrites work either way)
 // ----------------------------------------------------------------------------
-app.post("/bizchat/ask", async (req, res) => {
+async function askHandler(req, res) {
   try {
-    const sid = String(req.body.sessionId || req.get("x-bizchat-session") || "anon");
+    const sid = String(
+      req.body.sessionId || req.get("x-bizchat-session") || "anon"
+    );
     const user = req.body.user || {};
     const question = String(req.body.question || "").trim();
     if (!question) return res.status(400).json({ error: "Missing question" });
@@ -114,7 +154,9 @@ app.post("/bizchat/ask", async (req, res) => {
     sessions.set(sid, sess);
 
     const greetOnce =
-      !sess.greeted && user?.name ? `Start by saying "Hi ${user.name}!" once, then avoid re-greeting.` : "";
+      !sess.greeted && user?.name
+        ? `Start by saying "Hi ${user.name}!" once, then avoid re-greeting.`
+        : "";
 
     const system = `
 You are Furni, the official chatbot for Furnitune — an e-commerce platform for Santos Upholstery.
@@ -151,7 +193,8 @@ Return your reply ONLY between these markers:
           { role: "user", content: userContent },
         ],
         { temperature: 0.15, top_p: 0.2, max_tokens: 160 }
-      )) || `I'm sorry, I can only answer questions about Furnitune’s products, services, or policies.`;
+      )) ||
+      `I'm sorry, I can only answer questions about Furnitune’s products, services, or policies.`;
 
     // Extract & sanitize
     const extractFenced = (t) => {
@@ -176,7 +219,8 @@ Return your reply ONLY between these markers:
 
     const DRIFT_RX =
       /(as an ai|as a language model|i,?\s*gemma|i can:\s*\*|let me explain|how i.*(work|function)|virtual room design|budget analyzer|decor ideas engine|home decor platform)/i;
-    const UNRELATED_RX = /(poetry|write a story|translate languages?|coding help|resume|essay|creative writing)/i;
+    const UNRELATED_RX =
+      /(poetry|write a story|translate languages?|coding help|resume|essay|creative writing)/i;
 
     let ans = extractFenced(raw);
     if (DRIFT_RX.test(ans) || UNRELATED_RX.test(ans)) {
@@ -196,7 +240,11 @@ Return your reply ONLY between these markers:
     res.json({ answer: ans });
   } catch (e) {
     // Friendly handling for daily free quota exhaustion across both models
-    if (e && (e.code === 429 || /rate limit/i.test(String(e.detail || e.message || "")))) {
+    if (
+      e &&
+      (e.code === 429 ||
+        /rate limit/i.test(String(e.detail || e.message || "")))
+    ) {
       return res.status(200).json({
         answer:
           "I’m at my daily free limit right now. Please try again later, or email Furnitune@jameyl.com or call 123-323-312.",
@@ -209,7 +257,11 @@ Return your reply ONLY between these markers:
         "Sorry — I couldn’t fetch that right now. Please email Furnitune@jameyl.com or call 123-323-312.",
     });
   }
-});
+}
+
+// mount under both paths so any rewrite style works
+app.post("/ask", askHandler);
+app.post("/bizchat/ask", askHandler);
 
 // ----------------------------------------------------------------------------
 // Boot
