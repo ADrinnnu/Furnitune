@@ -120,6 +120,7 @@ function computePriceCents({
   additionsSelected,
   pricing,
   additionsTable = [],
+  additionsArePesos = false, // <— NEW
 }) {
   const sKey = lc(size);
   const mKey = lc(material);
@@ -130,7 +131,9 @@ function computePriceCents({
 
   const additionsCents = (additionsSelected || []).reduce((acc, label) => {
     const row = findAdditionCI(additionsTable, label);
-    return acc + (row?.cents || 0);
+    const v = Number(row?.cents || 0);
+    // if values are stored in PESOS in DB, convert to cents here
+    return acc + (additionsArePesos ? Math.round(v * 100) : v);
   }, 0);
 
   const pre = basePriceCents + sizeAdd;
@@ -327,7 +330,9 @@ export default function Customization() {
   // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
-  const currency = pricing?.currency || "PHP";
+
+  // currency prefers additionals_pricing currency
+  const currency = additionalsPricing?.currency || pricing?.currency || "PHP";
 
   // additionals UI
   const [additionalChoices, setAdditionalChoices] = useState([]);
@@ -436,12 +441,18 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // merge choices
+  // merge choices (preserve DB order first, then add others without duplicates)
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
-    const pricedRoot = (additionalsPricing?.items || []).map((a) => a.label || a.key);
+    const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
     const legacyPriced = (pricing?.additions || []).map((a) => a.label || a.key);
-    const merged = Array.from(new Set([...baseAdds, ...pricedRoot, ...legacyPriced]));
+
+    const seen = new Set();
+    const merged = [];
+    pricedItems.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+    baseAdds.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+    legacyPriced.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+
     setAdditionalChoices(merged);
     setAdditionalPicked((prev) => {
       const next = {};
@@ -455,27 +466,37 @@ export default function Customization() {
     [additionalPicked]
   );
 
-  const additionsTable = additionalsPricing?.items || pricing?.additions || [];
+ const additionsTable = additionalsPricing?.items || pricing?.additions || [];
+const additionsArePesos = !!additionalsPricing?.items; // true when using additionals_pricing
 
-  const priceBreakdown = useMemo(() => {
-    if (!selectedProduct) return null;
+const priceBreakdown = useMemo(() => {
+  if (!selectedProduct) return null;
 
-    const base =
-      selectedProduct.basePriceCents != null
-        ? selectedProduct.basePriceCents
-        : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
+  const base =
+    selectedProduct.basePriceCents != null
+      ? selectedProduct.basePriceCents
+      : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
 
-    const sizeForPricing = canonicalSize(selectedCategory, size);
+  const sizeForPricing = canonicalSize(selectedCategory, size);
 
-    return computePriceCents({
-      basePriceCents: base,
-      size: sizeForPricing,
-      material: coverMaterialType,
-      additionsSelected: pickedAdditionals,
-      pricing,
-      additionsTable,
-    });
-  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
+  return computePriceCents({
+    basePriceCents: base,
+    size: sizeForPricing,
+    material: coverMaterialType,
+    additionsSelected: pickedAdditionals,
+    pricing,
+    additionsTable,
+    additionsArePesos, // <— pass the flag
+  });
+}, [
+  selectedProduct,
+  size,
+  coverMaterialType,
+  pickedAdditionals,
+  pricing,
+  additionalsPricing,
+  selectedCategory,
+]);
 
   // pick product (⚠️ exact name — used by Drawer)
   function handlePickProduct(p) {
@@ -696,11 +717,16 @@ export default function Customization() {
 
             {additionalChoices.length > 0 && (
               <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
-                {additionalChoices.map((label) => (
-                  <Chip key={label} active={!!additionalPicked[label]} onClick={() => setAdditionalPicked((p)=>({...p, [label]: !p[label]}))}>
-                    {label}
-                  </Chip>
-                ))}
+                {additionalChoices.map((label) => {
+                  const row = findAdditionCI(additionsTable, label);
+                  // Display exactly what is stored in DB (no /100)
+                  const priceTxt = typeof row?.cents === "number" ? ` (+${formatPHP(row.cents)})` : "";
+                  return (
+                    <Chip key={label} active={!!additionalPicked[label]} onClick={() => setAdditionalPicked((p)=>({...p, [label]: !p[label]}))}>
+                      {label}{priceTxt}
+                    </Chip>
+                  );
+                })}
               </div>
             )}
 
