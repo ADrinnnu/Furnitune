@@ -12,10 +12,17 @@ import {
   doc,
   serverTimestamp,
   addDoc,
+  getDocs,                 // ← ★ added
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../MyPurchases.css";
+
+/* ★ NEW: add the aggregate helpers */
+import {
+  addReviewWithAggregate,
+  updateReviewWithAggregate,
+} from "../utils/reviewsAggregateClient";
 
 /* Tabs */
 const STATUS_TABS = [
@@ -147,6 +154,49 @@ function mergeOverlay(base, child) {
   return out;
 }
 
+/* ★ NEW: best-effort resolver so productIds is never empty */
+async function resolveProductIds(db, order) {
+  const items = Array.isArray(order?.items) ? order.items : [];
+  // 1) direct fields
+  let pids = items
+    .map((it) => it?.productId || it?.id || it?.slug)
+    .filter(Boolean)
+    .map(String);
+
+  if (pids.length) {
+    return Array.from(new Set(pids));
+  }
+
+  // 2) derive by slugifying title/name then querying products.slug
+  const toSlug = (s) =>
+    String(s || "")
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]/g, "")
+      .replace(/\s+/g, "-")
+      .replace(/-+/g, "-");
+
+  const guesses = Array.from(
+    new Set(
+      items
+        .map((it) => it?.slug || toSlug(it?.title || it?.name))
+        .filter(Boolean)
+    )
+  );
+
+  const hits = new Set();
+  for (const slug of guesses) {
+    try {
+      const qSnap = await getDocs(query(collection(db, "products"), where("slug", "==", slug)));
+      qSnap.forEach((d) => hits.add(d.id));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return Array.from(hits);
+}
+
 export default function MyPurchases() {
   const navigate = useNavigate();
   const db = useMemo(() => getFirestore(auth.app), []);
@@ -172,19 +222,16 @@ export default function MyPurchases() {
   const [reviewsByOrder, setReviewsByOrder] = useState({});
 
   /* NEW: caches for live merge */
-  const ordersMapRef = React.useRef(new Map());        // orderId -> order doc
-  const customsByOrderIdRef = React.useRef(new Map()); // orderId -> custom_orders doc
-  const repairsByIdRef = React.useRef(new Map());      // repairId -> repairs doc
+  const ordersMapRef = React.useRef(new Map());
+  const customsByOrderIdRef = React.useRef(new Map());
+  const repairsByIdRef = React.useRef(new Map());
 
-  /* Emit merged list */
   const recomputeMerged = React.useCallback(() => {
     const list = [];
     ordersMapRef.current.forEach((o) => {
       let row = { ...o };
-      // overlay from customization by orderId
       const custom = customsByOrderIdRef.current.get(o.id);
       if (custom) row = mergeOverlay(row, custom);
-      // overlay from repair by repairId
       if (o.repairId) {
         const rep = repairsByIdRef.current.get(o.repairId);
         if (rep) row = mergeOverlay(row, rep);
@@ -242,7 +289,7 @@ export default function MyPurchases() {
     return () => unsubs.forEach((fn) => fn && fn());
   }, [db, uid, email, recomputeMerged]);
 
-  /* Live: CUSTOM_ORDERS by uid OR email (to overlay status/payment/proofs) */
+  /* Live: CUSTOM_ORDERS overlay */
   useEffect(() => {
     customsByOrderIdRef.current.clear();
     if (!uid && !email) return;
@@ -284,7 +331,7 @@ export default function MyPurchases() {
     return () => unsubs.forEach((fn) => fn && fn());
   }, [db, uid, email, recomputeMerged]);
 
-  /* Live: REPAIRS by uid OR email (to overlay status/payment/proofs) */
+  /* Live: REPAIRS overlay */
   useEffect(() => {
     repairsByIdRef.current.clear();
     if (!uid && !email) return;
@@ -441,6 +488,7 @@ export default function MyPurchases() {
     try {
       setSubmittingReview(true);
 
+      // Upload optional image
       let imageUrl = editingReview.enabled
         ? (editingReview.existing?.imageUrl || null)
         : null;
@@ -451,49 +499,18 @@ export default function MyPurchases() {
         imageUrl = await getDownloadURL(r);
       }
 
-      if (editingReview.enabled && editingReview.reviewId) {
-        try {
-          await updateDoc(doc(db, "reviews", editingReview.reviewId), {
-            rating: stars,
-            message: message.trim(),
-            imageUrl,
-            editedAt: serverTimestamp(),
-            editedOnce: true,
-          });
-        } catch {
-          await addDoc(collection(db, "reviews"), {
-            userId: uid,
-            userName:
-              auth.currentUser?.displayName ||
-              ratingOrder?.shippingAddress?.fullName ||
-              ratingOrder?.shippingAddress?.email ||
-              "User",
-            orderId: ratingOrder.id,
-            items: (Array.isArray(ratingOrder.items) ? ratingOrder.items : []).map((it) => ({
-              productId: it.productId || it.id || null,
-              title: it.title || it.name || "Item",
-              qty: Number(it.qty || 1),
-              price: Number(it.price || 0),
-            })),
-            rating: stars,
-            message: message.trim(),
-            imageUrl,
-            createdAt: serverTimestamp(),
-            editedAt: serverTimestamp(),
-            editedOnce: true,
-            version: (editingReview.existing?.version || 1) + 1,
-            editOf: editingReview.reviewId,
-            repairId: ratingOrder.repairId || null,
-          });
-        }
-      } else {
-        const uName =
-          auth.currentUser?.displayName ||
-          ratingOrder?.shippingAddress?.fullName ||
-          ratingOrder?.shippingAddress?.email ||
-          "User";
+      const items = Array.isArray(ratingOrder.items) ? ratingOrder.items : [];
+      // ★ Resolve productIds (robust to missing productId/id/slug)
+      const productIds = await resolveProductIds(db, ratingOrder);
 
-        const items = Array.isArray(ratingOrder.items) ? ratingOrder.items : [];
+      const uName =
+        auth.currentUser?.displayName ||
+        ratingOrder?.shippingAddress?.fullName ||
+        ratingOrder?.shippingAddress?.email ||
+        "User";
+
+      if (productIds.length === 0) {
+        // As a last resort, still save a review without productIds (no aggregate update)
         await addDoc(collection(db, "reviews"), {
           userId: uid,
           userName: uName,
@@ -512,12 +529,62 @@ export default function MyPurchases() {
           version: 1,
           repairId: ratingOrder.repairId || null,
         });
+        console.warn("Review saved without productIds; aggregate not updated.");
+        setRatingOpen(false);
+        setSubmittingReview(false);
+        setEditingReview({ enabled: false, reviewId: null, existing: null });
+        return;
+      }
+
+      if (editingReview.enabled && editingReview.reviewId) {
+        // EDIT path — update rating/message/image and fix the product aggregate delta
+        try {
+          await updateReviewWithAggregate(db, editingReview.reviewId, {
+            rating: stars,
+            message: message.trim(),
+            imageUrl,
+          });
+        } catch {
+          // If old review lacks productIds, fall back to creating a fresh one
+          await addReviewWithAggregate(db, {
+            productIds,
+            userId: uid,
+            userName: uName,
+            rating: stars,
+            message: message.trim(),
+            imageUrl,
+            orderId: ratingOrder.id,
+            items: items.map((it) => ({
+              productId: it.productId || it.id || null,
+              title: it.title || it.name || "Item",
+              qty: Number(it.qty || 1),
+              price: Number(it.price || 0),
+            })),
+          });
+        }
+      } else {
+        // NEW review — create + aggregate update for the product(s)
+        await addReviewWithAggregate(db, {
+          productIds,
+          userId: uid,
+          userName: uName,
+          rating: stars,
+          message: message.trim(),
+          imageUrl,
+          orderId: ratingOrder.id,
+          items: items.map((it) => ({
+            productId: it.productId || it.id || null,
+            title: it.title || it.name || "Item",
+            qty: Number(it.qty || 1),
+            price: Number(it.price || 0),
+          })),
+        });
       }
 
       setRatingOpen(false);
     } catch (e) {
       console.error(e);
-      alert("Failed to submit review.");
+      alert(e?.message || "Failed to submit review.");
     } finally {
       setSubmittingReview(false);
       setEditingReview({ enabled: false, reviewId: null, existing: null });
