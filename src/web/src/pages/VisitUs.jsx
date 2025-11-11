@@ -44,11 +44,9 @@ export default function VisitUs() {
           <h3>PHILIPPINES</h3>
           <h1>CONCEPCION, TARLAC</h1>
           <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. LA Define
-            Studio situum est in cor La Brea shopping district — collectionem
-            aedificiorum annorum 1950 legalississime renovatum. Nostae elementa
-            moderna et temporis operetta perfecte inter singularaes architecturae
-            notatas et creativam atmosphaeram residunt.
+            Welcome to our Concepcion, Tarlac studio—your local spot for quality furniture and home accents. 
+            See pieces in person, compare fabrics and finishes, and get sizing help from our team. 
+            You can place orders for delivery or arrange in-store pickup, plus ask about repairs and custom builds.
           </p>
 
           <p className="contact">
@@ -61,10 +59,9 @@ export default function VisitUs() {
           <p>Closed: Christmas Day, New Year’s Day, Valentine’s Day.</p>
 
           <p>
-            Lorem ipsum dolor sit amet, consectetur adipiscing elit. Vivamus
-            interdum, elit sit amet commodo pretium, neque nisl placerat nulla,
-            nec feugiat lorem eros eget purus. Duis ultricies fringilla metus
-            vitae ante iaculis vel, convallis erat porttitor. Aliquam erat volutpat.
+            From sofas and sectionals to dining sets and storage, we curate durable, comfortable designs made for everyday living. 
+            Need a specific size or color? We’ll tailor it for you. 
+            We deliver across Tarlac and nearby areas with careful packaging and updates from checkout to doorstep.
           </p>
           
         </div>
