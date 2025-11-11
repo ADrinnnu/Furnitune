@@ -28,11 +28,11 @@ export default function Footer() {
       <div className="container footer-top">
         <div className="ft-col">
           <div className="ft-title">FURNITURES</div>
-          <a href="/all-furnitures" className="link-item">Furniture Types</a>
+          <a href="/all" className="link-item">Furniture Types</a>
           <a href="/living-room" className="link-item">Living Room</a>
-          <a href="/bed-room" className="link-item">Bed Room</a>
-          <a href="/dining-room" className="link-item">Living Room</a>
-          <a href="/out-door" className="link-item">Outdoor</a>
+          <a href="/bedroom" className="link-item">Bed Room</a>
+          <a href="/dining-room" className="link-item">Dining Room</a>
+          <a href="/outdoor" className="link-item">Outdoor</a>
         </div>
 
         <div className="ft-col">
