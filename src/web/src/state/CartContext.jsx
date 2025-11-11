@@ -26,38 +26,67 @@ import {
 
 /* --------------------------- helpers --------------------------- */
 
+// include color in the document id so web+app match
 function cartDocIdFor(item) {
   const pid = item.productId || item.id || "unknown";
-  const size = (item.size || "").toString().trim() || "default";
-  return `${pid}__${size}`;
+  const size = (item.size || item.selectedSize || "").toString().trim() || "default";
+  const color =
+    (item.selectedColor || item.colorName || item.color || "").toString().trim() || "default";
+  return `${pid}__${size}__${color}`;
 }
 
+// write BOTH schemas (app schema + old fields) for compatibility
 function toPersisted(item) {
+  const productId = item.productId || item.id;
+
+  const selectedSize = item.selectedSize ?? item.size ?? null;
+  const selectedColor = item.selectedColor ?? item.colorName ?? null;
+  const imageUrl = item.imageUrl || item.image || item.thumb || "";
+
+  const qty = Number(item.qty || 1);
+  const price = Number(item.price || 0);
+
   return {
-    productId: item.productId || item.id,
-    title: item.title || item.name || "Item",
+    // --- app schema fields (mobile expects these) ---
+    createdAt: serverTimestamp(),
+    imageUrl,
     name: item.name || item.title || "Item",
-    price: Number(item.price || 0),
-    qty: Number(item.qty || 1),
-    size: item.size || null,
-    thumb: item.thumb || item.image || "",
-    image: item.image || item.thumb || "",
+    note: item.note ?? item.notes ?? null,
+    price,
+    productId,
+    qty,
+    selectedColor,
+    selectedSize,
+    userId: auth.currentUser ? auth.currentUser.uid : null,
+
+    // --- keep your old fields so nothing else breaks ---
+    title: item.title || item.name || "Item",
+    size: selectedSize,
+    thumb: imageUrl,
+    image: imageUrl,
     updatedAt: serverTimestamp(),
   };
 }
 
 function toUiItem(data, docId) {
   return {
-    id: data.productId, 
+    // core
+    id: data.productId,
     productId: data.productId,
     title: data.title || data.name || "Item",
     name: data.name || data.title || "Item",
     price: Number(data.price || 0),
     qty: Number(data.qty || 1),
-    size: data.size || null,
-    thumb: data.thumb || data.image || "",
-    image: data.image || data.thumb || "",
-    docId, 
+
+    // old + new shape for UI
+    size: data.size || data.selectedSize || null,
+    selectedSize: data.selectedSize ?? data.size ?? null,
+    selectedColor: data.selectedColor ?? null,
+    thumb: data.thumb || data.image || data.imageUrl || "",
+    image: data.image || data.thumb || data.imageUrl || "",
+    imageUrl: data.imageUrl || data.image || data.thumb || "",
+
+    docId,
   };
 }
 
@@ -90,6 +119,7 @@ export function CartProvider({ children }) {
         return;
       }
 
+      // merge guest buffer -> user cart
       if (guestBufferRef.current.length) {
         const batch = writeBatch(firestore);
         for (const it of guestBufferRef.current) {
@@ -167,7 +197,7 @@ export function CartProvider({ children }) {
         ref,
         {
           ...toPersisted(base),
-          qty: fvIncrement(base.qty || 1), 
+          qty: fvIncrement(base.qty || 1),
           updatedAt: serverTimestamp(),
         },
         { merge: true }
