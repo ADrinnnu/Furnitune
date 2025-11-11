@@ -119,6 +119,13 @@ async function toHttps(u) {
   try { return await getDownloadURL(ref(storage, obj)); } catch { return ""; }
 }
 function pickVariantPaths(prod, colorId, sizeId) {
+  // Tables that do not use color: prefer imagesBySize[sizeId]
+  if (!colorId && prod?.imagesBySize?.[sizeId]) {
+    const bySize = prod.imagesBySize[sizeId];
+    if (Array.isArray(bySize) && bySize.length) return bySize;
+  }
+
+  // Color × Size matrix (default path)
   const arr = prod?.imagesByOption?.[colorId]?.[sizeId];
   if (Array.isArray(arr) && arr.length) return arr;
   const colorMap = prod?.imagesByOption?.[colorId];
@@ -346,17 +353,22 @@ export default function ProductDetail() {
     })();
   }, [id]);
 
-  // Only swap gallery when BOTH color & size are chosen; otherwise revert to base
+  // Swap logic:
+  // - Tables: size alone changes images (via imagesBySize in Firestore)
+  // - Other furniture: require BOTH color & size; otherwise revert to base
   useEffect(() => {
     if (!id || !rawData) return;
-    if (!fabric || !size) { setImages(baseImages); setActiveIdx(0); return; }
+    const cat = resolveCategorySlug(rawData);
+    const typeLabel = normalizeTypeLabel(rawData, cat);
+    const isTable = typeLabel === "Tables";
+    if ((isTable && !size) || (!isTable && (!fabric || !size))) { setImages(baseImages); setActiveIdx(0); return; }
 
     (async () => {
       try {
         const { id: sizeId, matched } = mapSizeLabelToId(rawData, size);
         if (!matched || !sizeId) { setImages(baseImages); setActiveIdx(0); return; }
 
-        const paths = pickVariantPaths(rawData, fabric, sizeId);
+        const paths = pickVariantPaths(rawData, isTable ? null : fabric, sizeId);
         const https = (await Promise.all(paths.map(toHttps))).filter(Boolean);
         if (https.length) {
           setImages(https);
