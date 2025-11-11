@@ -382,7 +382,8 @@ def debug_item(pid):
         "image": (meta or {}).get("image"),
     })
 
-@app.post("/reco/recommend")
+@app.post("/reco/recommend")   # keep this for direct calls
+@app.post("/recommend")        # add this for Vercel rewrite
 def recommend():
     """
     Accepts JSON:
