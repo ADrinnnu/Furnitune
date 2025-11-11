@@ -360,7 +360,7 @@ export default function Customization() {
 
   const descriptionText = useMemo(() => {
     if (selectedProduct?.description) return selectedProduct.description;
-    return "Lorem ipsum dolor sit amet, consectetur adipiscing elit. Praesent euismod, odio vitae viverra cursus, lacus justo vulputate nisi, nec ullamcorper nunc eros at massa. Sed eu aliquam mauris.";
+    return "No description available for this product.";
   }, [selectedProduct]);
 
   // load products
