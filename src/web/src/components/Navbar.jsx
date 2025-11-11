@@ -133,16 +133,17 @@ export default function Navbar() {
             style={{ position: "relative", display: "inline-block" }}
           >
             <button
-              className="icon-btn"
-              aria-label="Search"
-              title="Search"
-              onClick={() => {
-                setOpenSearch((s) => !s);
-                setTimeout(() => searchInputRef.current?.focus(), 0);
-              }}
-            >
-              🔍
-            </button>
+  className="icon-btn"
+  aria-label="Search"
+  title="Search"
+  onClick={() => {
+    setOpenSearch((s) => !s);
+    setTimeout(() => searchInputRef.current?.focus(), 0);
+  }}
+  style={{ background: "transparent", border: 0, outline: "none", boxShadow: "none", padding: 0 }}
+>
+  🔍
+</button>
 
             {openSearch && (
               <div
