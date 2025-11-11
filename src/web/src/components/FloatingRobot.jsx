@@ -331,7 +331,7 @@ export default function FloatingRobot() {
   }
 
   // FAQ quick answers (unchanged)
-  const CONTACT = { phone:"123-323-312", email:"Furnitune@jameyl.com", live:"Offline now" };
+  const CONTACT = { phone:"09650934957", email:"furnitunecp@gmail.com", live:"Offline now" };
   const FAQS = [
     { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
     { q:"How does the recommender system work?", a:"It analyzes your room photo and preferences, encodes them, then finds the closest matches in our catalog.", tags:["recommender","ai"] },

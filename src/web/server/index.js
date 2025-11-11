@@ -247,14 +247,14 @@ Return your reply ONLY between these markers:
     ) {
       return res.status(200).json({
         answer:
-          "I’m at my daily free limit right now. Please try again later, or email Furnitune@jameyl.com or call 123-323-312.",
+          "I’m at my daily free limit right now. Please try again later, or email furnitunecp@gmail.com or call 09650934957.",
       });
     }
 
     console.error("ask error:", e?.detail || e?.response?.data || e?.message || e);
     return res.status(200).json({
       answer:
-        "Sorry — I couldn’t fetch that right now. Please email Furnitune@jameyl.com or call 123-323-312.",
+        "Sorry — I couldn’t fetch that right now. Please email furnitunecp@gmail.com or call 09650934957.",
     });
   }
 }

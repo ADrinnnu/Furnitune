@@ -147,7 +147,7 @@ export default function OrderSummary() {
         <div className="os-card os-help">
           <h4>NEED ASSISTANCE?</h4>
           <ul>
-            <li>💬 Live Chat: Offline now</li>
+            <li>💬 AI ChatBot: Online now</li>
             <li>📞 Call: 123-123-312</li>
             <li>✉️ Email Us: Furnitune@jemeyl.com</li>
           </ul>

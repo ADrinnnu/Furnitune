@@ -681,9 +681,9 @@ export default function ProductDetail() {
 
           <div className="pd-help help-box outside">
             <h4>NEED ASSISTANCE?</h4>
-            <p>💬 Live Chat: Offline now</p>
-            <p>📞 Call: 123-323-312</p>
-            <p>✉️ Email Us: Furnitune@jameyl.com</p>
+            <p>💬 AI ChatBot: Online now</p>
+            <p>📞 Call: 09650934957</p>
+            <p>✉️ Email Us: furnitunecp@gmail.com</p>
           </div>
         </div>
       </div>

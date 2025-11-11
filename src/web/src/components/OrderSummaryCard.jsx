@@ -224,7 +224,7 @@ export default function OrderSummaryCard({
         {showSupport && (
           <div className="support-box">
             <h4>NEED ASSISTANCE?</h4>
-            <p>💬 Live Chat: Offline now</p>
+            <p>💬 AI ChatBot: Online now</p>
             <p>📞 Call: 123-325-312</p>
             <p>✉️ Email: Furnitune@jserwj.com</p>
           </div>
@@ -352,7 +352,7 @@ export default function OrderSummaryCard({
       {showSupport && (
         <div className="support-box">
           <h4>NEED ASSISTANCE?</h4>
-          <p>💬 Live Chat: Offline now</p>
+          <p>💬 AI ChatBot: Online now</p>
           <p>📞 Call: 123-325-312</p>
           <p>✉️ Email: Furnitune@jserwj.com</p>
         </div>
