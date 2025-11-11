@@ -3,7 +3,7 @@ import custom from "../assets/customizee.webp"
 import repair from "../assets/reps.jpg"
 import recommend from "../assets/recs.jpg"
 import cpn from "../assets/cpn.jpeg"
-import coco from "../assets/coco.jpg"
+import owner from "../assets/owner.jpg"
 import "../AboutUs.css";
 
 
@@ -72,7 +72,7 @@ const AboutUs = () => {
           </p>
         </div>
         <div className="owner-photo">
-          <img src={coco} alt="Owner" />
+          <img src={owner} alt="Owner" />
         </div>
         <div className="location-photo">
           <img src={cpn} alt="Store Location" />
