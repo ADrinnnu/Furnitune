@@ -2,13 +2,14 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { Link, useParams, Navigate } from "react-router-dom";
 
-import repsImg from "../assets/pano.png"; 
+/* ⬇️ Replace pano.png with your two photos */
+import banner1 from "../assets/CollectionImage1.png";
+import banner2 from "../assets/CollectionImage2.png";
 
 import { firestore, storage } from "../firebase";
 import * as FS from "firebase/firestore";
 import { ref, getDownloadURL } from "firebase/storage";
 import "../Collections.css";
-
 
 const norm = (s) =>
   String(s || "")
@@ -45,31 +46,35 @@ async function toDownloadUrl(val) {
 
 const uniq = (arr) => Array.from(new Set((arr || []).filter(Boolean)));
 
+/* ───────────────── Collection metadata ─────────────────
+   Use two banners for the hero. If you only have one image,
+   it will gracefully render the single banner.
+*/
 const COLLECTION_META = {
   "comfort-core": {
     title: "COMFORT CORE COLLECTION",
-    banner: repsImg, 
+    banners: [banner1, banner2],
     description:
       "Experience unmatched comfort with cozy sofas and recliners designed for everyday relaxation.",
     synonyms: ["Comfort Core", "Comfort Core Collection"],
   },
   "social-sitting": {
     title: "SOCIAL SITTING COLLECTION",
-    banner: repsImg,
+    banners: [banner1, banner2],
     description:
       "Perfect for gatherings, this collection offers stylish seating that brings people together.",
     synonyms: ["Social Sitting", "Social Sitting Collection"],
   },
   "rest-recharge": {
     title: "REST & RECHARGE",
-    banner: repsImg,
+    banners: [banner1, banner2],
     description:
       "Beds and loungers made for ultimate rest, giving you the energy to face each day refreshed.",
     synonyms: ["Rest & Recharge", "Rest and Recharge", "Rest Recharge"],
   },
   "sit-stay": {
     title: "SIT & STAY",
-    banner: repsImg,
+    banners: [banner1, banner2],
     description:
       "Durable and versatile chairs built for long-lasting comfort and style.",
     synonyms: ["Sit & Stay", "Sit Stay"],
@@ -139,10 +144,7 @@ async function fetchProductsByCollection(metaKey, meta) {
     );
     tasks.push(
       FS.getDocs(
-        FS.query(
-          colRef,
-          FS.where("categorySlug", "in", slugVals.slice(0, 10))
-        )
+        FS.query(colRef, FS.where("categorySlug", "in", slugVals.slice(0, 10)))
       )
         .then(addDocs)
         .catch(() => {})
@@ -151,8 +153,7 @@ async function fetchProductsByCollection(metaKey, meta) {
 
   try {
     await Promise.all(tasks);
-  } catch {
-  }
+  } catch {}
 
   if (results.size) return Array.from(results.values());
 
@@ -233,6 +234,9 @@ export default function Collections() {
 
   if (!meta) return <Navigate to="/collections" replace />;
 
+  /* Prepare up to two images for the hero. If only one exists, we'll show one. */
+  const heroImages = (meta.banners && meta.banners.filter(Boolean)) || [];
+
   return (
     <div className="collection">
       <div
@@ -251,7 +255,20 @@ export default function Collections() {
 
       <h1 className="collection-title">{meta.title}</h1>
 
-      <img src={meta.banner} alt={meta.title} className="collection-banners" />
+      {/* ✅ Two-image (or single) hero */}
+      {heroImages.length > 1 ? (
+        <div className="collection-hero">
+          {heroImages.slice(0, 2).map((src, i) => (
+            <img key={i} src={src} alt={`${meta.title} ${i + 1}`} />
+          ))}
+        </div>
+      ) : heroImages.length === 1 ? (
+        <img
+          src={heroImages[0]}
+          alt={meta.title}
+          className="collection-banners"
+        />
+      ) : null}
 
       <div
         style={{

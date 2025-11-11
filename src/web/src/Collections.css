@@ -135,3 +135,37 @@
 }
 
 
+/* ── Two-image hero (add-only) ───────────────────────────── */
+.collection-hero {
+  display: grid;
+  grid-template-columns: 1.25fr 1fr; /* main image + supporting image */
+  gap: 14px;
+  margin: 20px 0;
+}
+
+.collection-hero img {
+  width: 100%;
+  height: 400px;         /* aligns with .collection-banners */
+  object-fit: cover;
+  border-radius: 8px;    /* matches your existing rounded corners */
+  display: block;
+  box-shadow: 0 6px 20px rgba(0, 0, 0, 0.08);
+}
+
+/* Tablet */
+@media (max-width: 1024px) {
+  .collection-hero img { height: 320px; }
+}
+
+/* Mobile: stack vertically */
+@media (max-width: 768px) {
+  .collection-hero {
+    grid-template-columns: 1fr;
+  }
+  .collection-hero img {
+    height: 220px;
+  }
+}
+
+
+
