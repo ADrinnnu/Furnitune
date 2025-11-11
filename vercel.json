@@ -1,7 +1,0 @@
-{
-  "rewrites": [
-    { "source": "/reco/:path*",   "destination": "https://furnitune-reco.onrender.com/:path*" },
-    { "source": "/bizchat/:path*","destination": "https://furnitune-chats.onrender.com/:path*" },
-    { "source": "/((?!api|reco|bizchat|.*\\.).*)", "destination": "/index.html" }
-  ]
-}
