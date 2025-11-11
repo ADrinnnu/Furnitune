@@ -184,7 +184,7 @@ export default function FloatingRobot() {
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
-      try { const r = await fetch(`${API_BASE}/debug/health`); setRecoHealth(r.ok ? "ok" : `HTTP ${r.status}`); }
+      try { const r = await fetch(`${API_BASE}/health`); setRecoHealth(r.ok ? "ok" : `HTTP ${r.status}`); }
       catch { setRecoHealth("offline"); }
     })();
   }, [recoOpen, recoHealth]);
