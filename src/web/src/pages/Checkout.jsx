@@ -130,7 +130,6 @@ export default function Checkout() {
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const shippingFee = 510;
-  const discount = 69;
   const subtotal = useMemo(
     () =>
       items.reduce(
@@ -139,7 +138,7 @@ export default function Checkout() {
       ),
     [items]
   );
-  const total = subtotal - discount + shippingFee;
+  const total = subtotal + shippingFee;
 
   /* ---- PURE computeErrors (no setState in render) ---- */
   const computeErrors = () => {
@@ -161,7 +160,7 @@ export default function Checkout() {
     if (!lastTrim) nextErrors.last = "Last name is required.";
     if (!streetTrim) nextErrors.street = "Street address is required.";
     if (!cityTrim) nextErrors.city = "City is required.";
-    if (!stateTrim) nextErrors.stateProv = "State/Province is required.";
+    if (!stateTrim) nextErrors.stateProv = "Province is required.";
 
     if (!zipDigits) nextErrors.zip = "ZIP is required.";
     else if (!isValidPHZip(zipDigits)) nextErrors.zip = "ZIP should be 4 digits.";
@@ -180,7 +179,7 @@ export default function Checkout() {
             last: "Last Name",
             street: "Street Address",
             city: "City",
-            stateProv: "State/Province",
+            stateProv: "Province",
             zip: "ZIP/Postal Code",
             phone: "Phone Number",
           }[k] || k)
@@ -244,7 +243,6 @@ export default function Checkout() {
     const pendingPayload = {
       items: slimItems(items),
       subtotal,
-      discount,
       shippingFee,
       total,
       shippingAddress,
@@ -447,7 +445,7 @@ export default function Checkout() {
         <input
           name="apt"
           type="text"
-          placeholder="Apt/Suite # (Optional)"
+          placeholder="Barangay, Unit, Suite, etc. (optional)"
           value={apt}
           onChange={(e) => setApt(e.target.value)}
           onBlur={() => setApt(trimStr(apt))}
@@ -477,7 +475,7 @@ export default function Checkout() {
             <input
               name="stateProv"
               type="text"
-              placeholder="*State"
+              placeholder="*Province"
               required
               value={stateProv}
               onChange={(e) => setStateProv(e.target.value)}
@@ -554,9 +552,8 @@ export default function Checkout() {
           showSupport
           showAddress={false}
           items={items}
-          discount={69}
           shippingFee={510}
-          order={{ items, subtotal, discount: 69, shippingFee: 510, total }}
+          order={{ items, subtotal,  shippingFee: 510, total }}
         />
       </div>
     </div>

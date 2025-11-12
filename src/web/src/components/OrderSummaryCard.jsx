@@ -65,7 +65,6 @@ export default function OrderSummaryCard({
   title = "ORDER SUMMARY",
   className = "",
   subtotalOverride,
-  discount = 0,
   shippingFee = 0,
   totalOverride,
 
@@ -173,13 +172,12 @@ export default function OrderSummaryCard({
     return src.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 1), 0);
   }, [order, passedItems, subtotalOverride]);
 
-  const disc = Number(discount || order?.discount || 0);
   const ship = Number(shippingFee || order?.shippingFee || order?.shipping || 0);
   const total = useMemo(() => {
     if (totalOverride != null) return Number(totalOverride);
     if (order?.total != null && !passedItems) return Number(order.total);
-    return Math.max(0, subtotal - disc + ship);
-  }, [order, passedItems, subtotal, disc, ship, totalOverride]);
+    return Math.max(0, subtotal + ship);
+  }, [order, passedItems, subtotal, ship, totalOverride]);
 
   const addr = useMemo(() => shippingAddress || order?.shippingAddress || null, [order, shippingAddress]);
 
@@ -325,7 +323,6 @@ export default function OrderSummaryCard({
 
       <div className="summary-totals">
         <div><span>Subtotal</span><span>{peso(subtotal)}</span></div>
-        <div><span>Discount</span><span>-{peso(disc)}</span></div>
         <div><span>Shipping &amp; Handling</span><span>{peso(ship)}</span></div>
       </div>
       <div className="summary-total">

@@ -145,9 +145,8 @@ export default function Payment() {
     () => items.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 1), 0),
     [items]
   );
-  const discount = pending?.discount ?? 69;
   const shippingFee = pending?.shippingFee ?? 510;
-  const total = subtotal - discount + shippingFee;
+  const total = subtotal + shippingFee;
 
   // prevent accidental leave
   useEffect(() => {
@@ -383,7 +382,7 @@ export default function Payment() {
         createdAt: serverTimestamp(),
         status: "processing",
         items: itemsLean,
-        subtotal, discount, shippingFee, total,
+        subtotal, shippingFee, total,
         shippingAddress: safeAddress,
         contactEmail: safeAddress?.email || null,
         note: repairId ? `Created from Repair ${repairId}` : (isCustomization ? "Created from Customization" : "Created from Checkout"),
@@ -563,7 +562,7 @@ export default function Payment() {
   const summaryOrder =
     existingOrderId && existingOrder
       ? existingOrder
-      : { items, subtotal, discount, shippingFee, total };
+      : { items, subtotal, shippingFee, total };
 
   return (
     <div className="payment-container">
@@ -630,7 +629,6 @@ export default function Payment() {
           showAddress={false}
           order={summaryOrder}
           items={!existingOrderId ? items : undefined}
-          discount={!existingOrderId ? discount : undefined}
           shippingFee={!existingOrderId ? shippingFee : undefined}
         />
       </div>
