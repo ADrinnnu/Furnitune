@@ -7,6 +7,7 @@ import {
   ref, getDownloadURL,
 } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
+import { onSnapshot, limit } from "firebase/firestore";
 import "../OrderSummary.css";
 
 /* ---------- built-in placeholder (no file needed) ---------- */
@@ -49,15 +50,27 @@ async function resolveStorageUrl(val) {
   }
 }
 function safeImageSrc(primaryResolvedUrl, original) {
-  // Prefer resolved URL when present.
   if (primaryResolvedUrl) return primaryResolvedUrl;
-  // If original looks like a Storage URL and we couldn't resolve it, DO NOT render it.
   if (isStorageLikeUrl(original)) return PLACEHOLDER;
-  // Otherwise (external http image), try original; onError will still fall back.
   return original || PLACEHOLDER;
 }
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 const toCents = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
+
+/* ---------- which fields to merge from linked docs ---------- */
+const MERGE_FIELDS = [
+  "assessedTotalCents",
+  "depositCents",
+  "additionalPaymentsCents",
+  "refundsCents",
+  "requestedAdditionalPaymentCents",
+  "paymentStatus",
+  "paymentProofUrl",
+  "paymentProofPath",
+  "lastAdditionalPaymentProofUrl",
+  "lastAdditionalPaymentProofPath",
+  "additionalPaymentProofs",
+];
 
 export default function OrderSummaryCard({
   items: passedItems,
@@ -71,18 +84,21 @@ export default function OrderSummaryCard({
   showAddress = false,
   shippingAddress = null,
   showSupport = true,
-  order: orderFromParent = null,
+  order: orderFromParent = null, // parent can pass a pre-merged order; we still enhance if linked docs have newer info
 }) {
   const [order, setOrder] = useState(orderFromParent === null ? undefined : orderFromParent);
+  const [linkedCustom, setLinkedCustom] = useState(null);
+  const [linkedRepair, setLinkedRepair] = useState(null);
+
   const [items, setItems] = useState([]);
   const [proofUrlResolved, setProofUrlResolved] = useState("");
 
-  // allow parent override
+  /* ---------- allow parent override ---------- */
   useEffect(() => {
     if (orderFromParent !== null) setOrder(orderFromParent);
   }, [orderFromParent]);
 
-  // items passed directly
+  /* ---------- items passed directly ---------- */
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
@@ -97,7 +113,7 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems, orderFromParent]);
 
-  // fetch order if needed
+  /* ---------- fetch order if needed (when parent didn't pass) ---------- */
   useEffect(() => {
     if (passedItems || orderFromParent) return;
     let stopAuth = () => {};
@@ -138,7 +154,91 @@ export default function OrderSummaryCard({
     };
   }, [orderId, passedItems, orderFromParent]);
 
-  // resolve item images from order
+  /* ---------- subscribe to linked customization (if any) ---------- */
+  useEffect(() => {
+    if (!order) { setLinkedCustom(null); return; }
+
+    const origin = String(order?.origin || "");
+    const hasCustomLink =
+      origin === "customization" ||
+      order?.customId ||
+      order?.linkedCustomId ||
+      order?.metadata?.customId;
+
+    if (!hasCustomLink) { setLinkedCustom(null); return; }
+
+    const customDocId =
+      order?.customId || order?.linkedCustomId || order?.metadata?.customId || null;
+
+    if (customDocId) {
+      const ref = doc(firestore, "custom_orders", customDocId);
+      const stop = onSnapshot(
+        ref,
+        (snap) => setLinkedCustom(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+        () => setLinkedCustom(null)
+      );
+      return stop;
+    }
+
+    // reverse lookup by orderId
+    const qRef = query(
+      collection(firestore, "custom_orders"),
+      where("orderId", "==", order.id),
+      limit(1)
+    );
+    const stop = onSnapshot(
+      qRef,
+      (snap) => {
+        const d = snap.docs[0];
+        setLinkedCustom(d ? { id: d.id, ...d.data() } : null);
+      },
+      () => setLinkedCustom(null)
+    );
+    return stop;
+  }, [order]);
+
+  /* ---------- subscribe to linked repair (if any) ---------- */
+  useEffect(() => {
+    if (!order) { setLinkedRepair(null); return; }
+
+    const origin = String(order?.origin || "");
+    const hasRepairLink =
+      origin === "repair" ||
+      order?.repairId ||
+      order?.metadata?.repairId;
+
+    if (!hasRepairLink) { setLinkedRepair(null); return; }
+
+    const repairDocId = order?.repairId || order?.metadata?.repairId || null;
+
+    if (repairDocId) {
+      const ref = doc(firestore, "repairs", repairDocId);
+      const stop = onSnapshot(
+        ref,
+        (snap) => setLinkedRepair(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+        () => setLinkedRepair(null)
+      );
+      return stop;
+    }
+
+    // reverse lookup by orderId
+    const qRef = query(
+      collection(firestore, "repairs"),
+      where("orderId", "==", order.id),
+      limit(1)
+    );
+    const stop = onSnapshot(
+      qRef,
+      (snap) => {
+        const d = snap.docs[0];
+        setLinkedRepair(d ? { id: d.id, ...d.data() } : null);
+      },
+      () => setLinkedRepair(null)
+    );
+    return stop;
+  }, [order]);
+
+  /* ---------- resolve item images from order ---------- */
   useEffect(() => {
     if (passedItems) return;
     (async () => {
@@ -153,56 +253,84 @@ export default function OrderSummaryCard({
     })();
   }, [order, passedItems]);
 
-  // resolve readable proof URL (or hide)
+  /* ---------- merge order + linked docs for display ---------- */
+  const merged = useMemo(() => {
+    if (!order) return order; // pass through undefined/null
+    const out = { ...order };
+    const chain = [order, linkedCustom, linkedRepair].filter(Boolean);
+    for (const k of MERGE_FIELDS) {
+      if (out[k] != null) continue;
+      for (const src of chain.slice(1)) { // skip original order
+        if (src && src[k] != null) { out[k] = src[k]; break; }
+      }
+    }
+    return out;
+  }, [order, linkedCustom, linkedRepair]);
+
+  /* ---------- resolve readable proof URL (from merged) ---------- */
   useEffect(() => {
     (async () => {
       const raw =
-        order?.paymentProofUrl ||
-        order?.lastAdditionalPaymentProofUrl ||
+        merged?.paymentProofUrl ||
+        merged?.paymentProofPath ||
+        merged?.lastAdditionalPaymentProofUrl ||
+        merged?.lastAdditionalPaymentProofPath ||
         "";
       const resolved = await resolveStorageUrl(raw);
       setProofUrlResolved(resolved); // empty if not readable
     })();
-  }, [order?.paymentProofUrl, order?.lastAdditionalPaymentProofUrl]);
+  }, [
+    merged?.paymentProofUrl,
+    merged?.paymentProofPath,
+    merged?.lastAdditionalPaymentProofUrl,
+    merged?.lastAdditionalPaymentProofPath,
+  ]);
 
+  /* ---------- money sections ---------- */
   const subtotal = useMemo(() => {
     if (subtotalOverride != null) return Number(subtotalOverride);
-    if (order?.subtotal != null && !passedItems) return Number(order.subtotal);
-    const src = passedItems || order?.items || [];
+    if (merged?.subtotal != null && !passedItems) return Number(merged.subtotal);
+    const src = passedItems || merged?.items || [];
     return src.reduce((s, it) => s + Number(it.price || 0) * Number(it.qty || 1), 0);
-  }, [order, passedItems, subtotalOverride]);
+  }, [merged, passedItems, subtotalOverride]);
 
-  const ship = Number(shippingFee || order?.shippingFee || order?.shipping || 0);
+  const ship = Number(shippingFee || merged?.shippingFee || merged?.shipping || 0);
+
   const total = useMemo(() => {
     if (totalOverride != null) return Number(totalOverride);
-    if (order?.total != null && !passedItems) return Number(order.total);
+    if (merged?.total != null && !passedItems) return Number(merged.total);
     return Math.max(0, subtotal + ship);
-  }, [order, passedItems, subtotal, ship, totalOverride]);
+  }, [merged, passedItems, subtotal, ship, totalOverride]);
 
-  const addr = useMemo(() => shippingAddress || order?.shippingAddress || null, [order, shippingAddress]);
+  const addr = useMemo(
+    () => shippingAddress || merged?.shippingAddress || null,
+    [merged, shippingAddress]
+  );
 
   const rollups = useMemo(() => {
-    const o = order || {};
-    const isPending = String(o.paymentStatus || "").toLowerCase() === "pending";
-    const assessedC = Number(o.assessedTotalCents ?? toCents(total));
-    const depositC = isPending ? 0 : Number(o.depositCents ?? toCents(total));
-    const addsC = Number(o.additionalPaymentsCents || 0);
-    const refundsC = Number(o.refundsCents || 0);
+    const o = merged || {};
+    const status = String(o.paymentStatus || "").toLowerCase();
+
+    // Only use provided cents; don't auto-fill deposit with total (avoids misleading numbers)
+    const assessedC = o.assessedTotalCents != null ? Number(o.assessedTotalCents) : toCents(total);
+    const depositC  = o.depositCents != null ? Number(o.depositCents) : 0;
+    const addsC     = Number(o.additionalPaymentsCents || 0);
+    const refundsC  = Number(o.refundsCents || 0);
+
     const netPaidC = Math.max(0, depositC + addsC - refundsC);
     const balanceC = Math.max(0, assessedC - netPaidC);
-    return { assessedC, depositC, addsC, refundsC, netPaidC, balanceC };
-  }, [order, total]);
 
-  if (order === undefined) {
+    return { assessedC, depositC, addsC, refundsC, netPaidC, balanceC, status };
+  }, [merged, total]);
+
+  /* ---------- skeletons ---------- */
+  if (order === undefined && merged === undefined) {
     return (
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
         <div className="cart-item">
-          <img
-            src={PLACEHOLDER}
-            alt="Loading"
-            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
-          />
+          <img src={PLACEHOLDER} alt="Loading"
+               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }} />
           <div className="cart-info">
             <p>Loading…</p>
             <span>Qty: —</span>
@@ -211,12 +339,10 @@ export default function OrderSummaryCard({
         </div>
         <div className="summary-totals">
           <div><span>Subtotal</span><span>—</span></div>
-          <div><span>Discount</span><span>—</span></div>
           <div><span>Shipping &amp; Handling</span><span>—</span></div>
         </div>
         <div className="summary-total">
-          <strong>TOTAL</strong>
-          <strong>—</strong>
+          <strong>TOTAL</strong><strong>—</strong>
         </div>
 
         {showSupport && (
@@ -230,16 +356,13 @@ export default function OrderSummaryCard({
       </div>
     );
   }
-  if (order === null && !passedItems) {
+  if ((order === null || merged === null) && !passedItems) {
     return (
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
         <div className="cart-item">
-          <img
-            src={PLACEHOLDER}
-            alt="No order"
-            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
-          />
+          <img src={PLACEHOLDER} alt="No order"
+               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }} />
           <div className="cart-info">
             <p>No order</p>
             <span>Qty: —</span>
@@ -250,7 +373,8 @@ export default function OrderSummaryCard({
     );
   }
 
-  const lineItems = items.length ? items : order.items || [];
+  const srcOrder = merged || order || {};
+  const lineItems = items.length ? items : srcOrder.items || [];
   const count = lineItems.reduce((s, it) => s + Number(it.qty || 1), 0);
 
   return (
@@ -259,11 +383,11 @@ export default function OrderSummaryCard({
 
       <div className="kv">
         <label>Status</label>
-        <div>{String(order?.status || "processing").toUpperCase()}</div>
+        <div>{String(srcOrder?.status || "processing").toUpperCase()}</div>
       </div>
       <div className="kv">
         <label>Payment</label>
-        <div>{String(order?.paymentStatus || "pending").toUpperCase()}</div>
+        <div>{String(srcOrder?.paymentStatus || "pending").toUpperCase()}</div>
       </div>
 
       {/* Show payment proof ONLY if we resolved a readable URL */}
@@ -284,7 +408,6 @@ export default function OrderSummaryCard({
         const name = it.name || it.title || `Item #${i + 1}`;
         const qty = Number(it.qty || 1);
         const price = Number(it.price || 0);
-
         const src = safeImageSrc(it.imageResolved, it.image || it.imageUrl || it.photo);
 
         return (
@@ -292,10 +415,7 @@ export default function OrderSummaryCard({
             <img
               src={src}
               alt={name}
-              onError={(e) => {
-                e.currentTarget.onerror = null;
-                e.currentTarget.src = PLACEHOLDER;
-              }}
+              onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
             />
             <div className="cart-info">
               <p>{name}</p>
@@ -312,12 +432,27 @@ export default function OrderSummaryCard({
         );
       })}
 
-      {showAddress && addr && (
+      {showAddress && (shippingAddress || srcOrder?.shippingAddress) && (
         <div className="delivery-section">
           <h4>DELIVERY ADDRESS</h4>
-          <p>{addr.fullName || [addr.firstName, addr.lastName].filter(Boolean).join(" ")}</p>
-          {addr.phone && <p>{addr.phone}</p>}
-          <p>{[addr.line1, addr.line2, addr.city, addr.province, addr.zip].filter(Boolean).join(" ")}</p>
+          <p>
+            {(shippingAddress || srcOrder.shippingAddress)?.fullName ||
+              [ (shippingAddress || srcOrder.shippingAddress)?.firstName,
+                (shippingAddress || srcOrder.shippingAddress)?.lastName
+              ].filter(Boolean).join(" ")}
+          </p>
+          {(shippingAddress || srcOrder.shippingAddress)?.phone && (
+            <p>{(shippingAddress || srcOrder.shippingAddress)?.phone}</p>
+          )}
+          <p>
+            {[
+              (shippingAddress || srcOrder.shippingAddress)?.line1,
+              (shippingAddress || srcOrder.shippingAddress)?.line2,
+              (shippingAddress || srcOrder.shippingAddress)?.city,
+              (shippingAddress || srcOrder.shippingAddress)?.province,
+              (shippingAddress || srcOrder.shippingAddress)?.zip,
+            ].filter(Boolean).join(" ")}
+          </p>
         </div>
       )}
 

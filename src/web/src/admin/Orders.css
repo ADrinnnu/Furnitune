@@ -67,6 +67,53 @@ details summary { cursor: pointer; font-weight: 700; }
 .item-title { font-weight: 700; }
 .note { background: #fff; border: 1px solid #e5e5e5; padding: 10px; border-radius: 8px; white-space: pre-wrap; }
 
+/* --- Fix horizontal scrollbar/overflow (keep layout intact) --- */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+
+.admin-orders { width: 100%; overflow-x: clip; /* or hidden if you prefer */ }
+
+/* Prevent table content from forcing horizontal scroll */
+.orders-table { table-layout: fixed; }
+.orders-table th:not(.nowrap),
+.orders-table td:not(.nowrap) {
+  white-space: normal;
+  word-break: break-word;
+}
+
+/* Keep details section from overflowing */
+.details-grid { max-width: 100%; overflow-x: hidden; }
+.details-grid img { max-width: 100%; height: auto; display: block; }
+
+
+/* --- Un-cut action columns (override previous rule) --- */
+.orders-table { table-layout: auto; }             /* let content size columns */
+
+/* keep most cells wrapping, but NEVER wrap action columns */
+.orders-table th:nth-last-child(2),
+.orders-table td:nth-last-child(2) {               /* "Update" col */
+  white-space: nowrap;
+  width: 1%;
+  min-width: 230px;                                /* room for select + buttons */
+}
+.orders-table th:last-child,
+.orders-table td:last-child {                      /* "Details" col */
+  white-space: nowrap;
+  width: 1%;
+  min-width: 110px;                                /* room for the View button */
+}
+
+/* ensure controls don’t overflow their cells */
+.orders-table td .status-select { max-width: 180px; }
+.orders-table td .save-btn { display: inline-flex; align-items: center; }
+
+/* keep the page from reintroducing a horizontal scrollbar */
+html, body, #root { max-width: 100%; overflow-x: hidden; }
+.admin-orders { width: 100%; overflow-x: clip; }
+.details-grid { max-width: 100%; overflow-x: hidden; }
+.details-grid img { max-width: 100%; height: auto; display: block; }
+
+
+
 
 
 

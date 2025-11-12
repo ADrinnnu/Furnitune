@@ -15,11 +15,9 @@ import {
   where,
   deleteDoc,
 } from "firebase/firestore";
-import { getStorage } from "firebase/storage";
-import { ref as sref, getDownloadURL as sGetURL } from "firebase/storage";
+import { getStorage, ref as sref, getDownloadURL as sGetURL } from "firebase/storage";
 import { ensureShipmentForOrder, deleteShipmentsForOrder } from "../data/firebase/firebaseProvider";
 import { upsertAssessmentAndRequest } from "../data/assessmentProvider";
-
 import "../Orders.css";
 
 /* ------------------------- Image resolver ------------------------- */
@@ -27,7 +25,6 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
   const [url, setUrl] = React.useState(
     typeof pathOrUrl === "string" && pathOrUrl.startsWith("http") ? pathOrUrl : ""
   );
-
   React.useEffect(() => {
     let cancelled = false;
     async function run() {
@@ -39,18 +36,15 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       }
       try {
         const storage = getStorage(auth.app);
-        const u = await sGetURL(sref(storage, val)); // val is fullPath like "payments/....jpg"
+        const u = await sGetURL(sref(storage, val));
         if (!cancelled) setUrl(u);
-      } catch {
-        // ignore; image just won't show
-      }
+      } catch {}
     }
     run();
     return () => {
       cancelled = true;
     };
   }, [pathOrUrl]);
-
   if (!url) return null;
   return (
     <a href={url} target="_blank" rel="noreferrer">
@@ -69,12 +63,13 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
   );
 }
 
-/* ========= helpers: status + badges ========= */
+/* ------------------------- Constants ------------------------- */
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing" },
   { value: "preparing", label: "Preparing" },
   { value: "to_ship", label: "To Ship" },
   { value: "to_receive", label: "To Receive" },
+  { value: "to_rate", label: "To Rate" },
   { value: "completed", label: "Completed" },
   { value: "refund", label: "Refund / Return" },
 ];
@@ -83,6 +78,7 @@ const clrOrders = "#d9534f";
 const clrRepairs = "#b33939";
 const clrCustom = "#c62828";
 
+/* ------------------------- Helpers ------------------------- */
 function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
   if (v === "paid") return "badge status-completed";
@@ -93,7 +89,6 @@ function paymentBadgeClass(ps) {
   return "badge status-processing";
 }
 
-/* ========= robust date + reference image helpers ========= */
 function pickDate(row) {
   const cands = [
     row?.createdAt,
@@ -110,11 +105,11 @@ function pickDate(row) {
   ];
   for (const ts of cands) {
     if (ts == null) continue;
-    if (typeof ts?.toDate === "function") return ts; // Firestore Timestamp
-    if (typeof ts?.seconds === "number") return ts; // {seconds, nanos}
-    if (typeof ts === "string" && !Number.isNaN(new Date(ts).getTime())) return ts; // ISO
+    if (typeof ts?.toDate === "function") return ts;
+    if (typeof ts?.seconds === "number") return ts;
+    if (typeof ts === "string" && !Number.isNaN(new Date(ts).getTime())) return ts;
     const n = Number(ts);
-    if (!Number.isNaN(n) && n > 0) return n; // secs/millis
+    if (!Number.isNaN(n) && n > 0) return n;
   }
   return null;
 }
@@ -127,20 +122,17 @@ function tsToMillis(ts) {
     return Number.isNaN(d.getTime()) ? 0 : d.getTime();
   }
   const n = Number(ts);
-  if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000; // guess ms vs s
+  if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000;
   return 0;
 }
 function fmtDate(tsLike) {
   const ms = tsToMillis(tsLike);
   return ms ? new Date(ms).toLocaleString() : "";
 }
-// put this next to your other helpers (e.g., after fmtDate)
 function fmtGCash(num) {
   const d = String(num || "").replace(/\D/g, "");
-  // 0917 123 4567 style if 11 digits, otherwise just return whatever digits exist
-  return d.length === 11 ? `${d.slice(0,4)} ${d.slice(4,7)} ${d.slice(7)}` : d || "—";
+  return d.length === 11 ? `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}` : d || "—";
 }
-/** Finds customer-uploaded reference images by common keys. */
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
     "referenceImages",
@@ -160,7 +152,68 @@ function pickCustomerReferenceImages(obj = {}) {
   return [];
 }
 
-/* ========= small UI bits ========= */
+/* NEW: robust Additionals printer (used in Repairs & Customization only) */
+function fmtAdditionals(additionals) {
+  if (!additionals) return "";
+  if (Array.isArray(additionals)) return additionals.join(", ");
+  if (typeof additionals === "object") {
+    const parts = [];
+    for (const [k, v] of Object.entries(additionals)) {
+      if (v == null || v === false) continue;
+      if (v === true) parts.push(k);
+      else if (typeof v === "object") {
+        const label = v.label || k;
+        const price = v.price != null ? ` (₱${Number(v.price).toLocaleString()})` : "";
+        parts.push(label + price);
+      } else {
+        parts.push(String(v));
+      }
+    }
+    return parts.join(", ");
+  }
+  return String(additionals);
+}
+
+function computePaymentSummary(row, overrides = {}) {
+  const get = (k, d = 0) => (overrides[k] != null ? Number(overrides[k]) : Number(row?.[k] || d));
+  let assessed = get("assessedTotalCents", null);
+  if (assessed == null) {
+    const gross =
+      row?.total != null
+        ? Math.round(Number(row.total) * 100)
+        : row?.unitPrice != null
+        ? Math.round(Number(row.unitPrice) * 100)
+        : 0;
+    assessed = gross;
+  }
+  const deposit = get("depositCents", 0);
+  const adds = get("additionalPaymentsCents", 0);
+  const refunds = get("refundsCents", 0);
+  const netPaidCents = Math.max(0, deposit + adds - refunds);
+  const balanceDueCents = Math.max(0, assessed - netPaidCents);
+  return {
+    netPaidCents,
+    balanceDueCents,
+    netPaid: Math.round(netPaidCents / 100),
+    balanceDue: Math.round(balanceDueCents / 100),
+  };
+}
+
+function applySettlement(row, basePatch, desiredStatus) {
+  const summary = computePaymentSummary(row, basePatch);
+  const patch = { ...basePatch, ...summary };
+  if (summary.balanceDueCents > 0) {
+    patch.paymentStatus = "awaiting_additional_payment";
+    patch.requestedAdditionalPaymentCents = summary.balanceDueCents;
+    patch.requestedAt = serverTimestamp();
+  } else {
+    patch.paymentStatus = desiredStatus === "refunded" ? "refunded" : "paid";
+    patch.requestedAdditionalPaymentCents = 0;
+  }
+  return patch;
+}
+
+/* ------------------------- Small UI helpers ------------------------- */
 function IconTrashBtn({ color, title, disabled, onClick, style }) {
   const [h, setH] = useState(false);
   return (
@@ -193,9 +246,7 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
   );
 }
 
-/* ========= Unified Customer block (labels + robust extraction) ========= */
 function CustomerBlock({ row, title = "Customer" }) {
-  // Prefer nested address objects, then fallbacks
   const addr =
     row?.shippingAddress ||
     row?.address ||
@@ -203,7 +254,6 @@ function CustomerBlock({ row, title = "Customer" }) {
     row?.customerInfo?.address ||
     row?.customer_address ||
     {};
-
   const firstName =
     addr?.firstName ??
     addr?.firstname ??
@@ -226,7 +276,6 @@ function CustomerBlock({ row, title = "Customer" }) {
     row?.name ??
     row?.customer?.name ??
     [firstName, lastName].filter(Boolean).join(" ");
-
   const email =
     addr?.email ??
     row?.shippingAddress?.email ??
@@ -235,34 +284,18 @@ function CustomerBlock({ row, title = "Customer" }) {
     row?.customer?.email ??
     row?.customerInfo?.email ??
     "";
-
   const phone =
-    addr?.phone ??
-    row?.contactPhone ??
-    row?.phone ??
-    row?.customer?.phone ??
-    row?.customerInfo?.phone ??
-    "";
-
+    addr?.phone ?? row?.contactPhone ?? row?.phone ?? row?.customer?.phone ?? row?.customerInfo?.phone ?? "";
   const line1 = addr?.line1 ?? addr?.address1 ?? row?.line1 ?? row?.address1 ?? "";
   const line2 = addr?.line2 ?? addr?.address2 ?? row?.line2 ?? row?.address2 ?? "";
-
   const city = addr?.city ?? row?.city ?? row?.shippingCity ?? row?.customer?.city ?? row?.customerInfo?.city ?? "";
   const province =
     addr?.province ?? addr?.state ?? row?.province ?? row?.state ?? row?.shippingProvince ?? "";
   const zip =
     addr?.zip ?? addr?.postalCode ?? addr?.postcode ?? row?.zip ?? row?.postalCode ?? row?.postcode ?? "";
-
   const country =
-    addr?.country ??
-    addr?.countryCode ??
-    row?.country ??
-    row?.shippingCountry ??
-    row?.countryCode ??
-    "";
-
+    addr?.country ?? addr?.countryCode ?? row?.country ?? row?.shippingCountry ?? row?.countryCode ?? "";
   const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? "";
-
   return (
     <div className="span-2">
       <h4>{title}</h4>
@@ -279,32 +312,26 @@ function CustomerBlock({ row, title = "Customer" }) {
           <label style={{ fontWeight: 600 }}>Name</label>
         </div>
         <div>{fullName || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>Email</label>
         </div>
         <div>{email || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>Phone</label>
         </div>
         <div>{phone || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>Address</label>
         </div>
         <div>{[line1, line2].filter(Boolean).join(", ") || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>City / Province / ZIP</label>
         </div>
         <div>{[city, province, zip].filter(Boolean).join(" · ") || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>Country</label>
         </div>
         <div>{country || "—"}</div>
-
         <div className="kv">
           <label style={{ fontWeight: 600 }}>User ID</label>
         </div>
@@ -314,7 +341,6 @@ function CustomerBlock({ row, title = "Customer" }) {
   );
 }
 
-/* --------------------------- Assessment panel (unchanged) --------------------------- */
 function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
     row?.assessedTotalCents != null ? Math.round(Number(row.assessedTotalCents) / 100) : ""
@@ -331,13 +357,10 @@ function AssessmentPanel({ kind, row }) {
   const assessedC = Math.round(Number(assessed || 0) * 100);
   const netPaid = dep + adds - refs;
   const balance = assessedC > 0 ? Math.max(0, assessedC - netPaid) : 0;
-
   const setToBalance = () => setAmountPHP(Math.round(balance / 100));
-
   return (
     <div className="span-2">
       <h4>Finalize & Request Payment</h4>
-
       <div className="kv">
         <label>Final Total (₱)</label>
         <input
@@ -348,7 +371,6 @@ function AssessmentPanel({ kind, row }) {
           placeholder="e.g. 43441"
         />
       </div>
-
       <div className="kv">
         <label>Request amount now (₱)</label>
         <div style={{ display: "flex", gap: 8 }}>
@@ -364,7 +386,6 @@ function AssessmentPanel({ kind, row }) {
           </button>
         </div>
       </div>
-
       <div className="kv">
         <label>Message to customer</label>
         <textarea
@@ -375,84 +396,68 @@ function AssessmentPanel({ kind, row }) {
           placeholder="Explain why the additional amount is needed"
         />
       </div>
-
       <div className="muted small" style={{ marginTop: 6 }}>
-        Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l:{" "}
-        <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> · Computed
-        Balance: <b>₱{(balance / 100).toLocaleString()}</b>
+        Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l: <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> · Computed Balance: <b>₱{(balance / 100).toLocaleString()}</b>
       </div>
-
       <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
         <button
-  className="save-btn"
-  onClick={async () => {
-    const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
-    const requestCentsInput =
-      amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
-
-    try {
-      // Try shared provider (works when a linked orders doc exists)
-      await upsertAssessmentAndRequest({
-        kind,
-        id: row.id,
-        assessedTotalCents: assessedCents,
-        requestAmountCents: requestCentsInput, // null → provider computes balance
-        note,
-      });
-      alert("Assessment saved and request sent.");
-      return;
-    } catch (e) {
-      // If there is no linked order, fall back to direct write
-      if (!/linked order not found/i.test(String(e?.message || ""))) {
-        alert(e?.message || "Failed to save assessment.");
-        return;
-      }
-
-      try {
-        const db = getFirestore(auth.app);
-
-        // compute request if left blank
-        const dep = Number(row?.depositCents || 0);
-        const adds = Number(row?.additionalPaymentsCents || 0);
-        const refs = Number(row?.refundsCents || 0);
-        const computedBalance = Math.max(0, assessedCents - (dep + adds - refs));
-        const requestCents = requestCentsInput == null ? computedBalance : requestCentsInput;
-
-        const coll = kind === "repair" ? "repairs" : "custom_orders";
-        await updateDoc(doc(db, coll, row.id), {
-          assessedTotalCents: assessedCents,
-          requestedAdditionalPaymentCents: requestCents,
-          assessmentNotes: note || "",
-          assessedAt: serverTimestamp(),
-          requestedAt: serverTimestamp(),
-        });
-
-        // notify customer if we know their uid
-        const uid =
-          row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
-        if (uid) {
-          await addDoc(collection(db, "users", uid, "notifications"), {
-            type: "additional_payment_request",
-            ...(kind === "repair" ? { repairId: row.id } : { customId: row.id }),
-            title: "Additional payment requested",
-            body: `Please pay ₱${Math.round(requestCents / 100).toLocaleString()} to proceed.`,
-            createdAt: serverTimestamp(),
-            read: false,
-          });
-        }
-
-        alert("Assessment saved and request sent (no linked order).");
-      } catch (e2) {
-        alert(e2?.message || "Fallback save failed.");
-      }
-    }
-  }}
->
-  Save & Send Request
-</button>
-
+          className="save-btn"
+          onClick={async () => {
+            const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
+            const requestCentsInput =
+              amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
+            try {
+              await upsertAssessmentAndRequest({
+                kind,
+                id: row.id,
+                assessedTotalCents: assessedCents,
+                requestAmountCents: requestCentsInput,
+                note,
+              });
+              alert("Assessment saved and request sent.");
+              return;
+            } catch (e) {
+              if (!/linked order not found/i.test(String(e?.message || ""))) {
+                alert(e?.message || "Failed to save assessment.");
+                return;
+              }
+              try {
+                const db = getFirestore(auth.app);
+                const dep = Number(row?.depositCents || 0);
+                const adds = Number(row?.additionalPaymentsCents || 0);
+                const refs = Number(row?.refundsCents || 0);
+                const computedBalance = Math.max(0, assessedCents - (dep + adds - refs));
+                const requestCents = requestCentsInput == null ? computedBalance : requestCentsInput;
+                const coll = kind === "repair" ? "repairs" : "custom_orders";
+                await updateDoc(doc(db, coll, row.id), {
+                  assessedTotalCents: assessedCents,
+                  requestedAdditionalPaymentCents: requestCents,
+                  assessmentNotes: note || "",
+                  assessedAt: serverTimestamp(),
+                  requestedAt: serverTimestamp(),
+                });
+                const uid =
+                  row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+                if (uid) {
+                  await addDoc(collection(db, "users", uid, "notifications"), {
+                    type: "additional_payment_request",
+                    ...(kind === "repair" ? { repairId: row.id } : { customId: row.id }),
+                    title: "Additional payment requested",
+                    body: `Please pay ₱${Math.round(requestCents / 100).toLocaleString()} to proceed.`,
+                    createdAt: serverTimestamp(),
+                    read: false,
+                  });
+                }
+                alert("Assessment saved and request sent (no linked order).");
+              } catch (e2) {
+                alert(e2?.message || "Fallback save failed.");
+              }
+            }
+          }}
+        >
+          Save & Send Request
+        </button>
       </div>
-
       {row?.lastAdditionalPaymentProofUrl && (
         <div className="span-2" style={{ marginTop: 12 }}>
           <h4>Latest Additional Payment Proof</h4>
@@ -469,12 +474,10 @@ function AssessmentPanel({ kind, row }) {
   );
 }
 
-/* --------------------------- component --------------------------- */
+/* ------------------------- Main component ------------------------- */
 export default function Orders() {
   const db = useMemo(() => getFirestore(auth.app), []);
-  const [activeTab, setActiveTab] = useState("orders"); // 'orders' | 'repairs' | 'custom'
-
-  /* -------- product orders state -------- */
+  const [activeTab, setActiveTab] = useState("orders");
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -483,8 +486,6 @@ export default function Orders() {
   const [draft, setDraft] = useState({});
   const [deleting, setDeleting] = useState({});
   const [expandedOrderId, setExpandedOrderId] = useState(null);
-
-  /* -------- repair orders state -------- */
   const [repairs, setRepairs] = useState([]);
   const [repairsLoading, setRepairsLoading] = useState(true);
   const [repairsErr, setRepairsErr] = useState("");
@@ -493,8 +494,6 @@ export default function Orders() {
   const [repairsDraft, setRepairsDraft] = useState({});
   const [repDeleting, setRepDeleting] = useState({});
   const [expandedRepairId, setExpandedRepairId] = useState(null);
-
-  /* -------- customization orders state -------- */
   const [customs, setCustoms] = useState([]);
   const [customsLoading, setCustomsLoading] = useState(true);
   const [customsErr, setCustomsErr] = useState("");
@@ -503,12 +502,9 @@ export default function Orders() {
   const [customsDraft, setCustomsDraft] = useState({});
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
-
-  /* -------- returns UI state -------- */
   const [returnActing, setReturnActing] = useState({});
   const [returnByOrderId, setReturnByOrderId] = useState({});
 
-  /* ------------------- live subscriptions ------------------- */
   useEffect(() => {
     const qy = query(collection(db, "orders"), orderBy("createdAt", "desc"));
     const stop = onSnapshot(
@@ -518,7 +514,6 @@ export default function Orders() {
         setLoading(false);
       },
       (e) => {
-        console.error(e);
         setErr(e?.message || "Failed to load orders.");
         setLoading(false);
       }
@@ -535,7 +530,6 @@ export default function Orders() {
         setRepairsLoading(false);
       },
       (e) => {
-        console.error(e);
         setRepairsErr(e?.message || "Failed to load repair orders.");
         setRepairsLoading(false);
       }
@@ -552,7 +546,6 @@ export default function Orders() {
         setCustomsLoading(false);
       },
       (e) => {
-        console.error(e);
         setCustomsErr(e?.message || "Failed to load customization orders.");
         setCustomsLoading(false);
       }
@@ -560,7 +553,6 @@ export default function Orders() {
     return stop;
   }, [db]);
 
-  /* ------------------- derived lists (date-aware) ------------------- */
   const productOrders = useMemo(
     () =>
       rows.filter((o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"),
@@ -587,7 +579,6 @@ export default function Orders() {
     return sorted.filter((c) => (c?.status || "draft") === customsFilter);
   }, [customs, customsFilter]);
 
-  /* ------------------- money/date formatters ------------------- */
   function fmtPHP(n) {
     try {
       return new Intl.NumberFormat("en-PH", {
@@ -600,128 +591,337 @@ export default function Orders() {
     }
   }
 
-  /* ------------------- payment helpers (unchanged) ------------------- */
+  function computeMonies(row) {
+    const N = (x) => Math.max(0, Math.round(Number(x || 0)));
+    const assessed =
+      N(row.assessedTotalCents) ||
+      (row.total != null ? Math.round(Number(row.total) * 100)
+        : row.unitPrice != null ? Math.round(Number(row.unitPrice) * 100) : 0);
+    const deposit = N(row.depositCents);
+    const adds = N(row.additionalPaymentsCents);
+    const refunds = N(row.refundsCents);
+    const netPaid = Math.max(0, deposit + adds - refunds);
+    const balance = assessed > 0 ? Math.max(0, assessed - netPaid) : 0;
+
+    const shipPHP = Number(row?.shippingFee || 0);
+    const unitPHP = Number(row?.unitPrice || 0);
+    const displayTotalPHP = row?.total != null ? Number(row.total) : unitPHP + shipPHP;
+
+    return {
+      assessed, deposit, adds, refunds, netPaid, balance,    // cents
+      shipPHP, unitPHP, displayTotalPHP                      // pesos
+    };
+  }
+
+  /* ------------------------- Payment updaters ------------------------- */
+
+  // UPDATED: Orders tab – put back DEPOSIT prompt flow; others unchanged
   async function updateOrderPayment(orderId, currentRow, nextStatus) {
     const db2 = getFirestore(auth.app);
     const val = String(nextStatus || "").toLowerCase();
 
-    const patch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
-    if (val === "paid" && !currentRow?.paidAt) patch.paidAt = serverTimestamp();
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
+    // default patch
+    let patch = { paymentUpdatedAt: serverTimestamp() };
 
     if (val === "deposit_paid") {
-      const defaultPHP = Math.round(Number(currentRow?.total || 0));
-      const ans = prompt(
-        `Enter initial payment amount (₱).\nThis will be shown to the customer as “Deposit”.`,
-        String(defaultPHP || "")
-      );
-      if (ans !== null && ans !== "") {
-        const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        patch.depositCents = pesos * 100;
-      }
-    }
-
-    if (val === "paid" && currentRow?.depositCents == null) {
+      // prompt only for deposit in Orders tab
       const defaultPHP = Math.round(
         Number(
           currentRow?.assessedTotalCents != null
             ? currentRow.assessedTotalCents / 100
-            : currentRow?.total || 0
+            : currentRow?.total != null
+            ? currentRow.total
+            : (Number(currentRow?.unitPrice || 0) + Number(currentRow?.shippingFee || 0))
         )
       );
-      const ans = prompt(
-        `Record the total amount received (₱)?\n(Optional, helps the Payment Summary match “Paid”.)`,
-        String(defaultPHP || "")
-      );
+      const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
       if (ans !== null && ans !== "") {
         const pesos = Math.max(0, Math.round(Number(ans || 0)));
         patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
       }
+      // apply settlement so balance & status reflect the deposit
+      patch = applySettlement(currentRow, patch, "deposit_paid");
+    } else {
+      // keep simple (no prompts) for other statuses in Orders tab
+      patch.paymentStatus = val;
+      if (val === "paid") patch.paidAt = serverTimestamp();
+      if (val === "refunded") patch.refundedAt = serverTimestamp();
     }
 
     await updateDoc(doc(db2, "orders", orderId), patch);
     setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
   }
 
+  // Unchanged: prompts remain for Repair
   async function updateRepairPayment(repairId, currentRepairRow, nextStatus) {
     const db2 = getFirestore(auth.app);
     const val = String(nextStatus || "").toLowerCase();
-
-    const patch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
-    if (val === "paid" && !currentRepairRow?.paidAt) patch.paidAt = serverTimestamp();
+    let patch = { paymentUpdatedAt: serverTimestamp() };
     if (val === "refunded") patch.refundedAt = serverTimestamp();
-
     const linkedOrder = rows.find((o) => o?.repairId === repairId);
-
-    if (val === "deposit_paid" && linkedOrder?.id) {
-      const defaultPHP = Math.round(Number(linkedOrder?.total || 0));
-      const ans = prompt(
-        `Enter initial payment amount (₱) for this repair order.\nThis will be shown to the customer as “Deposit”.`,
-        String(defaultPHP || "")
-      );
-      const orderPatch = { paymentStatus: val, paymentUpdatedAt: serverTimestamp() };
+    if (val === "deposit_paid") {
+      const defaultPHP = Math.round(Number((linkedOrder?.total ?? currentRepairRow?.total) || 0));
+      const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
       if (ans !== null && ans !== "") {
         const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        orderPatch.depositCents = pesos * 100;
+        patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
       }
-      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
-      setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o)));
-    }
-
-    if (val === "paid" && linkedOrder?.id && linkedOrder?.depositCents == null) {
-      const defaultPHP = Math.round(
-        Number(
-          linkedOrder?.assessedTotalCents != null
-            ? linkedOrder.assessedTotalCents / 100
-            : linkedOrder?.total || 0
-        )
-      );
-      const ans = prompt(
-        `Record the total amount received (₱) for this repair order?`,
-        String(defaultPHP || "")
-      );
-      if (ans !== null && ans !== "") {
-        const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        const orderPatch = {
-          paymentStatus: val,
-          paymentUpdatedAt: serverTimestamp(),
-          depositCents: pesos * 100,
-          paidAt: serverTimestamp(),
-        };
-        await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
-        setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o)));
+      patch = applySettlement(currentRepairRow, patch, "deposit_paid");
+    } else if (val === "paid") {
+      let enteredPHP = 0;
+      if (currentRepairRow?.depositCents == null) {
+        const defaultPHP = Math.round(
+          Number(
+            currentRepairRow?.assessedTotalCents != null
+              ? currentRepairRow.assessedTotalCents / 100
+              : currentRepairRow?.total || 0
+          )
+        );
+        const ans = prompt(`Amount received now (₱).`, String(defaultPHP || ""));
+        if (ans !== null && ans !== "") {
+          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
+          patch.depositCents = enteredPHP * 100;
+          patch.deposit = enteredPHP;
+        }
+      } else {
+        const ans = prompt(`Amount received now (₱).`, "");
+        if (ans !== null && ans !== "") {
+          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
+          const currentAdds = Number(currentRepairRow?.additionalPaymentsCents || 0);
+          const nextAdds = currentAdds + enteredPHP * 100;
+          patch.additionalPaymentsCents = nextAdds;
+          patch.additionalPayments = Math.round(nextAdds / 100);
+        }
       }
+      patch.paidAt = serverTimestamp();
+      patch = applySettlement(currentRepairRow, patch, "paid");
+    } else if (val === "awaiting_additional_payment") {
+      patch = applySettlement(currentRepairRow, patch, "awaiting_additional_payment");
+    } else {
+      patch.paymentStatus = val;
     }
-
     await updateDoc(doc(db2, "repairs", repairId), patch);
     setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...patch } : r)));
+    if (linkedOrder?.id) {
+      const oPatch = applySettlement(linkedOrder, patch, patch.paymentStatus);
+      await updateDoc(doc(db2, "orders", linkedOrder.id), oPatch);
+      setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...oPatch } : o)));
+    }
   }
 
+  // Unchanged: prompts remain for Customization
+  async function updateCustomPayment(customId, nextStatus) {
+    const db2 = getFirestore(auth.app);
+    const val = String(nextStatus || "").toLowerCase();
+    const customRow = customs.find((c) => c.id === customId) || {};
+    let patch = { paymentUpdatedAt: serverTimestamp() };
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+    if (val === "deposit_paid") {
+      const ans = prompt("Enter initial payment amount (₱).", "");
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(0, Math.round(Number(ans || 0)));
+        patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
+      }
+      patch = applySettlement(customRow, patch, "deposit_paid");
+    } else if (val === "paid") {
+      let enteredPHP = 0;
+      if (customRow?.depositCents == null) {
+        const defaultPHP = Math.round(
+          Number(
+            customRow?.assessedTotalCents != null
+              ? customRow.assessedTotalCents / 100
+              : customRow?.unitPrice || 0
+          )
+        );
+        const ans = prompt("Amount received now (₱).", String(defaultPHP || ""));
+        if (ans !== null && ans !== "") {
+          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
+          patch.depositCents = enteredPHP * 100;
+          patch.deposit = enteredPHP;
+        }
+      } else {
+        const ans = prompt("Amount received now (₱).", "");
+        if (ans !== null && ans !== "") {
+          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
+          const currentAdds = Number(customRow?.additionalPaymentsCents || 0);
+          const nextAdds = currentAdds + enteredPHP * 100;
+          patch.additionalPaymentsCents = nextAdds;
+          patch.additionalPayments = Math.round(nextAdds / 100);
+        }
+      }
+      patch.paidAt = serverTimestamp();
+      patch = applySettlement(customRow, patch, "paid");
+    } else if (val === "awaiting_additional_payment") {
+      patch = applySettlement(customRow, patch, "awaiting_additional_payment");
+    } else {
+      patch.paymentStatus = val;
+    }
+    const byId =
+      (customRow?.orderId ? rows.find((o) => o.id === customRow.orderId) : null) || null;
+    const byFields =
+      rows.find(
+        (o) =>
+          String(o?.origin || "") === "customization" &&
+          (o?.customId === customId ||
+           o?.linkedCustomId === customId ||
+           o?.metadata?.customId === customId)
+      ) || null;
+    const linkedOrder = byId || byFields;
+    if (linkedOrder?.id) {
+      let orderPatch = applySettlement(linkedOrder, patch, patch.paymentStatus);
+      if (customRow?.depositPaymentProofUrl)  orderPatch.paymentProofUrl  = customRow.depositPaymentProofUrl;
+      if (customRow?.depositPaymentProofPath) orderPatch.paymentProofPath = customRow.depositPaymentProofPath;
+      if (customRow?.lastAdditionalPaymentProofUrl)
+        orderPatch.lastAdditionalPaymentProofUrl = customRow.lastAdditionalPaymentProofUrl;
+      if (customRow?.lastAdditionalPaymentProofPath)
+        orderPatch.lastAdditionalPaymentProofPath = customRow.lastAdditionalPaymentProofPath;
+      if (Array.isArray(customRow?.additionalPaymentProofs) && customRow.additionalPaymentProofs.length)
+        orderPatch.additionalPaymentProofs = customRow.additionalPaymentProofs;
+      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
+      setRows((prev) =>
+        prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o))
+      );
+    }
+    await updateDoc(doc(db2, "custom_orders", customId), patch);
+    setCustoms((prev) => prev.map((c) => (c.id === customId ? { ...c, ...patch } : c)));
+  }
+
+  async function recordAdditionalPaymentForOrder(orderId) {
+    // intentionally unused/kept for parity – not linked from Orders UI anymore
+    const db2 = getFirestore(auth.app);
+    const row = rows.find((o) => o.id === orderId) || {};
+    const current = Number(row?.additionalPaymentsCents || 0);
+    const currentPHP = Math.round(current / 100);
+    const ans = prompt(
+      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
+      ""
+    );
+    if (ans == null || ans === "") return;
+    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
+    const nextCents = current + addPHP * 100;
+    let basePatch = {
+      additionalPaymentsCents: nextCents,
+      additionalPayments: Math.round(nextCents / 100),
+      paymentUpdatedAt: serverTimestamp(),
+    };
+    basePatch = applySettlement(row, basePatch, "awaiting_additional_payment");
+    await updateDoc(doc(db2, "orders", orderId), basePatch);
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === orderId ? { ...o, ...basePatch } : o
+      )
+    );
+  }
+
+  async function recordAdditionalPaymentForCustom(customId) {
+    const db2 = getFirestore(auth.app);
+    const row = customs.find((c) => c.id === customId) || {};
+    const current = Number(row?.additionalPaymentsCents || 0);
+    const currentPHP = Math.round(current / 100);
+    const ans = prompt(
+      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
+      ""
+    );
+    if (ans == null || ans === "") return;
+    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
+    const nextCents = current + addPHP * 100;
+    let customPatch = {
+      additionalPaymentsCents: nextCents,
+      additionalPayments: Math.round(nextCents / 100),
+      paymentUpdatedAt: serverTimestamp(),
+    };
+    customPatch = applySettlement(row, customPatch, "awaiting_additional_payment");
+    await updateDoc(doc(db2, "custom_orders", customId), customPatch);
+    setCustoms((prev) =>
+      prev.map((c) =>
+        c.id === customId ? { ...c, ...customPatch } : c
+      )
+    );
+    const linkedOrder =
+      rows.find(
+        (o) =>
+          String(o?.origin || "") === "customization" &&
+          (o?.customId === customId || o?.linkedCustomId === customId || o?.metadata?.customId === customId)
+      ) || null;
+    if (linkedOrder?.id) {
+      let orderPatch = applySettlement(linkedOrder, customPatch, customPatch.paymentStatus);
+      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
+      setRows((prev) =>
+        prev.map((o) =>
+          o.id === linkedOrder.id
+            ? { ...o, ...orderPatch }
+            : o
+        )
+      );
+    }
+  }
+
+  async function recordAdditionalPaymentForRepair(repairId) {
+    const db2 = getFirestore(auth.app);
+    const r = repairs.find((x) => x.id === repairId) || {};
+    const linkedOrder = rows.find((o) => o?.repairId === repairId) || null;
+    const baseCurrent =
+      (linkedOrder?.additionalPaymentsCents != null
+        ? Number(linkedOrder.additionalPaymentsCents)
+        : Number(r?.additionalPaymentsCents || 0)) || 0;
+    const currentPHP = Math.round(baseCurrent / 100);
+    const ans = prompt(
+      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
+      ""
+    );
+    if (ans == null || ans === "") return;
+    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
+    const nextCents = baseCurrent + addPHP * 100;
+    if (linkedOrder?.id) {
+      const orderRow = rows.find((o) => o.id === linkedOrder.id) || {};
+      let orderPatch = {
+        additionalPaymentsCents: nextCents,
+        additionalPayments: Math.round(nextCents / 100),
+        paymentUpdatedAt: serverTimestamp(),
+      };
+      orderPatch = applySettlement(orderRow, orderPatch, "awaiting_additional_payment");
+      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
+      setRows((prev) =>
+        prev.map((o) =>
+          o.id === linkedOrder.id ? { ...o, ...orderPatch } : o
+        )
+      );
+    }
+    let repairPatch = {
+      additionalPaymentsCents: nextCents,
+      additionalPayments: Math.round(nextCents / 100),
+      paymentUpdatedAt: serverTimestamp(),
+    };
+    repairPatch = applySettlement(r, repairPatch, "awaiting_additional_payment");
+    await updateDoc(doc(db2, "repairs", repairId), repairPatch);
+    setRepairs((prev) =>
+      prev.map((x) => (x.id === repairId ? { ...x, ...repairPatch } : x))
+    );
+  }
+
+  /* ------------------------- Status updaters (unchanged) ------------------------- */
   const setOrderDraft = (id, status) => setDraft((prev) => ({ ...prev, [id]: status }));
 
   const saveStatus = async (id) => {
     const newStatus = draft[id];
     if (!newStatus) return;
-
     try {
       setSaving((prev) => ({ ...prev, [id]: true }));
-
       const orderRow = rows.find((o) => o.id === id);
-
       const updates = {
         status: newStatus,
         statusUpdatedAt: serverTimestamp(),
       };
-
       if (newStatus === "completed" && !orderRow?.deliveredAt) {
         updates.deliveredAt = serverTimestamp();
         if (orderRow?.returnPolicyDays == null) {
           updates.returnPolicyDays = 7;
         }
       }
-
       await updateDoc(doc(db, "orders", id), updates);
-
       setRows((prev) =>
         prev.map((o) =>
           o.id === id
@@ -736,20 +936,15 @@ export default function Orders() {
             : o
         )
       );
-
       if (newStatus === "to_ship" && orderRow) {
         try {
           await ensureShipmentForOrder({ ...orderRow, id });
-        } catch (e) {
-          console.error("ensureShipmentForOrder failed", e);
-        }
+        } catch {}
       }
-
       const uid = orderRow?.userId;
       if (uid) {
         const isRepairOrder = !!orderRow?.repairId;
         const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
-
         await addDoc(collection(db, "users", uid, "notifications"), {
           type: isRepairOrder ? "repair_status" : "order_status",
           orderId: id,
@@ -774,24 +969,139 @@ export default function Orders() {
     }
   };
 
-  /* ---- notifications helpers for deletes (unchanged) ---- */
-  async function deleteUserNotifs(db, uid, { orderId = null, repairId = null } = {}) {
+  const setRepairDraft = (id, status) =>
+    setRepairsDraft((prev) => ({ ...prev, [id]: status }));
+
+  async function saveRepairStatus(id) {
+    const newStatus = repairsDraft[id];
+    if (!newStatus) return;
+    try {
+      setRepairsSaving((p) => ({ ...p, [id]: true }));
+      const row = repairs.find((r) => r.id === id);
+      const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
+      if (newStatus === "completed" && !row?.deliveredAt) {
+        updates.deliveredAt = serverTimestamp();
+        if (row?.returnPolicyDays == null) updates.returnPolicyDays = 7;
+      }
+      await updateDoc(doc(db, "repairs", id), updates);
+      setRepairs((prev) =>
+        prev.map((r) =>
+          r.id === id ? { ...r, status: newStatus, ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}) } : r
+        )
+      );
+      const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+      if (uid) {
+        await addDoc(collection(db, "users", uid, "notifications"), {
+          type: "repair_status",
+          repairId: id,
+          status: newStatus,
+          title: `Repair ${String(id).slice(0, 6)} status updated`,
+          body: `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+    } catch (e) {
+      alert(e?.message || "Failed to update repair status.");
+    } finally {
+      setRepairsSaving((p) => ({ ...p, [id]: false }));
+    }
+  }
+
+  async function deleteRepairCascade(repairId) {
+    setRepDeleting((p) => ({ ...p, [repairId]: true }));
+    try {
+      const row = repairs.find((r) => r.id === repairId);
+      const uid = row?.userId ?? row?.uid;
+      if (uid) {
+        await deleteUserNotifs(db, uid, { repairId });
+      }
+      const linked = rows.find((o) => o?.repairId === repairId);
+      if (linked?.id) {
+        await deleteOrderCascade(linked.id, linked);
+      }
+      await deleteDoc(doc(db, "repairs", repairId));
+      setRepairs((prev) => prev.filter((r) => r.id !== repairId));
+    } catch (e) {
+      alert(e?.message || "Failed to delete repair.");
+    } finally {
+      setRepDeleting((p) => ({ ...p, [repairId]: false }));
+    }
+  }
+
+  const setCustomDraft = (id, status) =>
+    setCustomsDraft((prev) => ({ ...prev, [id]: status }));
+
+  async function saveCustomStatus(id) {
+    const newStatus = customsDraft[id];
+    if (!newStatus) return;
+    try {
+      setCustomsSaving((p) => ({ ...p, [id]: true }));
+      const row = customs.find((c) => c.id === id);
+      const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
+      if (newStatus === "completed" && !row?.deliveredAt) {
+        updates.deliveredAt = serverTimestamp();
+        if (row?.returnPolicyDays == null) updates.returnPolicyDays = 7;
+      }
+      await updateDoc(doc(db, "custom_orders", id), updates);
+      setCustoms((prev) =>
+        prev.map((c) =>
+          c.id === id ? { ...c, status: newStatus, ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}) } : c
+        )
+      );
+      const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+      if (uid) {
+        await addDoc(collection(db, "users", uid, "notifications"), {
+          type: "custom_status",
+          customId: id,
+          status: newStatus,
+          title: `Customization ${String(id).slice(0, 6)} status updated`,
+          body: `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
+      }
+    } catch (e) {
+      alert(e?.message || "Failed to update customization status.");
+    } finally {
+      setCustomsSaving((p) => ({ ...p, [id]: false }));
+    }
+  }
+
+  async function deleteCustomCascade(customId) {
+    setCustomDeleting((p) => ({ ...p, [customId]: true }));
+    try {
+      const row = customs.find((c) => c.id === customId);
+      const uid = row?.userId ?? row?.uid;
+      if (uid) {
+        await deleteUserNotifs(db, uid, { customId });
+      }
+      await deleteDoc(doc(db, "custom_orders", customId));
+      setCustoms((prev) => prev.filter((c) => c.id !== customId));
+    } catch (e) {
+      alert(e?.message || "Failed to delete customization order.");
+    } finally {
+      setCustomDeleting((p) => ({ ...p, [customId]: false }));
+    }
+  }
+
+  async function deleteUserNotifs(db, uid, { orderId = null, repairId = null, customId = null } = {}) {
     if (!uid) return;
     const base = collection(db, "users", uid, "notifications");
     const qs = [];
     if (orderId) qs.push(query(base, where("orderId", "==", orderId)));
     if (repairId) qs.push(query(base, where("repairId", "==", repairId)));
+    if (customId) qs.push(query(base, where("customId", "==", customId)));
     for (const qy of qs) {
       const snap = await getDocs(qy);
       await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
     }
   }
 
-  // --- helper: delete a subcollection under a parent doc ---
   async function deleteSubcollection(db, parentColl, parentId, subcoll) {
     const subRef = collection(db, parentColl, parentId, subcoll);
     const snap = await getDocs(subRef);
-    const tasks = snap.docs.map(d => deleteDoc(d.ref));
+    const tasks = snap.docs.map((d) => deleteDoc(d.ref));
     await Promise.all(tasks);
   }
 
@@ -799,55 +1109,38 @@ export default function Orders() {
     setDeleting((p) => ({ ...p, [orderId]: true }));
     try {
       const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
-
       if (orderData?.userId) {
         await deleteUserNotifs(db, orderData.userId, { orderId });
       }
-
       try {
         await deleteShipmentsForOrder(orderId);
-      } catch (e) {
-        console.error("deleteShipmentsForOrder failed", e);
-      }
-
-      // 🔻 NEW: remove known subcollections under this order
+      } catch {}
       await deleteSubcollection(db, "orders", orderId, "events");
-
-      // finally remove the order doc itself
       await deleteDoc(doc(db, "orders", orderId));
-
       setRows((prev) => prev.filter((o) => o.id !== orderId));
     } catch (e) {
-      console.error("deleteOrderCascade failed:", e);
       alert(e?.message || "Failed to delete order. Make sure your account is admin.");
     } finally {
       setDeleting((p) => ({ ...p, [orderId]: false }));
     }
   }
 
-  /* ---- returns helpers (UPDATED: use `return_requests`, show details) ---- */
   async function getLatestReturnDoc(orderId) {
-  // Avoid composite index requirement: no orderBy in the query.
-  const qy = query(collection(db, "return_requests"), where("orderId", "==", orderId));
-  const snap = await getDocs(qy);
-
-  // Sort client-side by createdAtMs (if present) then createdAt timestamp.
-  const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-  const getMs = (r) =>
-    (typeof r.createdAtMs === "number" && r.createdAtMs) ||
-    (r.createdAt ? tsToMillis(r.createdAt) : 0);
-  rows.sort((a, b) => getMs(b) - getMs(a));
-
-  return rows[0] || null;
-}
+    const qy = query(collection(db, "return_requests"), where("orderId", "==", orderId));
+    const snap = await getDocs(qy);
+    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const getMs = (r) =>
+      (typeof r.createdAtMs === "number" && r.createdAtMs) ||
+      (r.createdAt ? tsToMillis(r.createdAt) : 0);
+    rows.sort((a, b) => getMs(b) - getMs(a));
+    return rows[0] || null;
+  }
 
   async function primeReturnForOrder(orderId) {
     try {
       const r = await getLatestReturnDoc(orderId);
       setReturnByOrderId((p) => ({ ...p, [orderId]: r || null }));
-    } catch (e) {
-      console.warn("primeReturnForOrder:", e?.message || e);
-    }
+    } catch (e) {}
   }
 
   async function approveReturn(orderRow) {
@@ -856,19 +1149,15 @@ export default function Orders() {
     try {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
-
       await updateDoc(doc(db, "return_requests", r.id), {
         status: "approved",
         approvedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-
-      // 🔻 Move the order to the Refund/Return tab immediately after approval
       await updateDoc(doc(db, "orders", id), {
         status: "refund",
         statusUpdatedAt: serverTimestamp(),
       });
-
       if (orderRow.userId) {
         await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
           type: "order_status",
@@ -897,14 +1186,12 @@ export default function Orders() {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
       const reason = prompt("Reason for rejection? (optional)") || "";
-
       await updateDoc(doc(db, "return_requests", r.id), {
         status: "rejected",
         rejectedAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
         reason,
       });
-
       if (orderRow.userId) {
         await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
           type: "order_status",
@@ -949,11 +1236,9 @@ export default function Orders() {
     try {
       const r = await getLatestReturnDoc(id);
       if (!r) return alert("No return request found for this order.");
-
       const full = Number(orderRow.total || 0) || 0;
       const amount = Number(prompt("Refund amount (leave blank for full):", full)) || full;
-      const method = "original"; // locked
-
+      const method = "original";
       await updateDoc(doc(db, "return_requests", r.id), {
         status: "refund_issued",
         refundAmount: amount,
@@ -961,7 +1246,6 @@ export default function Orders() {
         refundAt: serverTimestamp(),
         updatedAt: serverTimestamp(),
       });
-
       await updateDoc(doc(db, "orders", id), {
         paymentStatus: "refunded",
         returnLocked: true,
@@ -969,7 +1253,6 @@ export default function Orders() {
         refundedCents: Math.round(Number(amount || 0) * 100),
         refundedAt: serverTimestamp(),
       });
-
       if (orderRow.userId) {
         await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
           type: "order_status",
@@ -991,7 +1274,7 @@ export default function Orders() {
     }
   }
 
-  /* ------------------- UI helpers ------------------- */
+  /* ------------------------- UI shells ------------------------- */
   const TabButton = ({ id, label, count }) => (
     <button
       type="button"
@@ -1024,10 +1307,9 @@ export default function Orders() {
     </button>
   );
 
-  /* ------------------- render ------------------- */
+  /* ------------------------- Render ------------------------- */
   return (
     <div className="admin-orders">
-      {/* Tabs */}
       <div className="orders-topbar" style={{ marginBottom: 16, justifyContent: "space-between" }}>
         <div className="status-toolbar">
           <TabButton id="orders" label="Orders" count={productOrders.length} />
@@ -1040,7 +1322,7 @@ export default function Orders() {
         </div>
       </div>
 
-      {/* ----------------------- ORDERS ----------------------- */}
+      {/* -------------------- ORDERS TAB -------------------- */}
       {activeTab === "orders" && (
         <>
           <div className="orders-topbar">
@@ -1100,12 +1382,12 @@ export default function Orders() {
                     const itemsCount = Array.isArray(o?.items)
                       ? o.items.reduce((sum, it) => sum + (Number(it?.qty) || 1), 0)
                       : 0;
-                    const total = fmtPHP(o?.total);
+                    const mMain = computeMonies(o);
+                    const totalDisplay = fmtPHP(mMain.displayTotalPHP);
                     const status = String(o?.status || "processing");
                     const draftStatus = draft[id] ?? status;
                     const pay = String(o?.paymentStatus || "pending");
                     const isOpen = expandedOrderId === id;
-
                     return (
                       <React.Fragment key={id}>
                         <tr>
@@ -1113,7 +1395,7 @@ export default function Orders() {
                           <td>{when}</td>
                           <td title={name}>{name}</td>
                           <td>{itemsCount}</td>
-                          <td className="mono strong">{total}</td>
+                          <td className="mono strong">{totalDisplay}</td>
                           <td>
                             <span className={`badge status-${status}`}>
                               {(STATUS_LABEL[status] || status).toUpperCase()}
@@ -1143,7 +1425,6 @@ export default function Orders() {
                             >
                               {saving[id] ? "Saving…" : "Save"}
                             </button>
-
                             <IconTrashBtn
                               color={clrOrders}
                               disabled={!!deleting[id]}
@@ -1163,12 +1444,10 @@ export default function Orders() {
                             />
                           </td>
                         </tr>
-
                         {isOpen && (
                           <tr>
                             <td colSpan={8}>
                               <div className="details-grid">
-                                {/* ✅ Initial payment proof (URL or storage path) */}
                                 {(o?.paymentProofUrl || o?.paymentProofPath) && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
@@ -1179,8 +1458,6 @@ export default function Orders() {
                                     />
                                   </div>
                                 )}
-
-                                {/* ✅ Additional payment proof (URL or storage path) */}
                                 {(o?.lastAdditionalPaymentProofUrl || o?.lastAdditionalPaymentProofPath) && (
                                   <div className="span-2">
                                     <h4>Additional Payment Proof</h4>
@@ -1193,23 +1470,24 @@ export default function Orders() {
                                     />
                                   </div>
                                 )}
-
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  <select
-                                    className="status-select"
-                                    value={o.paymentStatus || "pending"}
-                                    onChange={(e) => updateOrderPayment(o.id, o, e.target.value)}
-                                  >
-                                    <option value="pending">Pending</option>
-                                    <option value="deposit_paid">Deposit_Paid</option>
-                                    <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
-                                    <option value="paid">Paid</option>
-                                    <option value="refunded">Refunded</option>
-                                    <option value="rejected">Rejected</option>
-                                  </select>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    <select
+                                      className="status-select"
+                                      value={o.paymentStatus || "pending"}
+                                      onChange={(e) => updateOrderPayment(o.id, o, e.target.value)}
+                                    >
+                                      <option value="pending">Pending</option>
+                                      <option value="deposit_paid">Deposit_Paid</option>
+                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
+                                      <option value="rejected">Rejected</option>
+                                    </select>
+                                    {/* NOTE: no "Record Additional Payment" button in Orders tab */}
+                                  </div>
                                 </div>
-
                                 <div>
                                   <div className="kv">
                                     <label>Status</label>
@@ -1225,7 +1503,7 @@ export default function Orders() {
                                   </div>
                                   <div className="kv">
                                     <label>Total</label>
-                                    <div className="mono strong">{total}</div>
+                                    <div className="mono strong">{totalDisplay}</div>
                                   </div>
                                   {o?.shippingFee != null && (
                                     <div className="kv">
@@ -1235,7 +1513,42 @@ export default function Orders() {
                                   )}
                                 </div>
 
-                                {/* ✅ Customer */}
+                                {(() => {
+                                  const m = computeMonies(o);
+                                  return (
+                                    <div>
+                                      <h4>Order Total</h4>
+                                      <div className="kv">
+                                        <label>Unit Price</label>
+                                        <div className="mono">{fmtPHP(m.unitPHP)}</div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Shipping</label>
+                                        <div className="mono">{fmtPHP(m.shipPHP)}</div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Total</label>
+                                        <div className="mono strong">{fmtPHP(m.displayTotalPHP)}</div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Net Paid</label>
+                                        <div className="mono strong">
+                                          {fmtPHP(Math.round((m.deposit + m.adds - m.refunds) / 100))}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Balance Due</label>
+                                        <div
+                                          className="mono"
+                                          style={{ fontWeight: 700, color: m.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                        >
+                                          {fmtPHP(Math.round(m.balance / 100))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+
                                 <CustomerBlock title="Customer" row={o} />
 
                                 <div className="span-2">
@@ -1260,7 +1573,6 @@ export default function Orders() {
                                   </div>
                                 )}
 
-                                {/* Return actions block kept as-is */}
                                 <div className="span-2">
                                   <h4>Return Actions</h4>
                                   {(() => {
@@ -1279,7 +1591,6 @@ export default function Orders() {
                                         >
                                           {returnActing[o.id] === "approve" ? "Approving…" : "Approve"}
                                         </button>
-
                                         <button
                                           className="save-btn"
                                           disabled={busy || !r || (r && r.status !== "requested")}
@@ -1289,7 +1600,6 @@ export default function Orders() {
                                         >
                                           {returnActing[o.id] === "reject" ? "Rejecting…" : "Reject"}
                                         </button>
-
                                         <button
                                           className="save-btn"
                                           disabled={
@@ -1301,7 +1611,6 @@ export default function Orders() {
                                         >
                                           {returnActing[o.id] === "received" ? "Updating…" : "Mark Received"}
                                         </button>
-
                                         <button
                                           className="save-btn"
                                           disabled={busy || !r || !["received", "approved"].includes(r.status)}
@@ -1311,101 +1620,88 @@ export default function Orders() {
                                         >
                                           {returnActing[o.id] === "refund" ? "Issuing…" : "Issue Refund"}
                                         </button>
-
                                         <Tag label={r ? `Latest: ${r.status}` : "No request found"} />
                                       </div>
                                     );
                                   })()}
                                 </div>
                               </div>
-                              {/* Return Request Details */}
-{(() => {
-  const r = returnByOrderId[o.id];
-  if (!r) return null;
 
-  const createdMs =
-    (typeof r.createdAtMs === "number" && r.createdAtMs) ||
-    (r.createdAt ? tsToMillis(r.createdAt) : 0);
-
-  return (
-    <div className="span-2">
-      <h4>Return Request Details</h4>
-
-      <div className="kv">
-        <label>Status</label>
-        <div><span className="badge">{String(r.status || "requested").toUpperCase()}</span></div>
-      </div>
-
-      <div className="kv">
-        <label>Requested</label>
-        <div>{fmtDate(createdMs)}</div>
-      </div>
-
-      <div className="kv">
-        <label>Reason</label>
-        <div>{r.reasonCode || "—"}</div>
-      </div>
-
-      <div className="kv">
-        <label>Requested Amount</label>
-        <div className="mono strong">{fmtPHP(r.requestedAmount || 0)}</div>
-      </div>
-
-      <div className="kv">
-        <label>Refund Method</label>
-        <div>
-          {(r.refundMethod === "original" || r.refundChannel === "GCASH")
-            ? "Original payment method (GCash)"
-            : (r.refundMethod || r.refundChannel || "—")}
-        </div>
-      </div>
-
-     <div className="kv">
-  <label>GCash</label>
-  <div>
-    {r.gcash
-      ? `${r.gcash.accountName || "—"} — ${fmtGCash(r.gcash.accountNumber || r.gcash.last4)}`
-      : "—"}
-  </div>
-</div>
-
-      {r.message && (
-        <div className="span-2">
-          <h4>Message</h4>
-          <pre className="note">{r.message}</pre>
-        </div>
-      )}
-
-      {Array.isArray(r.items) && r.items.length > 0 && (
-        <div className="span-2">
-          <h4>Returned Items</h4>
-          <ul className="items">
-            {r.items.map((it, i) => (
-              <li key={i} className="item">
-                <div className="item-title">{it.title || "Item"}</div>
-                <div className="muted">
-                  {it.variant ? `${it.variant} · ` : ""}Qty: {it.qty} · Unit: {fmtPHP(it.unitPrice || 0)}
-                </div>
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-
-      {Array.isArray(r.images) && r.images.length > 0 && (
-        <div className="span-2">
-          <h4>Photos</h4>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-            {r.images.map((url, i) => (
-              <ResolvedImg key={i} pathOrUrl={url} alt={`Return ${i + 1}`} size={100} />
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-})()}
-
+                              {(() => {
+                                const r = returnByOrderId[o.id];
+                                if (!r) return null;
+                                const createdMs =
+                                  (typeof r.createdAtMs === "number" && r.createdAtMs) ||
+                                  (r.createdAt ? tsToMillis(r.createdAt) : 0);
+                                return (
+                                  <div className="span-2">
+                                    <h4>Return Request Details</h4>
+                                    <div className="kv">
+                                      <label>Status</label>
+                                      <div><span className="badge">{String(r.status || "requested").toUpperCase()}</span></div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Requested</label>
+                                      <div>{fmtDate(createdMs)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Reason</label>
+                                      <div>{r.reasonCode || "—"}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Requested Amount</label>
+                                      <div className="mono strong">{fmtPHP(r.requestedAmount || 0)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Refund Method</label>
+                                      <div>
+                                        {(r.refundMethod === "original" || r.refundChannel === "GCASH")
+                                          ? "Original payment method (GCash)"
+                                          : (r.refundMethod || r.refundChannel || "—")}
+                                      </div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>GCash</label>
+                                      <div>
+                                        {r.gcash
+                                          ? `${r.gcash.accountName || "—"} — ${fmtGCash(r.gcash.accountNumber || r.gcash.last4)}`
+                                          : "—"}
+                                      </div>
+                                    </div>
+                                    {r.message && (
+                                      <div className="span-2">
+                                        <h4>Message</h4>
+                                        <pre className="note">{r.message}</pre>
+                                      </div>
+                                    )}
+                                    {Array.isArray(r.items) && r.items.length > 0 && (
+                                      <div className="span-2">
+                                        <h4>Returned Items</h4>
+                                        <ul className="items">
+                                          {r.items.map((it, i) => (
+                                            <li key={i} className="item">
+                                              <div className="item-title">{it.title || "Item"}</div>
+                                              <div className="muted">
+                                                {it.variant ? `${it.variant} · ` : ""}Qty: {it.qty} · Unit: {fmtPHP(it.unitPrice || 0)}
+                                              </div>
+                                            </li>
+                                          ))}
+                                        </ul>
+                                      </div>
+                                    )}
+                                    {Array.isArray(r.images) && r.images.length > 0 && (
+                                      <div className="span-2">
+                                        <h4>Photos</h4>
+                                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                          {r.images.map((url, i) => (
+                                            <ResolvedImg key={i} pathOrUrl={url} alt={`Return ${i + 1}`} size={100} />
+                                          ))}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </div>
+                                );
+                              })()}
                             </td>
                           </tr>
                         )}
@@ -1419,7 +1715,7 @@ export default function Orders() {
         </>
       )}
 
-            {/* ----------------------- REPAIRS ----------------------- */}
+      {/* -------------------- REPAIRS TAB -------------------- */}
       {activeTab === "repairs" && (
         <>
           <div className="orders-topbar">
@@ -1447,11 +1743,9 @@ export default function Orders() {
               )}
             </div>
           </div>
-
           {repairsErr && <p className="err">{repairsErr}</p>}
           {repairsLoading && <p className="muted">Loading…</p>}
           {!repairsLoading && repairsOrdered.length === 0 && <p className="muted">No repair orders found.</p>}
-
           {!repairsLoading && repairsOrdered.length > 0 && (
             <div className="orders-card">
               <table className="orders-table">
@@ -1482,11 +1776,10 @@ export default function Orders() {
                       ) || 0;
                     const status = String(r?.status || "processing");
                     const draftStatus = repairsDraft[id] ?? status;
-
                     const linkedOrder = rows.find((o) => o?.repairId === id);
                     const paymentStatus = linkedOrder?.paymentStatus || r?.paymentStatus || "pending";
                     const isOpen = expandedRepairId === id;
-
+                    const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
                     return (
                       <React.Fragment key={id}>
                         <tr>
@@ -1514,7 +1807,7 @@ export default function Orders() {
                               <span>{r?.imagesCount ?? 0}</span>
                             )}
                           </td>
-                          <td className="mono strong">{fmtPHP(total)}</td>
+                          <td className="mono strong">{fmtPHP(linkedOrder?.total ?? total)}</td>
                           <td>
                             <span className={`badge status-${status}`}>
                               {(STATUS_LABEL[status] || status).toUpperCase()}
@@ -1546,7 +1839,6 @@ export default function Orders() {
                             >
                               {repairsSaving[id] ? "Saving…" : "Save"}
                             </button>
-
                             <IconTrashBtn
                               color={clrRepairs}
                               disabled={!!repDeleting[id]}
@@ -1570,12 +1862,10 @@ export default function Orders() {
                             </button>
                           </td>
                         </tr>
-
                         {isOpen && (
                           <tr>
                             <td colSpan={11}>
                               <div className="details-grid">
-                                {/* ✅ Initial payment proof from linked order or repair (URL or storage path) */}
                                 {(linkedOrder?.paymentProofUrl ||
                                   linkedOrder?.paymentProofPath ||
                                   r?.paymentProofUrl ||
@@ -1594,8 +1884,6 @@ export default function Orders() {
                                     />
                                   </div>
                                 )}
-
-                                {/* ✅ Additional payment proof from linked order (URL or storage path) */}
                                 {(linkedOrder?.lastAdditionalPaymentProofUrl ||
                                   linkedOrder?.lastAdditionalPaymentProofPath) && (
                                   <div className="span-2">
@@ -1610,38 +1898,47 @@ export default function Orders() {
                                     />
                                   </div>
                                 )}
-
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  {linkedOrder ? (
-                                    <select
-                                      className="status-select"
-                                      value={linkedOrder?.paymentStatus || "pending"}
-                                      onChange={(e) => updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)}
+                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                    {linkedOrder ? (
+                                      <select
+                                        className="status-select"
+                                        value={linkedOrder?.paymentStatus || "pending"}
+                                        onChange={(e) => updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)}
+                                      >
+                                        <option value="pending">Pending</option>
+                                        <option value="deposit_paid">Deposit_Paid</option>
+                                        <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                        <option value="paid">Paid</option>
+                                        <option value="refunded">Refunded</option>
+                                        <option value="rejected">Rejected</option>
+                                      </select>
+                                    ) : (
+                                      <select
+                                        className="status-select"
+                                        value={r?.paymentStatus || "pending"}
+                                        onChange={(e) => updateRepairPayment(id, r, e.target.value)}
+                                      >
+                                        <option value="pending">Pending</option>
+                                        <option value="deposit_paid">Deposit_Paid</option>
+                                        <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                        <option value="paid">Paid</option>
+                                        <option value="refunded">Refunded</option>
+                                        <option value="rejected">Rejected</option>
+                                      </select>
+                                    )}
+                                    <button
+                                      className="save-btn"
+                                      type="button"
+                                      style={{ background: "#374151" }}
+                                      onClick={() => recordAdditionalPaymentForRepair(id)}
+                                      title="Add to Additional Payments"
                                     >
-                                      <option value="pending">Pending</option>
-                                      <option value="deposit_paid">Deposit_Paid</option>
-                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
-                                      <option value="paid">Paid</option>
-                                      <option value="refunded">Refunded</option>
-                                      <option value="rejected">Rejected</option>
-                                    </select>
-                                  ) : (
-                                    <select
-                                      className="status-select"
-                                      value={r?.paymentStatus || "pending"}
-                                      onChange={(e) => updateRepairPayment(id, r, e.target.value)}
-                                    >
-                                      <option value="pending">Pending</option>
-                                      <option value="deposit_paid">Deposit_Paid</option>
-                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
-                                      <option value="paid">Paid</option>
-                                      <option value="refunded">Refunded</option>
-                                      <option value="rejected">Rejected</option>
-                                    </select>
-                                  )}
+                                      Record Additional Payment
+                                    </button>
+                                  </div>
                                 </div>
-
                                 <div>
                                   <div className="kv">
                                     <label>Status</label>
@@ -1659,11 +1956,51 @@ export default function Orders() {
                                     <label>Total</label>
                                     <div className="mono strong">{fmtPHP(linkedOrder?.total ?? total)}</div>
                                   </div>
+
+                                  {/* NEW: Additionals shown ONLY in Repair & Custom tabs */}
+                                  {fmtAdditionals(r?.additionals) && (
+                                    <div className="kv">
+                                      <label>Additionals</label>
+                                      <div>{fmtAdditionals(r.additionals)}</div>
+                                    </div>
+                                  )}
                                 </div>
 
-                                {/* ✅ Customer for repair */}
-                                <CustomerBlock title="Customer" row={r} />
+                                {/* NEW: Order Total breakdown for linked order */}
+                                {mLinked && (
+                                  <div>
+                                    <h4>Order Total</h4>
+                                    <div className="kv">
+                                      <label>Unit Price</label>
+                                      <div className="mono">{fmtPHP(mLinked.unitPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Shipping</label>
+                                      <div className="mono">{fmtPHP(mLinked.shipPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Total</label>
+                                      <div className="mono strong">{fmtPHP(mLinked.displayTotalPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Net Paid</label>
+                                      <div className="mono strong">
+                                        {fmtPHP(Math.round((mLinked.deposit + mLinked.adds - mLinked.refunds) / 100))}
+                                      </div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Balance Due</label>
+                                      <div
+                                        className="mono"
+                                        style={{ fontWeight: 700, color: mLinked.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                      >
+                                        {fmtPHP(Math.round(mLinked.balance / 100))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
+                                <CustomerBlock title="Customer" row={r} />
                                 {Array.isArray(r?.images) && r.images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Photos</h4>
@@ -1680,14 +2017,12 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-
                                 {r?.notes && (
                                   <div className="span-2">
                                     <h4>Notes</h4>
                                     <pre className="note">{r.notes}</pre>
                                   </div>
                                 )}
-
                                 <AssessmentPanel kind="repair" row={r} />
                               </div>
                             </td>
@@ -1703,7 +2038,7 @@ export default function Orders() {
         </>
       )}
 
-      {/* ----------------------- CUSTOMIZATION ----------------------- */}
+      {/* -------------------- CUSTOMIZATION TAB -------------------- */}
       {activeTab === "custom" && (
         <>
           <div className="orders-topbar">
@@ -1731,13 +2066,11 @@ export default function Orders() {
               )}
             </div>
           </div>
-
           {customsErr && <p className="err">{customsErr}</p>}
           {customsLoading && <p className="muted">Loading…</p>}
           {!customsLoading && customsOrdered.length === 0 && (
             <p className="muted">No customization orders found.</p>
           )}
-
           {!customsLoading && customsOrdered.length > 0 && (
             <div className="orders-card">
               <table className="orders-table">
@@ -1771,6 +2104,19 @@ export default function Orders() {
                     const title = c?.productTitle || c?.title || c?.name || "—";
                     const isOpen = expandedCustomId === id;
 
+                    // find linked order (if any) to show order total breakdown
+                    const linkedById = c?.orderId ? rows.find((o) => o.id === c.orderId) : null;
+                    const linkedByFields =
+                      rows.find(
+                        (o) =>
+                          String(o?.origin || "") === "customization" &&
+                          (o?.customId === id ||
+                           o?.linkedCustomId === id ||
+                           o?.metadata?.customId === id)
+                      ) || null;
+                    const linkedOrder = linkedById || linkedByFields;
+                    const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
+
                     return (
                       <React.Fragment key={id}>
                         <tr>
@@ -1781,9 +2127,7 @@ export default function Orders() {
                           <td>{c?.category || "—"}</td>
                           <td>{c?.size || "—"}</td>
                           <td>{c?.cover ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}` : "—"}</td>
-                          <td>
-                            {Array.isArray(c?.additionals) && c.additionals.length ? c.additionals.join(", ") : "—"}
-                          </td>
+                          <td>{fmtAdditionals(c?.additionals) || "—"}</td>
                           <td>
                             {images.length || refImgs.length ? (
                               <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
@@ -1833,7 +2177,6 @@ export default function Orders() {
                             >
                               {customsSaving[id] ? "Saving…" : "Save"}
                             </button>
-
                             <IconTrashBtn
                               color={clrCustom}
                               disabled={!!customDeleting[id]}
@@ -1857,7 +2200,6 @@ export default function Orders() {
                             </button>
                           </td>
                         </tr>
-
                         {isOpen && (
                           <tr>
                             <td colSpan={13}>
@@ -1890,7 +2232,6 @@ export default function Orders() {
                                     )}
                                   </div>
                                 </div>
-
                                 <div>
                                   <div className="kv">
                                     <label>Product</label>
@@ -1909,7 +2250,6 @@ export default function Orders() {
                                     <div className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</div>
                                   </div>
                                 </div>
-
                                 <div>
                                   <div className="kv">
                                     <label>Cover</label>
@@ -1919,11 +2259,7 @@ export default function Orders() {
                                   </div>
                                   <div className="kv">
                                     <label>Additionals</label>
-                                    <div>
-                                      {Array.isArray(c?.additionals) && c.additionals.length
-                                        ? c.additionals.join(", ")
-                                        : "—"}
-                                    </div>
+                                    <div>{fmtAdditionals(c?.additionals) || "—"}</div>
                                   </div>
                                   <div className="kv">
                                     <label>Date</label>
@@ -1931,9 +2267,41 @@ export default function Orders() {
                                   </div>
                                 </div>
 
-                                {/* ✅ Customer for custom */}
-                                <CustomerBlock title="Customer" row={c} />
+                                {/* NEW: Order Total breakdown when linked order exists */}
+                                {mLinked && (
+                                  <div>
+                                    <h4>Order Total</h4>
+                                    <div className="kv">
+                                      <label>Unit Price</label>
+                                      <div className="mono">{fmtPHP(mLinked.unitPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Shipping</label>
+                                      <div className="mono">{fmtPHP(mLinked.shipPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Total</label>
+                                      <div className="mono strong">{fmtPHP(mLinked.displayTotalPHP)}</div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Net Paid</label>
+                                      <div className="mono strong">
+                                        {fmtPHP(Math.round((mLinked.deposit + mLinked.adds - mLinked.refunds) / 100))}
+                                      </div>
+                                    </div>
+                                    <div className="kv">
+                                      <label>Balance Due</label>
+                                      <div
+                                        className="mono"
+                                        style={{ fontWeight: 700, color: mLinked.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                      >
+                                        {fmtPHP(Math.round(mLinked.balance / 100))}
+                                      </div>
+                                    </div>
+                                  </div>
+                                )}
 
+                                <CustomerBlock title="Customer" row={c} />
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Product Images</h4>
@@ -1950,7 +2318,6 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-
                                 {refImgs.length > 0 && (
                                   <div className="span-2">
                                     <h4>Reference Images (customer)</h4>
@@ -1961,7 +2328,6 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-
                                 {c?.descriptionFromProduct && (
                                   <div className="span-2">
                                     <h4>Description</h4>
@@ -1970,14 +2336,12 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-
                                 {c?.notes && (
                                   <div className="span-2">
                                     <h4>Notes</h4>
                                     <pre className="note">{c.notes}</pre>
                                   </div>
                                 )}
-
                                 <AssessmentPanel kind="custom" row={c} />
                               </div>
                             </td>
@@ -1995,4 +2359,3 @@ export default function Orders() {
     </div>
   );
 }
-

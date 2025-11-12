@@ -201,3 +201,20 @@
   justify-self: end;
   text-align: right;
 }
+
+/* ─── Added: persistent button style for the Pay action ─── */
+.os-pay-btn {
+  display: inline-block;
+  padding: 10px 16px;
+  border: none;
+  border-radius: 10px;
+  background: #111;
+  color: #fff;
+  font-weight: 700;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: transform 0.02s ease, opacity 0.15s ease;
+}
+.os-pay-btn:hover { opacity: 0.9; }
+.os-pay-btn:active { transform: translateY(1px); }
