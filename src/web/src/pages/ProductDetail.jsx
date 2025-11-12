@@ -1,5 +1,5 @@
 // src/pages/ProductDetail.jsx
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import {
   firestore,
@@ -210,6 +210,40 @@ export default function ProductDetail() {
 
   const isHex = (s) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(String(s||""));
 
+  /* ======================= REQUIRED-SELECTION helpers ======================= */
+  const typeLabel = useMemo(() => {
+    if (!rawData) return "";
+    const cat = resolveCategorySlug(rawData);
+    return normalizeTypeLabel(rawData, cat);
+  }, [rawData]);
+
+  // Floating note visibility (only after user attempts to click)
+  const [showReqNote, setShowReqNote] = useState(false);
+  const noteTimer = useRef(null);
+  const flashReqNote = (ms = 2500) => {
+    setShowReqNote(true);
+    if (noteTimer.current) clearTimeout(noteTimer.current);
+    noteTimer.current = setTimeout(() => setShowReqNote(false), ms);
+  };
+
+  // Build message dynamically
+  const buildMissingMsg = () => {
+    const needsColor = hasCover && typeLabel !== "Tables";
+    if (!size && needsColor && !fabric) return "Please choose a color and a size.";
+    if (!size) return "Please choose a size.";
+    if (needsColor && !fabric) return "Please choose a color.";
+    return "";
+  };
+
+  function ensureSelections() {
+    const msg = buildMissingMsg();
+    if (!msg) return true;
+    // show floating note instead of alert
+    flashReqNote();
+    return false;
+  }
+  /* ======================================================================== */
+
   // Load product
   useEffect(() => {
     if (!id) { setProduct(null); return; }
@@ -327,8 +361,8 @@ export default function ProductDetail() {
               // store multiple keys for tolerant lookup
               for (const [, rec] of byKey) {
                 priceMap[rec.label] = rec.price;           // exact label
-                priceMap[norm(rec.label)] = rec.price;     // normalized (lowercased, trimmed)
-                priceMap[slug(rec.label)] = rec.price;     // slug (spaces→hyphen)
+                priceMap[norm(rec.label)] = rec.price;     // normalized
+                priceMap[slug(rec.label)] = rec.price;     // slug
               }
             }
           } catch (e) {
@@ -436,18 +470,21 @@ export default function ProductDetail() {
   });
 
   function handleBuyNow() {
+    if (!ensureSelections()) return;
     const item = buildLineItem(1);
     setCheckoutItems([item]);
     navigate("/checkout");
   }
   function handleAddToCart() {
+    if (!ensureSelections()) return;
     const item = buildLineItem(1);
     try {
       if (typeof ctxAddToCart === "function") ctxAddToCart(item);
       navigate("/cart");
     } catch (e) {
       console.error("addToCart failed:", e);
-      alert("Could not add to cart. Please try again.");
+      // soft fallback: show note again
+      flashReqNote();
     }
   }
 
@@ -668,11 +705,47 @@ export default function ProductDetail() {
             </div>
 
             {/* CTA row */}
-            <div className="rp-cta-row">
-              <button type="button" className="price-pill" onClick={handleBuyNow}>
+            <div
+              className="rp-cta-row"
+              style={{ position: "relative", display: "flex", gap: 12, alignItems: "center" }}
+            >
+              {/* Floating note (only appears after user clicks with missing selections) */}
+              {showReqNote && (
+                <div
+                  role="alert"
+                  aria-live="polite"
+                  style={{
+                    position: "absolute",
+                    left: 0,
+                    bottom: "calc(100% + 8px)",
+                    background: "#fee2e2",
+                    color: "#b91c1c",
+                    fontSize: 13,
+                    padding: "8px 10px",
+                    borderRadius: 8,
+                    boxShadow: "0 4px 10px rgba(0,0,0,0.08)",
+                    pointerEvents: "none",
+                    maxWidth: 260,
+                  }}
+                >
+                  {buildMissingMsg()} You must pick the required option(s) to continue.
+                </div>
+              )}
+
+              <button
+                type="button"
+                className="price-pill"
+                onClick={handleBuyNow}
+                title="Buy now"
+              >
                 {priceStr}
               </button>
-              <button type="button" className="price-pill add-cart" onClick={handleAddToCart}>
+              <button
+                type="button"
+                className="price-pill add-cart"
+                onClick={handleAddToCart}
+                title="Add to cart"
+              >
                 <span className="cart-ic" aria-hidden>🛒</span>
                 <span>ADD TO CART</span>
               </button>
