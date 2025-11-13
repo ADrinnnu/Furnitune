@@ -4,6 +4,7 @@ import { auth } from "../../firebase";
 import {
   getFirestore,
   doc,
+  getDoc,
   updateDoc,
   serverTimestamp,
   collection,
@@ -11,9 +12,9 @@ import {
   query,
   orderBy,
   addDoc,
-  getDocs,
-  where,
   deleteDoc,
+  where,
+  limit,
 } from "firebase/firestore";
 import { getStorage, ref as sref, getDownloadURL as sGetURL } from "firebase/storage";
 import { ensureShipmentForOrder, deleteShipmentsForOrder } from "../data/firebase/firebaseProvider";
@@ -41,9 +42,7 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       } catch {}
     }
     run();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [pathOrUrl]);
   if (!url) return null;
   return (
@@ -51,13 +50,7 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       <img
         src={url}
         alt={alt}
-        style={{
-          width: size,
-          height: size,
-          objectFit: "cover",
-          borderRadius: 8,
-          border: "1px solid #e5e5e5",
-        }}
+        style={{ width: size, height: size, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
       />
     </a>
   );
@@ -91,17 +84,8 @@ function paymentBadgeClass(ps) {
 
 function pickDate(row) {
   const cands = [
-    row?.createdAt,
-    row?.created_at,
-    row?.createdOn,
-    row?.created_on,
-    row?.timestamp,
-    row?.timeCreated,
-    row?.created,
-    row?.createdAtClient,
-    row?.createdAtMs,
-    row?.created_at_ms,
-    row?.date,
+    row?.createdAt, row?.created_at, row?.createdOn, row?.created_on, row?.timestamp,
+    row?.timeCreated, row?.created, row?.createdAtClient, row?.createdAtMs, row?.created_at_ms, row?.date,
   ];
   for (const ts of cands) {
     if (ts == null) continue;
@@ -129,21 +113,10 @@ function fmtDate(tsLike) {
   const ms = tsToMillis(tsLike);
   return ms ? new Date(ms).toLocaleString() : "";
 }
-function fmtGCash(num) {
-  const d = String(num || "").replace(/\D/g, "");
-  return d.length === 11 ? `${d.slice(0, 4)} ${d.slice(4, 7)} ${d.slice(7)}` : d || "—";
-}
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
-    "referenceImages",
-    "referenceImageUrls",
-    "customerUploads",
-    "customerUploadUrls",
-    "customerImages",
-    "refUrls",
-    "refImages",
-    "additionalImages",
-    "additionalImageUrls",
+    "referenceImages","referenceImageUrls","customerUploads","customerUploadUrls",
+    "customerImages","refUrls","refImages","additionalImages","additionalImageUrls",
   ];
   for (const k of keys) {
     const v = obj[k];
@@ -152,62 +125,78 @@ function pickCustomerReferenceImages(obj = {}) {
   return [];
 }
 
-/* NEW: robust Additionals printer (used in Repairs & Customization only) */
-function fmtAdditionals(additionals) {
-  if (!additionals) return "";
-  if (Array.isArray(additionals)) return additionals.join(", ");
-  if (typeof additionals === "object") {
-    const parts = [];
-    for (const [k, v] of Object.entries(additionals)) {
-      if (v == null || v === false) continue;
-      if (v === true) parts.push(k);
-      else if (typeof v === "object") {
-        const label = v.label || k;
-        const price = v.price != null ? ` (₱${Number(v.price).toLocaleString()})` : "";
-        parts.push(label + price);
-      } else {
-        parts.push(String(v));
-      }
-    }
-    return parts.join(", ");
-  }
-  return String(additionals);
+/* NEW: safe formatter for 'additionals' column */
+function fmtAdditionals(adds) {
+  if (!adds) return "";
+  const arr = Array.isArray(adds) ? adds : [adds];
+  const label = (a) =>
+    typeof a === "string" ? a :
+    a?.label || a?.name || a?.title || a?.id || a?.type || "";
+  return arr.map(label).filter(Boolean).join(", ");
 }
 
-function computePaymentSummary(row, overrides = {}) {
-  const get = (k, d = 0) => (overrides[k] != null ? Number(overrides[k]) : Number(row?.[k] || d));
-  let assessed = get("assessedTotalCents", null);
-  if (assessed == null) {
-    const gross =
-      row?.total != null
-        ? Math.round(Number(row.total) * 100)
-        : row?.unitPrice != null
-        ? Math.round(Number(row.unitPrice) * 100)
-        : 0;
-    assessed = gross;
+/* Money helpers */
+const toCents = (php) => Math.max(0, Math.round(Number(php || 0) * 100));
+const N = (x) => Math.max(0, Math.round(Number(x || 0)));
+
+function assessedCentsFrom(row) {
+  if (row?.assessedTotalCents != null) return N(row.assessedTotalCents);
+  const unit = Number(row?.unitPrice || 0);
+  const ship = Number(row?.shippingFee || 0);
+  if (row?.total != null) return toCents(row.total);
+  return toCents(unit + ship);
+}
+function computeMonies(row) {
+  const assessed = assessedCentsFrom(row);
+  const dep = N(row?.depositCents);
+  const adds = N(row?.additionalPaymentsCents);
+  const refs = N(row?.refundsCents);
+  const netPaid = Math.max(0, dep + adds - refs);
+  const balance = assessed > 0 ? Math.max(0, assessed - netPaid) : 0;
+  const shipPHP = Number(row?.shippingFee || 0);
+  const unitPHP = Number(row?.unitPrice || 0);
+  const displayTotalPHP = row?.total != null ? Number(row.total) : unitPHP + shipPHP;
+  return { assessed, dep, adds, refs, netPaid, balance, unitPHP, shipPHP, displayTotalPHP };
+}
+
+/* Get the latest additional payment amount (in cents) from the row */
+function latestAdditionalCents(row) {
+  // 1) explicit field (best)
+  const fromField = N(row?.lastAdditionalPaymentCents);
+  if (fromField > 0) return fromField;
+
+  // 2) fall back to requested amount (common flow)
+  const fromRequested = N(row?.requestedAdditionalPaymentCents);
+  if (fromRequested > 0) return fromRequested;
+
+  // 3) last proof with amountCents
+  const arr = Array.isArray(row?.additionalPaymentProofs) ? row.additionalPaymentProofs : [];
+  for (let i = arr.length - 1; i >= 0; i--) {
+    const c = N(arr[i]?.amountCents);
+    if (c > 0) return c;
   }
-  const deposit = get("depositCents", 0);
-  const adds = get("additionalPaymentsCents", 0);
-  const refunds = get("refundsCents", 0);
-  const netPaidCents = Math.max(0, deposit + adds - refunds);
-  const balanceDueCents = Math.max(0, assessed - netPaidCents);
-  return {
-    netPaidCents,
-    balanceDueCents,
-    netPaid: Math.round(netPaidCents / 100),
-    balanceDue: Math.round(balanceDueCents / 100),
-  };
+  return 0;
 }
 
 function applySettlement(row, basePatch, desiredStatus) {
-  const summary = computePaymentSummary(row, basePatch);
-  const patch = { ...basePatch, ...summary };
-  if (summary.balanceDueCents > 0) {
+  const merged = { ...row, ...basePatch };
+  const m = computeMonies(merged);
+  const patch = { ...basePatch };
+  if (desiredStatus === "paid") {
+    if (m.assessed !== m.netPaid) patch.assessedTotalCents = m.netPaid;
+    patch.paymentStatus = "paid";
+    patch.paidAt = serverTimestamp();
+    patch.requestedAdditionalPaymentCents = 0;
+    return patch;
+  }
+  if (m.balance > 0) {
     patch.paymentStatus = "awaiting_additional_payment";
-    patch.requestedAdditionalPaymentCents = summary.balanceDueCents;
+    patch.requestedAdditionalPaymentCents = m.balance;
     patch.requestedAt = serverTimestamp();
   } else {
     patch.paymentStatus = desiredStatus === "refunded" ? "refunded" : "paid";
+    if (patch.paymentStatus === "paid") patch.paidAt = serverTimestamp();
+    if (patch.paymentStatus === "refunded") patch.refundedAt = serverTimestamp();
     patch.requestedAdditionalPaymentCents = 0;
   }
   return patch;
@@ -225,20 +214,13 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        width: 34,
-        height: 34,
-        borderRadius: 8,
-        border: `1px solid ${color}`,
+        width: 34, height: 34, borderRadius: 8, border: `1px solid ${color}`,
         background: h && !disabled ? color : "#fff",
         color: h && !disabled ? "#fff" : color,
-        fontSize: 18,
-        lineHeight: "18px",
-        display: "inline-flex",
-        alignItems: "center",
-        justifyContent: "center",
+        fontSize: 18, lineHeight: "18px", display: "inline-flex",
+        alignItems: "center", justifyContent: "center",
         cursor: disabled ? "not-allowed" : "pointer",
-        marginLeft: 6,
-        ...style,
+        marginLeft: 6, ...style,
       }}
     >
       🗑
@@ -248,108 +230,50 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
 
 function CustomerBlock({ row, title = "Customer" }) {
   const addr =
-    row?.shippingAddress ||
-    row?.address ||
-    row?.customer?.address ||
-    row?.customerInfo?.address ||
-    row?.customer_address ||
-    {};
+    row?.shippingAddress || row?.address || row?.customer?.address ||
+    row?.customerInfo?.address || row?.customer_address || {};
   const firstName =
-    addr?.firstName ??
-    addr?.firstname ??
-    row?.firstName ??
-    row?.firstname ??
-    row?.customer?.firstName ??
-    "";
+    addr?.firstName ?? addr?.firstname ?? row?.firstName ?? row?.firstname ?? row?.customer?.firstName ?? "";
   const lastName =
-    addr?.lastName ??
-    addr?.lastname ??
-    row?.lastName ??
-    row?.lastname ??
-    row?.customer?.lastName ??
-    "";
+    addr?.lastName ?? addr?.lastname ?? row?.lastName ?? row?.lastname ?? row?.customer?.lastName ?? "";
   const fullName =
-    addr?.fullName ??
-    addr?.name ??
-    row?.nameFull ??
-    row?.fullName ??
-    row?.name ??
-    row?.customer?.name ??
-    [firstName, lastName].filter(Boolean).join(" ");
+    addr?.fullName ?? addr?.name ?? row?.nameFull ?? row?.fullName ?? row?.name ??
+    row?.customer?.name ?? [firstName, lastName].filter(Boolean).join(" ");
   const email =
-    addr?.email ??
-    row?.shippingAddress?.email ??
-    row?.contactEmail ??
-    row?.email ??
-    row?.customer?.email ??
-    row?.customerInfo?.email ??
-    "";
-  const phone =
-    addr?.phone ?? row?.contactPhone ?? row?.phone ?? row?.customer?.phone ?? row?.customerInfo?.phone ?? "";
+    addr?.email ?? row?.shippingAddress?.email ?? row?.contactEmail ?? row?.email ??
+    row?.customer?.email ?? row?.customerInfo?.email ?? "";
+  const phone = addr?.phone ?? row?.contactPhone ?? row?.phone ?? row?.customer?.phone ?? row?.customerInfo?.phone ?? "";
   const line1 = addr?.line1 ?? addr?.address1 ?? row?.line1 ?? row?.address1 ?? "";
   const line2 = addr?.line2 ?? addr?.address2 ?? row?.line2 ?? row?.address2 ?? "";
   const city = addr?.city ?? row?.city ?? row?.shippingCity ?? row?.customer?.city ?? row?.customerInfo?.city ?? "";
-  const province =
-    addr?.province ?? addr?.state ?? row?.province ?? row?.state ?? row?.shippingProvince ?? "";
-  const zip =
-    addr?.zip ?? addr?.postalCode ?? addr?.postcode ?? row?.zip ?? row?.postalCode ?? row?.postcode ?? "";
-  const country =
-    addr?.country ?? addr?.countryCode ?? row?.country ?? row?.shippingCountry ?? row?.countryCode ?? "";
+  const province = addr?.province ?? addr?.state ?? row?.province ?? row?.state ?? row?.shippingProvince ?? "";
+  const zip = addr?.zip ?? addr?.postalCode ?? addr?.postcode ?? row?.zip ?? row?.postalCode ?? row?.postcode ?? "";
+  const country = addr?.country ?? addr?.countryCode ?? row?.country ?? row?.shippingCountry ?? row?.countryCode ?? "";
   const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? "";
   return (
     <div className="span-2">
       <h4>{title}</h4>
-      <div
-        style={{
-          display: "grid",
-          gridTemplateColumns: "160px 1fr",
-          gap: "8px 16px",
-          alignItems: "center",
-          maxWidth: 720,
-        }}
-      >
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>Name</label>
-        </div>
-        <div>{fullName || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>Email</label>
-        </div>
-        <div>{email || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>Phone</label>
-        </div>
-        <div>{phone || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>Address</label>
-        </div>
-        <div>{[line1, line2].filter(Boolean).join(", ") || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>City / Province / ZIP</label>
-        </div>
-        <div>{[city, province, zip].filter(Boolean).join(" · ") || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>Country</label>
-        </div>
-        <div>{country || "—"}</div>
-        <div className="kv">
-          <label style={{ fontWeight: 600 }}>User ID</label>
-        </div>
-        <div className="mono">{uid || "—"}</div>
+      <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 16px", alignItems: "center", maxWidth: 720 }}>
+        <div className="kv"><label style={{ fontWeight: 600 }}>Name</label></div><div>{fullName || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>Email</label></div><div>{email || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>Phone</label></div><div>{phone || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>Address</label></div><div>{[line1, line2].filter(Boolean).join(", ") || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>City / Province / ZIP</label></div><div>{[city, province, zip].filter(Boolean).join(" · ") || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>Country</label></div><div>{country || "—"}</div>
+        <div className="kv"><label style={{ fontWeight: 600 }}>User ID</label></div><div className="mono">{uid || "—"}</div>
       </div>
     </div>
   );
 }
 
+/* ------------------------- Assessment Panel ------------------------- */
 function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
     row?.assessedTotalCents != null ? Math.round(Number(row.assessedTotalCents) / 100) : ""
   );
   const [note, setNote] = useState(row?.assessmentNotes ?? "");
   const [amountPHP, setAmountPHP] = useState(
-    row?.requestedAdditionalPaymentCents != null
-      ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100)
-      : ""
+    row?.requestedAdditionalPaymentCents != null ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100) : ""
   );
   const dep = Number(row?.depositCents || 0);
   const adds = Number(row?.additionalPaymentsCents || 0);
@@ -363,38 +287,18 @@ function AssessmentPanel({ kind, row }) {
       <h4>Finalize & Request Payment</h4>
       <div className="kv">
         <label>Final Total (₱)</label>
-        <input
-          className="status-select"
-          type="number"
-          value={assessed}
-          onChange={(e) => setAssessed(e.target.value)}
-          placeholder="e.g. 43441"
-        />
+        <input className="status-select" type="number" value={assessed} onChange={(e) => setAssessed(e.target.value)} placeholder="e.g. 43441" />
       </div>
       <div className="kv">
         <label>Request amount now (₱)</label>
         <div style={{ display: "flex", gap: 8 }}>
-          <input
-            className="status-select"
-            type="number"
-            value={amountPHP}
-            onChange={(e) => setAmountPHP(e.target.value)}
-            placeholder="leave blank to request computed balance"
-          />
-          <button className="save-btn" type="button" onClick={setToBalance}>
-            Use Balance (₱{(balance / 100).toLocaleString()})
-          </button>
+          <input className="status-select" type="number" value={amountPHP} onChange={(e) => setAmountPHP(e.target.value)} placeholder="leave blank to request computed balance" />
+          <button className="save-btn" type="button" onClick={setToBalance}>Use Balance (₱{(balance / 100).toLocaleString()})</button>
         </div>
       </div>
       <div className="kv">
         <label>Message to customer</label>
-        <textarea
-          className="note"
-          rows={2}
-          value={note}
-          onChange={(e) => setNote(e.target.value)}
-          placeholder="Explain why the additional amount is needed"
-        />
+        <textarea className="note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Explain why the additional amount is needed" />
       </div>
       <div className="muted small" style={{ marginTop: 6 }}>
         Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l: <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> · Computed Balance: <b>₱{(balance / 100).toLocaleString()}</b>
@@ -404,8 +308,7 @@ function AssessmentPanel({ kind, row }) {
           className="save-btn"
           onClick={async () => {
             const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
-            const requestCentsInput =
-              amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
+            const requestCentsInput = amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
             try {
               await upsertAssessmentAndRequest({
                 kind,
@@ -435,9 +338,9 @@ function AssessmentPanel({ kind, row }) {
                   assessmentNotes: note || "",
                   assessedAt: serverTimestamp(),
                   requestedAt: serverTimestamp(),
+                  paymentStatus: requestCents > 0 ? "awaiting_additional_payment" : "paid",
                 });
-                const uid =
-                  row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+                const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
                 if (uid) {
                   await addDoc(collection(db, "users", uid, "notifications"), {
                     type: "additional_payment_request",
@@ -458,26 +361,26 @@ function AssessmentPanel({ kind, row }) {
           Save & Send Request
         </button>
       </div>
-      {row?.lastAdditionalPaymentProofUrl && (
+
+      {(row?.lastAdditionalPaymentProofUrl || row?.lastAdditionalPaymentProofPath) && (
         <div className="span-2" style={{ marginTop: 12 }}>
           <h4>Latest Additional Payment Proof</h4>
-          <a href={row.lastAdditionalPaymentProofUrl} target="_blank" rel="noreferrer">
-            <img
-              src={row.lastAdditionalPaymentProofUrl}
-              alt="Additional Payment Proof"
-              style={{ maxWidth: 200, borderRadius: 8 }}
-            />
-          </a>
+          <ResolvedImg
+            pathOrUrl={row.lastAdditionalPaymentProofUrl || row.lastAdditionalPaymentProofPath}
+            alt="Additional Payment Proof"
+            size={200}
+          />
         </div>
       )}
     </div>
   );
 }
-
-/* ------------------------- Main component ------------------------- */
+/* ------------------------- MAIN COMPONENT ------------------------- */
 export default function Orders() {
   const db = useMemo(() => getFirestore(auth.app), []);
   const [activeTab, setActiveTab] = useState("orders");
+
+  // orders
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -486,6 +389,8 @@ export default function Orders() {
   const [draft, setDraft] = useState({});
   const [deleting, setDeleting] = useState({});
   const [expandedOrderId, setExpandedOrderId] = useState(null);
+
+  // repairs
   const [repairs, setRepairs] = useState([]);
   const [repairsLoading, setRepairsLoading] = useState(true);
   const [repairsErr, setRepairsErr] = useState("");
@@ -494,6 +399,8 @@ export default function Orders() {
   const [repairsDraft, setRepairsDraft] = useState({});
   const [repDeleting, setRepDeleting] = useState({});
   const [expandedRepairId, setExpandedRepairId] = useState(null);
+
+  // customs
   const [customs, setCustoms] = useState([]);
   const [customsLoading, setCustomsLoading] = useState(true);
   const [customsErr, setCustomsErr] = useState("");
@@ -502,9 +409,8 @@ export default function Orders() {
   const [customsDraft, setCustomsDraft] = useState({});
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
-  const [returnActing, setReturnActing] = useState({});
-  const [returnByOrderId, setReturnByOrderId] = useState({});
 
+  /* ---------- live subscriptions ---------- */
   useEffect(() => {
     const qy = query(collection(db, "orders"), orderBy("createdAt", "desc"));
     const stop = onSnapshot(
@@ -553,9 +459,9 @@ export default function Orders() {
     return stop;
   }, [db]);
 
+  /* ---------- derived lists ---------- */
   const productOrders = useMemo(
-    () =>
-      rows.filter((o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"),
+    () => rows.filter((o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"),
     [rows]
   );
 
@@ -591,321 +497,238 @@ export default function Orders() {
     }
   }
 
-  function computeMonies(row) {
-    const N = (x) => Math.max(0, Math.round(Number(x || 0)));
-    const assessed =
-      N(row.assessedTotalCents) ||
-      (row.total != null ? Math.round(Number(row.total) * 100)
-        : row.unitPrice != null ? Math.round(Number(row.unitPrice) * 100) : 0);
-    const deposit = N(row.depositCents);
-    const adds = N(row.additionalPaymentsCents);
-    const refunds = N(row.refundsCents);
-    const netPaid = Math.max(0, deposit + adds - refunds);
-    const balance = assessed > 0 ? Math.max(0, assessed - netPaid) : 0;
-
-    const shipPHP = Number(row?.shippingFee || 0);
-    const unitPHP = Number(row?.unitPrice || 0);
-    const displayTotalPHP = row?.total != null ? Number(row.total) : unitPHP + shipPHP;
-
-    return {
-      assessed, deposit, adds, refunds, netPaid, balance,    // cents
-      shipPHP, unitPHP, displayTotalPHP                      // pesos
-    };
-  }
-
-  /* ------------------------- Payment updaters ------------------------- */
-
-  // UPDATED: Orders tab – put back DEPOSIT prompt flow; others unchanged
-  async function updateOrderPayment(orderId, currentRow, nextStatus) {
+  /* ------------------------- Request remaining balance helpers ------------------------- */
+  async function requestRemainingBalanceForOrder(orderRow) {
     const db2 = getFirestore(auth.app);
-    const val = String(nextStatus || "").toLowerCase();
-
-    // default patch
-    let patch = { paymentUpdatedAt: serverTimestamp() };
-
-    if (val === "deposit_paid") {
-      // prompt only for deposit in Orders tab
-      const defaultPHP = Math.round(
-        Number(
-          currentRow?.assessedTotalCents != null
-            ? currentRow.assessedTotalCents / 100
-            : currentRow?.total != null
-            ? currentRow.total
-            : (Number(currentRow?.unitPrice || 0) + Number(currentRow?.shippingFee || 0))
-        )
-      );
-      const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
-      if (ans !== null && ans !== "") {
-        const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        patch.depositCents = pesos * 100;
-        patch.deposit = pesos;
-      }
-      // apply settlement so balance & status reflect the deposit
-      patch = applySettlement(currentRow, patch, "deposit_paid");
-    } else {
-      // keep simple (no prompts) for other statuses in Orders tab
-      patch.paymentStatus = val;
-      if (val === "paid") patch.paidAt = serverTimestamp();
-      if (val === "refunded") patch.refundedAt = serverTimestamp();
-    }
-
-    await updateDoc(doc(db2, "orders", orderId), patch);
-    setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
-  }
-
-  // Unchanged: prompts remain for Repair
-  async function updateRepairPayment(repairId, currentRepairRow, nextStatus) {
-    const db2 = getFirestore(auth.app);
-    const val = String(nextStatus || "").toLowerCase();
-    let patch = { paymentUpdatedAt: serverTimestamp() };
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
-    const linkedOrder = rows.find((o) => o?.repairId === repairId);
-    if (val === "deposit_paid") {
-      const defaultPHP = Math.round(Number((linkedOrder?.total ?? currentRepairRow?.total) || 0));
-      const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
-      if (ans !== null && ans !== "") {
-        const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        patch.depositCents = pesos * 100;
-        patch.deposit = pesos;
-      }
-      patch = applySettlement(currentRepairRow, patch, "deposit_paid");
-    } else if (val === "paid") {
-      let enteredPHP = 0;
-      if (currentRepairRow?.depositCents == null) {
-        const defaultPHP = Math.round(
-          Number(
-            currentRepairRow?.assessedTotalCents != null
-              ? currentRepairRow.assessedTotalCents / 100
-              : currentRepairRow?.total || 0
-          )
-        );
-        const ans = prompt(`Amount received now (₱).`, String(defaultPHP || ""));
-        if (ans !== null && ans !== "") {
-          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
-          patch.depositCents = enteredPHP * 100;
-          patch.deposit = enteredPHP;
-        }
-      } else {
-        const ans = prompt(`Amount received now (₱).`, "");
-        if (ans !== null && ans !== "") {
-          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
-          const currentAdds = Number(currentRepairRow?.additionalPaymentsCents || 0);
-          const nextAdds = currentAdds + enteredPHP * 100;
-          patch.additionalPaymentsCents = nextAdds;
-          patch.additionalPayments = Math.round(nextAdds / 100);
-        }
-      }
-      patch.paidAt = serverTimestamp();
-      patch = applySettlement(currentRepairRow, patch, "paid");
-    } else if (val === "awaiting_additional_payment") {
-      patch = applySettlement(currentRepairRow, patch, "awaiting_additional_payment");
-    } else {
-      patch.paymentStatus = val;
-    }
-    await updateDoc(doc(db2, "repairs", repairId), patch);
-    setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...patch } : r)));
-    if (linkedOrder?.id) {
-      const oPatch = applySettlement(linkedOrder, patch, patch.paymentStatus);
-      await updateDoc(doc(db2, "orders", linkedOrder.id), oPatch);
-      setRows((prev) => prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...oPatch } : o)));
-    }
-  }
-
-  // Unchanged: prompts remain for Customization
-  async function updateCustomPayment(customId, nextStatus) {
-    const db2 = getFirestore(auth.app);
-    const val = String(nextStatus || "").toLowerCase();
-    const customRow = customs.find((c) => c.id === customId) || {};
-    let patch = { paymentUpdatedAt: serverTimestamp() };
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
-    if (val === "deposit_paid") {
-      const ans = prompt("Enter initial payment amount (₱).", "");
-      if (ans !== null && ans !== "") {
-        const pesos = Math.max(0, Math.round(Number(ans || 0)));
-        patch.depositCents = pesos * 100;
-        patch.deposit = pesos;
-      }
-      patch = applySettlement(customRow, patch, "deposit_paid");
-    } else if (val === "paid") {
-      let enteredPHP = 0;
-      if (customRow?.depositCents == null) {
-        const defaultPHP = Math.round(
-          Number(
-            customRow?.assessedTotalCents != null
-              ? customRow.assessedTotalCents / 100
-              : customRow?.unitPrice || 0
-          )
-        );
-        const ans = prompt("Amount received now (₱).", String(defaultPHP || ""));
-        if (ans !== null && ans !== "") {
-          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
-          patch.depositCents = enteredPHP * 100;
-          patch.deposit = enteredPHP;
-        }
-      } else {
-        const ans = prompt("Amount received now (₱).", "");
-        if (ans !== null && ans !== "") {
-          enteredPHP = Math.max(0, Math.round(Number(ans || 0)));
-          const currentAdds = Number(customRow?.additionalPaymentsCents || 0);
-          const nextAdds = currentAdds + enteredPHP * 100;
-          patch.additionalPaymentsCents = nextAdds;
-          patch.additionalPayments = Math.round(nextAdds / 100);
-        }
-      }
-      patch.paidAt = serverTimestamp();
-      patch = applySettlement(customRow, patch, "paid");
-    } else if (val === "awaiting_additional_payment") {
-      patch = applySettlement(customRow, patch, "awaiting_additional_payment");
-    } else {
-      patch.paymentStatus = val;
-    }
-    const byId =
-      (customRow?.orderId ? rows.find((o) => o.id === customRow.orderId) : null) || null;
-    const byFields =
-      rows.find(
-        (o) =>
-          String(o?.origin || "") === "customization" &&
-          (o?.customId === customId ||
-           o?.linkedCustomId === customId ||
-           o?.metadata?.customId === customId)
-      ) || null;
-    const linkedOrder = byId || byFields;
-    if (linkedOrder?.id) {
-      let orderPatch = applySettlement(linkedOrder, patch, patch.paymentStatus);
-      if (customRow?.depositPaymentProofUrl)  orderPatch.paymentProofUrl  = customRow.depositPaymentProofUrl;
-      if (customRow?.depositPaymentProofPath) orderPatch.paymentProofPath = customRow.depositPaymentProofPath;
-      if (customRow?.lastAdditionalPaymentProofUrl)
-        orderPatch.lastAdditionalPaymentProofUrl = customRow.lastAdditionalPaymentProofUrl;
-      if (customRow?.lastAdditionalPaymentProofPath)
-        orderPatch.lastAdditionalPaymentProofPath = customRow.lastAdditionalPaymentProofPath;
-      if (Array.isArray(customRow?.additionalPaymentProofs) && customRow.additionalPaymentProofs.length)
-        orderPatch.additionalPaymentProofs = customRow.additionalPaymentProofs;
-      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
-      setRows((prev) =>
-        prev.map((o) => (o.id === linkedOrder.id ? { ...o, ...orderPatch } : o))
-      );
-    }
-    await updateDoc(doc(db2, "custom_orders", customId), patch);
-    setCustoms((prev) => prev.map((c) => (c.id === customId ? { ...c, ...patch } : c)));
-  }
-
-  async function recordAdditionalPaymentForOrder(orderId) {
-    // intentionally unused/kept for parity – not linked from Orders UI anymore
-    const db2 = getFirestore(auth.app);
-    const row = rows.find((o) => o.id === orderId) || {};
-    const current = Number(row?.additionalPaymentsCents || 0);
-    const currentPHP = Math.round(current / 100);
-    const ans = prompt(
-      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
-      ""
-    );
-    if (ans == null || ans === "") return;
-    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
-    const nextCents = current + addPHP * 100;
-    let basePatch = {
-      additionalPaymentsCents: nextCents,
-      additionalPayments: Math.round(nextCents / 100),
+    const m = computeMonies(orderRow);
+    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    const patch = {
+      assessedTotalCents: assessedCentsFrom(orderRow),
+      requestedAdditionalPaymentCents: m.balance,
+      paymentStatus: "awaiting_additional_payment",
+      requestedAt: serverTimestamp(),
       paymentUpdatedAt: serverTimestamp(),
     };
-    basePatch = applySettlement(row, basePatch, "awaiting_additional_payment");
-    await updateDoc(doc(db2, "orders", orderId), basePatch);
-    setRows((prev) =>
-      prev.map((o) =>
-        o.id === orderId ? { ...o, ...basePatch } : o
-      )
-    );
+    await updateDoc(doc(db2, "orders", orderRow.id), patch);
+    setRows(prev => prev.map(o => o.id === orderRow.id ? { ...o, ...patch } : o));
+
+    const uid = orderRow?.userId;
+    if (uid) {
+      await addDoc(collection(db2, "users", uid, "notifications"), {
+        type: "additional_payment_request",
+        orderId: orderRow.id,
+        title: "Additional payment requested",
+        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to complete your order.`,
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+    }
+    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
   }
 
-  async function recordAdditionalPaymentForCustom(customId) {
+  async function requestRemainingBalanceForRepair(repairRow) {
     const db2 = getFirestore(auth.app);
-    const row = customs.find((c) => c.id === customId) || {};
-    const current = Number(row?.additionalPaymentsCents || 0);
-    const currentPHP = Math.round(current / 100);
-    const ans = prompt(
-      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
-      ""
-    );
-    if (ans == null || ans === "") return;
-    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
-    const nextCents = current + addPHP * 100;
-    let customPatch = {
-      additionalPaymentsCents: nextCents,
-      additionalPayments: Math.round(nextCents / 100),
+    const linkedOrder = rows.find(o => o?.repairId === repairRow.id) || null;
+    if (linkedOrder) return requestRemainingBalanceForOrder(linkedOrder);
+
+    const m = computeMonies(repairRow);
+    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    const patch = {
+      assessedTotalCents: assessedCentsFrom(repairRow),
+      requestedAdditionalPaymentCents: m.balance,
+      paymentStatus: "awaiting_additional_payment",
+      requestedAt: serverTimestamp(),
       paymentUpdatedAt: serverTimestamp(),
     };
-    customPatch = applySettlement(row, customPatch, "awaiting_additional_payment");
-    await updateDoc(doc(db2, "custom_orders", customId), customPatch);
-    setCustoms((prev) =>
-      prev.map((c) =>
-        c.id === customId ? { ...c, ...customPatch } : c
-      )
-    );
+    await updateDoc(doc(db2, "repairs", repairRow.id), patch);
+    setRepairs(prev => prev.map(r => r.id === repairRow.id ? { ...r, ...patch } : r));
+    const uid = repairRow?.userId ?? repairRow?.uid ?? repairRow?.customer?.uid ?? null;
+    if (uid) {
+      await addDoc(collection(db2, "users", uid, "notifications"), {
+        type: "additional_payment_request",
+        repairId: repairRow.id,
+        title: "Additional payment requested",
+        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to proceed with your repair.`,
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+    }
+    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
+  }
+
+  async function requestRemainingBalanceForCustom(customRow) {
+    const db2 = getFirestore(auth.app);
     const linkedOrder =
-      rows.find(
-        (o) =>
-          String(o?.origin || "") === "customization" &&
-          (o?.customId === customId || o?.linkedCustomId === customId || o?.metadata?.customId === customId)
+      rows.find(o =>
+        String(o?.origin||"") === "customization" &&
+        (o?.customId === customRow.id || o?.linkedCustomId === customRow.id || o?.metadata?.customId === customRow.id)
       ) || null;
-    if (linkedOrder?.id) {
-      let orderPatch = applySettlement(linkedOrder, customPatch, customPatch.paymentStatus);
-      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
-      setRows((prev) =>
-        prev.map((o) =>
-          o.id === linkedOrder.id
-            ? { ...o, ...orderPatch }
-            : o
-        )
-      );
-    }
-  }
 
-  async function recordAdditionalPaymentForRepair(repairId) {
-    const db2 = getFirestore(auth.app);
-    const r = repairs.find((x) => x.id === repairId) || {};
-    const linkedOrder = rows.find((o) => o?.repairId === repairId) || null;
-    const baseCurrent =
-      (linkedOrder?.additionalPaymentsCents != null
-        ? Number(linkedOrder.additionalPaymentsCents)
-        : Number(r?.additionalPaymentsCents || 0)) || 0;
-    const currentPHP = Math.round(baseCurrent / 100);
-    const ans = prompt(
-      `Additional payment received (₱). Current total: ₱${currentPHP.toLocaleString()}`,
-      ""
-    );
-    if (ans == null || ans === "") return;
-    const addPHP = Math.max(0, Math.round(Number(ans || 0)));
-    const nextCents = baseCurrent + addPHP * 100;
-    if (linkedOrder?.id) {
-      const orderRow = rows.find((o) => o.id === linkedOrder.id) || {};
-      let orderPatch = {
-        additionalPaymentsCents: nextCents,
-        additionalPayments: Math.round(nextCents / 100),
-        paymentUpdatedAt: serverTimestamp(),
-      };
-      orderPatch = applySettlement(orderRow, orderPatch, "awaiting_additional_payment");
-      await updateDoc(doc(db2, "orders", linkedOrder.id), orderPatch);
-      setRows((prev) =>
-        prev.map((o) =>
-          o.id === linkedOrder.id ? { ...o, ...orderPatch } : o
-        )
-      );
-    }
-    let repairPatch = {
-      additionalPaymentsCents: nextCents,
-      additionalPayments: Math.round(nextCents / 100),
+    if (linkedOrder) return requestRemainingBalanceForOrder(linkedOrder);
+
+    const m = computeMonies(customRow);
+    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    const patch = {
+      assessedTotalCents: assessedCentsFrom(customRow),
+      requestedAdditionalPaymentCents: m.balance,
+      paymentStatus: "awaiting_additional_payment",
+      requestedAt: serverTimestamp(),
       paymentUpdatedAt: serverTimestamp(),
     };
-    repairPatch = applySettlement(r, repairPatch, "awaiting_additional_payment");
-    await updateDoc(doc(db2, "repairs", repairId), repairPatch);
-    setRepairs((prev) =>
-      prev.map((x) => (x.id === repairId ? { ...x, ...repairPatch } : x))
-    );
+    await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
+    setCustoms(prev => prev.map(c => c.id === customRow.id ? { ...c, ...patch } : c));
+    const uid = customRow?.userId ?? customRow?.uid ?? customRow?.customer?.uid ?? null;
+    if (uid) {
+      await addDoc(collection(db2, "users", uid, "notifications"), {
+        type: "additional_payment_request",
+        customId: customRow.id,
+        title: "Additional payment requested",
+        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to continue your customization.`,
+        createdAt: serverTimestamp(),
+        read: false,
+      });
+    }
+    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
   }
 
-  /* ------------------------- Status updaters (unchanged) ------------------------- */
-  const setOrderDraft = (id, status) => setDraft((prev) => ({ ...prev, [id]: status }));
+  /* ------------------------- Payment status updaters ------------------------- */
+  async function updateOrderPayment(orderId, currentRow, nextStatus) {
+  const db2 = getFirestore(auth.app);
+  const val = String(nextStatus || "").toLowerCase();
+  let patch = { paymentUpdatedAt: serverTimestamp() };
 
-  const saveStatus = async (id) => {
+  if (val === "deposit_paid") {
+    const defaultPHP = Math.round(
+      Number(
+        currentRow?.assessedTotalCents != null
+          ? currentRow.assessedTotalCents / 100
+          : currentRow?.total != null
+          ? currentRow.total
+          : (Number(currentRow?.unitPrice || 0) + Number(currentRow?.shippingFee || 0))
+      )
+    );
+    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
+    if (ans !== null && ans !== "") {
+      const pesos = Math.max(0, Math.round(Number(ans || 0)));
+      patch.depositCents = pesos * 100;
+      patch.deposit = pesos;
+    }
+    patch = applySettlement(currentRow, patch, "deposit_paid");
+  } else if (val === "paid") {
+    // Fold latest additional amount into cumulative additionalPaymentsCents
+    const latestC = latestAdditionalCents(currentRow);
+    if (latestC > 0) {
+      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
+      patch.lastAdditionalPaymentCents = latestC;
+      patch.requestedAdditionalPaymentCents = 0;
+      patch.paymentProofPendingReview = false;
+    }
+    // Auto-settle to zero balance (align assessed if needed)
+    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
+  } else {
+    patch.paymentStatus = val;
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+    if (val !== "awaiting_additional_payment") {
+      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
+    }
+  }
+
+  await updateDoc(doc(db2, "orders", orderId), patch);
+  setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
+}
+
+
+  async function updateRepairPayment(repairId, currentRow, nextStatus) {
+  const db2 = getFirestore(auth.app);
+  const val = String(nextStatus || "").toLowerCase();
+  let patch = { paymentUpdatedAt: serverTimestamp() };
+
+  if (val === "deposit_paid") {
+    const defaultPHP = Math.round(
+      Number(
+        currentRow?.assessedTotalCents != null
+          ? currentRow.assessedTotalCents / 100
+          : currentRow?.total || 0
+      )
+    );
+    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
+    if (ans !== null && ans !== "") {
+      const pesos = Math.max(0, Math.round(Number(ans || 0)));
+      patch.depositCents = pesos * 100;
+      patch.deposit = pesos;
+    }
+    patch = applySettlement(currentRow, patch, "deposit_paid");
+  } else if (val === "paid") {
+    const latestC = latestAdditionalCents(currentRow);
+    if (latestC > 0) {
+      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
+      patch.lastAdditionalPaymentCents = latestC;
+      patch.requestedAdditionalPaymentCents = 0;
+      patch.paymentProofPendingReview = false;
+    }
+    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
+  } else {
+    patch.paymentStatus = val;
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+    if (val !== "awaiting_additional_payment") {
+      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
+    }
+  }
+
+  await updateDoc(doc(db2, "repairs", repairId), patch);
+  setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...patch } : r)));
+}
+
+
+  async function updateCustomPayment(customId, nextStatus) {
+  const db2 = getFirestore(auth.app);
+  const val = String(nextStatus || "").toLowerCase();
+
+  // fetch current row correctly
+  const snap = await getDoc(doc(db2, "custom_orders", customId));
+  const currentRow = snap.exists() ? { id: snap.id, ...snap.data() } : {};
+
+  let patch = { paymentUpdatedAt: serverTimestamp() };
+
+  if (val === "deposit_paid") {
+    const defaultPHP = Math.round(
+      Number(
+        currentRow?.assessedTotalCents != null
+          ? currentRow.assessedTotalCents / 100
+          : currentRow?.unitPrice || 0
+      )
+    );
+    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
+    if (ans !== null && ans !== "") {
+      const pesos = Math.max(0, Math.round(Number(ans || 0)));
+      patch.depositCents = pesos * 100;
+      patch.deposit = pesos;
+    }
+    patch = applySettlement(currentRow, patch, "deposit_paid");
+  } else if (val === "paid") {
+    const latestC = latestAdditionalCents(currentRow);
+    if (latestC > 0) {
+      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
+      patch.lastAdditionalPaymentCents = latestC;
+      patch.requestedAdditionalPaymentCents = 0;
+      patch.paymentProofPendingReview = false;
+    }
+    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
+  } else {
+    patch.paymentStatus = val;
+    if (val === "refunded") patch.refundedAt = serverTimestamp();
+    if (val !== "awaiting_additional_payment") {
+      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
+    }
+  }
+
+  await updateDoc(doc(db2, "custom_orders", customId), patch);
+  setCustoms((prev) => prev.map((c) => (c.id === customId ? { ...c, ...patch } : c)));
+}
+
+
+  /* ------------------------- Order status updaters ------------------------- */
+  async function saveStatus(id) {
     const newStatus = draft[id];
     if (!newStatus) return;
     try {
@@ -943,19 +766,13 @@ export default function Orders() {
       }
       const uid = orderRow?.userId;
       if (uid) {
-        const isRepairOrder = !!orderRow?.repairId;
         const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
         await addDoc(collection(db, "users", uid, "notifications"), {
-          type: isRepairOrder ? "repair_status" : "order_status",
+          type: "order_status",
           orderId: id,
-          ...(isRepairOrder ? { repairId: orderRow.repairId } : {}),
           status: newStatus,
-          title: isRepairOrder
-            ? `Repair order ${String(id).slice(0, 6)} status updated`
-            : `Order ${String(id).slice(0, 6)} status updated`,
-          body: isRepairOrder
-            ? `Your repair order is now ${STATUS_LABEL[newStatus] || newStatus}.`
-            : `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
+          title: `Order ${String(id).slice(0, 6)} status updated`,
+          body: `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
           image: firstItem?.image || firstItem?.img || null,
           link: `/ordersummary?orderId=${id}`,
           createdAt: serverTimestamp(),
@@ -967,40 +784,16 @@ export default function Orders() {
     } finally {
       setSaving((prev) => ({ ...prev, [id]: false }));
     }
-  };
-
-  const setRepairDraft = (id, status) =>
-    setRepairsDraft((prev) => ({ ...prev, [id]: status }));
+  }
 
   async function saveRepairStatus(id) {
     const newStatus = repairsDraft[id];
     if (!newStatus) return;
+    setRepairsSaving((p) => ({ ...p, [id]: true }));
     try {
-      setRepairsSaving((p) => ({ ...p, [id]: true }));
-      const row = repairs.find((r) => r.id === id);
       const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
-      if (newStatus === "completed" && !row?.deliveredAt) {
-        updates.deliveredAt = serverTimestamp();
-        if (row?.returnPolicyDays == null) updates.returnPolicyDays = 7;
-      }
-      await updateDoc(doc(db, "repairs", id), updates);
-      setRepairs((prev) =>
-        prev.map((r) =>
-          r.id === id ? { ...r, status: newStatus, ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}) } : r
-        )
-      );
-      const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
-      if (uid) {
-        await addDoc(collection(db, "users", uid, "notifications"), {
-          type: "repair_status",
-          repairId: id,
-          status: newStatus,
-          title: `Repair ${String(id).slice(0, 6)} status updated`,
-          body: `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
+      await updateDoc(doc(getFirestore(auth.app), "repairs", id), updates);
+      setRepairs((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
     } catch (e) {
       alert(e?.message || "Failed to update repair status.");
     } finally {
@@ -1008,59 +801,14 @@ export default function Orders() {
     }
   }
 
-  async function deleteRepairCascade(repairId) {
-    setRepDeleting((p) => ({ ...p, [repairId]: true }));
-    try {
-      const row = repairs.find((r) => r.id === repairId);
-      const uid = row?.userId ?? row?.uid;
-      if (uid) {
-        await deleteUserNotifs(db, uid, { repairId });
-      }
-      const linked = rows.find((o) => o?.repairId === repairId);
-      if (linked?.id) {
-        await deleteOrderCascade(linked.id, linked);
-      }
-      await deleteDoc(doc(db, "repairs", repairId));
-      setRepairs((prev) => prev.filter((r) => r.id !== repairId));
-    } catch (e) {
-      alert(e?.message || "Failed to delete repair.");
-    } finally {
-      setRepDeleting((p) => ({ ...p, [repairId]: false }));
-    }
-  }
-
-  const setCustomDraft = (id, status) =>
-    setCustomsDraft((prev) => ({ ...prev, [id]: status }));
-
   async function saveCustomStatus(id) {
     const newStatus = customsDraft[id];
     if (!newStatus) return;
+    setCustomsSaving((p) => ({ ...p, [id]: true }));
     try {
-      setCustomsSaving((p) => ({ ...p, [id]: true }));
-      const row = customs.find((c) => c.id === id);
       const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
-      if (newStatus === "completed" && !row?.deliveredAt) {
-        updates.deliveredAt = serverTimestamp();
-        if (row?.returnPolicyDays == null) updates.returnPolicyDays = 7;
-      }
-      await updateDoc(doc(db, "custom_orders", id), updates);
-      setCustoms((prev) =>
-        prev.map((c) =>
-          c.id === id ? { ...c, status: newStatus, ...(updates.deliveredAt ? { deliveredAt: new Date() } : {}) } : c
-        )
-      );
-      const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
-      if (uid) {
-        await addDoc(collection(db, "users", uid, "notifications"), {
-          type: "custom_status",
-          customId: id,
-          status: newStatus,
-          title: `Customization ${String(id).slice(0, 6)} status updated`,
-          body: `Status is now ${STATUS_LABEL[newStatus] || newStatus}.`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
+      await updateDoc(doc(getFirestore(auth.app), "custom_orders", id), updates);
+      setCustoms((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
     } catch (e) {
       alert(e?.message || "Failed to update customization status.");
     } finally {
@@ -1068,213 +816,53 @@ export default function Orders() {
     }
   }
 
-  async function deleteCustomCascade(customId) {
-    setCustomDeleting((p) => ({ ...p, [customId]: true }));
+  async function deleteOrderCascade(id) {
     try {
-      const row = customs.find((c) => c.id === customId);
-      const uid = row?.userId ?? row?.uid;
-      if (uid) {
-        await deleteUserNotifs(db, uid, { customId });
-      }
-      await deleteDoc(doc(db, "custom_orders", customId));
-      setCustoms((prev) => prev.filter((c) => c.id !== customId));
+      setDeleting((p) => ({ ...p, [id]: true }));
+      await deleteShipmentsForOrder(id).catch(() => {});
+      await deleteDoc(doc(getFirestore(auth.app), "orders", id));
+      setRows((prev) => prev.filter((o) => o.id !== id));
     } catch (e) {
-      alert(e?.message || "Failed to delete customization order.");
+      alert(e?.message || "Failed to delete order.");
     } finally {
-      setCustomDeleting((p) => ({ ...p, [customId]: false }));
+      setDeleting((p) => ({ ...p, [id]: false }));
     }
   }
 
-  async function deleteUserNotifs(db, uid, { orderId = null, repairId = null, customId = null } = {}) {
-    if (!uid) return;
-    const base = collection(db, "users", uid, "notifications");
-    const qs = [];
-    if (orderId) qs.push(query(base, where("orderId", "==", orderId)));
-    if (repairId) qs.push(query(base, where("repairId", "==", repairId)));
-    if (customId) qs.push(query(base, where("customId", "==", customId)));
-    for (const qy of qs) {
-      const snap = await getDocs(qy);
-      await Promise.all(snap.docs.map((d) => deleteDoc(d.ref)));
-    }
-  }
-
-  async function deleteSubcollection(db, parentColl, parentId, subcoll) {
-    const subRef = collection(db, parentColl, parentId, subcoll);
-    const snap = await getDocs(subRef);
-    const tasks = snap.docs.map((d) => deleteDoc(d.ref));
-    await Promise.all(tasks);
-  }
-
-  async function deleteOrderCascade(orderId, orderDataFromRows) {
-    setDeleting((p) => ({ ...p, [orderId]: true }));
+  async function deleteRepairCascade(id) {
     try {
-      const orderData = orderDataFromRows ?? rows.find((o) => o.id === orderId);
-      if (orderData?.userId) {
-        await deleteUserNotifs(db, orderData.userId, { orderId });
-      }
-      try {
-        await deleteShipmentsForOrder(orderId);
-      } catch {}
-      await deleteSubcollection(db, "orders", orderId, "events");
-      await deleteDoc(doc(db, "orders", orderId));
-      setRows((prev) => prev.filter((o) => o.id !== orderId));
+      setRepDeleting((p) => ({ ...p, [id]: true }));
+      const linked = rows.find((o) => o?.repairId === id);
+      if (linked) await deleteOrderCascade(linked.id);
+      await deleteDoc(doc(getFirestore(auth.app), "repairs", id));
+      setRepairs((prev) => prev.filter((r) => r.id !== id));
     } catch (e) {
-      alert(e?.message || "Failed to delete order. Make sure your account is admin.");
+      alert(e?.message || "Failed to delete repair.");
     } finally {
-      setDeleting((p) => ({ ...p, [orderId]: false }));
+      setRepDeleting((p) => ({ ...p, [id]: false }));
     }
   }
 
-  async function getLatestReturnDoc(orderId) {
-    const qy = query(collection(db, "return_requests"), where("orderId", "==", orderId));
-    const snap = await getDocs(qy);
-    const rows = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-    const getMs = (r) =>
-      (typeof r.createdAtMs === "number" && r.createdAtMs) ||
-      (r.createdAt ? tsToMillis(r.createdAt) : 0);
-    rows.sort((a, b) => getMs(b) - getMs(a));
-    return rows[0] || null;
-  }
-
-  async function primeReturnForOrder(orderId) {
+  async function deleteCustomCascade(id) {
     try {
-      const r = await getLatestReturnDoc(orderId);
-      setReturnByOrderId((p) => ({ ...p, [orderId]: r || null }));
-    } catch (e) {}
-  }
-
-  async function approveReturn(orderRow) {
-    const id = orderRow.id;
-    setReturnActing((p) => ({ ...p, [id]: "approve" }));
-    try {
-      const r = await getLatestReturnDoc(id);
-      if (!r) return alert("No return request found for this order.");
-      await updateDoc(doc(db, "return_requests", r.id), {
-        status: "approved",
-        approvedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "orders", id), {
-        status: "refund",
-        statusUpdatedAt: serverTimestamp(),
-      });
-      if (orderRow.userId) {
-        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
-          type: "order_status",
-          orderId: id,
-          status: "refund",
-          title: `Return approved for ${String(id).slice(0, 6)}`,
-          body: "We’ve approved your return request. We’ll be in touch about pickup/next steps.",
-          image: Array.isArray(orderRow.items)
-            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
-            : null,
-          link: `/ordersummary?orderId=${id}`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
-      await primeReturnForOrder(id);
+      setCustomDeleting((p) => ({ ...p, [id]: true }));
+      const linked =
+        rows.find(
+          (o) =>
+            String(o?.origin || "") === "customization" &&
+            (o?.customId === id || o?.linkedCustomId === id || o?.metadata?.customId === id)
+        ) || null;
+      if (linked) await deleteOrderCascade(linked.id);
+      await deleteDoc(doc(getFirestore(auth.app), "custom_orders", id));
+      setCustoms((prev) => prev.filter((c) => c.id !== id));
+    } catch (e) {
+      alert(e?.message || "Failed to delete customization.");
     } finally {
-      setReturnActing((p) => ({ ...p, [id]: null }));
+      setCustomDeleting((p) => ({ ...p, [id]: false }));
     }
   }
 
-  async function rejectReturn(orderRow) {
-    const id = orderRow.id;
-    setReturnActing((p) => ({ ...p, [id]: "reject" }));
-    try {
-      const r = await getLatestReturnDoc(id);
-      if (!r) return alert("No return request found for this order.");
-      const reason = prompt("Reason for rejection? (optional)") || "";
-      await updateDoc(doc(db, "return_requests", r.id), {
-        status: "rejected",
-        rejectedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-        reason,
-      });
-      if (orderRow.userId) {
-        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
-          type: "order_status",
-          orderId: id,
-          status: "refund",
-          title: `Return rejected for ${String(id).slice(0, 6)}`,
-          body: reason ? `Reason: ${reason}` : "Your return request was rejected.",
-          image: Array.isArray(orderRow.items)
-            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
-            : null,
-          link: `/ordersummary?orderId=${id}`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
-      await primeReturnForOrder(id);
-    } finally {
-      setReturnActing((p) => ({ ...p, [id]: null }));
-    }
-  }
-
-  async function markReturnReceived(orderRow) {
-    const id = orderRow.id;
-    setReturnActing((p) => ({ ...p, [id]: "received" }));
-    try {
-      const r = await getLatestReturnDoc(id);
-      if (!r) return alert("No return request found for this order.");
-      await updateDoc(doc(db, "return_requests", r.id), {
-        status: "received",
-        receivedAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      await primeReturnForOrder(id);
-    } finally {
-      setReturnActing((p) => ({ ...p, [id]: null }));
-    }
-  }
-
-  async function issueRefund(orderRow) {
-    const id = orderRow.id;
-    setReturnActing((p) => ({ ...p, [id]: "refund" }));
-    try {
-      const r = await getLatestReturnDoc(id);
-      if (!r) return alert("No return request found for this order.");
-      const full = Number(orderRow.total || 0) || 0;
-      const amount = Number(prompt("Refund amount (leave blank for full):", full)) || full;
-      const method = "original";
-      await updateDoc(doc(db, "return_requests", r.id), {
-        status: "refund_issued",
-        refundAmount: amount,
-        refundMethod: method,
-        refundAt: serverTimestamp(),
-        updatedAt: serverTimestamp(),
-      });
-      await updateDoc(doc(db, "orders", id), {
-        paymentStatus: "refunded",
-        returnLocked: true,
-        statusUpdatedAt: serverTimestamp(),
-        refundedCents: Math.round(Number(amount || 0) * 100),
-        refundedAt: serverTimestamp(),
-      });
-      if (orderRow.userId) {
-        await addDoc(collection(db, "users", orderRow.userId, "notifications"), {
-          type: "order_status",
-          orderId: id,
-          status: "refund",
-          title: `Refund issued for ${String(id).slice(0, 6)}`,
-          body: `We’ve issued your refund of ${amount}.`,
-          image: Array.isArray(orderRow.items)
-            ? orderRow.items[0]?.image || orderRow.items[0]?.img || null
-            : null,
-          link: `/ordersummary?orderId=${id}`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
-      }
-      await primeReturnForOrder(id);
-    } finally {
-      setReturnActing((p) => ({ ...p, [id]: null }));
-    }
-  }
-
-  /* ------------------------- UI shells ------------------------- */
+  /* -------- small buttons used in UI -------- */
   const TabButton = ({ id, label, count }) => (
     <button
       type="button"
@@ -1296,10 +884,7 @@ export default function Orders() {
     <button
       type="button"
       className="save-btn"
-      onClick={() => {
-        onClick();
-        if (!open) primeReturnForOrder(rowId);
-      }}
+      onClick={() => onClick()}
       style={{ background: open ? "#6b7e76" : "#2c5f4a" }}
       title={open ? "Hide details" : "View details"}
     >
@@ -1307,7 +892,7 @@ export default function Orders() {
     </button>
   );
 
-  /* ------------------------- Render ------------------------- */
+  /* -------------------- Render: Orders tab -------------------- */
   return (
     <div className="admin-orders">
       <div className="orders-topbar" style={{ marginBottom: 16, justifyContent: "space-between" }}>
@@ -1382,12 +967,19 @@ export default function Orders() {
                     const itemsCount = Array.isArray(o?.items)
                       ? o.items.reduce((sum, it) => sum + (Number(it?.qty) || 1), 0)
                       : 0;
-                    const mMain = computeMonies(o);
-                    const totalDisplay = fmtPHP(mMain.displayTotalPHP);
+                    const m = computeMonies(o);
+                    const totalDisplay = fmtPHP(m.displayTotalPHP);
                     const status = String(o?.status || "processing");
                     const draftStatus = draft[id] ?? status;
                     const pay = String(o?.paymentStatus || "pending");
                     const isOpen = expandedOrderId === id;
+
+                    const additionalProofs = Array.isArray(o?.additionalPaymentProofs) ? o.additionalPaymentProofs : [];
+                    const depositProof =
+                      o?.depositPaymentProofUrl || o?.paymentProofUrl || o?.paymentProofPath || null;
+                    const latestAdditional =
+                      o?.lastAdditionalPaymentProofUrl || o?.lastAdditionalPaymentProofPath || null;
+
                     return (
                       <React.Fragment key={id}>
                         <tr>
@@ -1408,7 +1000,7 @@ export default function Orders() {
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setOrderDraft(id, e.target.value)}
+                              onChange={(e) => setDraft((prev) => ({ ...prev, [id]: e.target.value }))}
                             >
                               {STATUS_OPTIONS.map((opt) => (
                                 <option key={opt.value} value={opt.value}>
@@ -1444,32 +1036,35 @@ export default function Orders() {
                             />
                           </td>
                         </tr>
+
+                        {/* ----- expanded details row ----- */}
                         {isOpen && (
                           <tr>
                             <td colSpan={8}>
                               <div className="details-grid">
-                                {(o?.paymentProofUrl || o?.paymentProofPath) && (
+                                {/* Deposit proof */}
+                                {depositProof && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
-                                    <ResolvedImg
-                                      pathOrUrl={o.paymentProofUrl || o.paymentProofPath}
-                                      alt="Initial Payment Proof"
-                                      size={200}
-                                    />
+                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
                                   </div>
                                 )}
-                                {(o?.lastAdditionalPaymentProofUrl || o?.lastAdditionalPaymentProofPath) && (
+
+                                {/* Additional proofs (array + latest) */}
+                                {(additionalProofs.length > 0 || latestAdditional) && (
                                   <div className="span-2">
-                                    <h4>Additional Payment Proof</h4>
-                                    <ResolvedImg
-                                      pathOrUrl={
-                                        o.lastAdditionalPaymentProofUrl || o.lastAdditionalPaymentProofPath
-                                      }
-                                      alt="Additional Payment Proof"
-                                      size={200}
-                                    />
+                                    <h4>Additional Payment Proofs</h4>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      {additionalProofs.map((p, i) => (
+                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                      ))}
+                                      {latestAdditional && (
+                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                      )}
+                                    </div>
                                   </div>
                                 )}
+
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
@@ -1485,9 +1080,21 @@ export default function Orders() {
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
                                     </select>
-                                    {/* NOTE: no "Record Additional Payment" button in Orders tab */}
+
+                                    {m.balance > 0 && (
+                                      <button
+                                        className="save-btn"
+                                        type="button"
+                                        style={{ background: "#111827" }}
+                                        onClick={() => requestRemainingBalanceForOrder(o)}
+                                        title="Ask customer to pay the remaining balance"
+                                      >
+                                        Request: Pay Remaining Balance (₱{Math.round(m.balance / 100).toLocaleString()})
+                                      </button>
+                                    )}
                                   </div>
                                 </div>
+
                                 <div>
                                   <div className="kv">
                                     <label>Status</label>
@@ -1513,41 +1120,37 @@ export default function Orders() {
                                   )}
                                 </div>
 
-                                {(() => {
-                                  const m = computeMonies(o);
-                                  return (
-                                    <div>
-                                      <h4>Order Total</h4>
-                                      <div className="kv">
-                                        <label>Unit Price</label>
-                                        <div className="mono">{fmtPHP(m.unitPHP)}</div>
-                                      </div>
-                                      <div className="kv">
-                                        <label>Shipping</label>
-                                        <div className="mono">{fmtPHP(m.shipPHP)}</div>
-                                      </div>
-                                      <div className="kv">
-                                        <label>Total</label>
-                                        <div className="mono strong">{fmtPHP(m.displayTotalPHP)}</div>
-                                      </div>
-                                      <div className="kv">
-                                        <label>Net Paid</label>
-                                        <div className="mono strong">
-                                          {fmtPHP(Math.round((m.deposit + m.adds - m.refunds) / 100))}
-                                        </div>
-                                      </div>
-                                      <div className="kv">
-                                        <label>Balance Due</label>
-                                        <div
-                                          className="mono"
-                                          style={{ fontWeight: 700, color: m.balance > 0 ? "#b91c1c" : "#1f2937" }}
-                                        >
-                                          {fmtPHP(Math.round(m.balance / 100))}
-                                        </div>
-                                      </div>
+                                {/* Order total breakdown */}
+                                <div>
+                                  <h4>Order Total</h4>
+                                  <div className="kv">
+                                    <label>Unit Price</label>
+                                    <div className="mono">{fmtPHP(m.unitPHP)}</div>
+                                  </div>
+                                  <div className="kv">
+                                    <label>Shipping</label>
+                                    <div className="mono">{fmtPHP(m.shipPHP)}</div>
+                                  </div>
+                                  <div className="kv">
+                                    <label>Total</label>
+                                    <div className="mono strong">{fmtPHP(m.displayTotalPHP)}</div>
+                                  </div>
+                                  <div className="kv">
+                                    <label>Net Paid</label>
+                                    <div className="mono strong">
+                                      {fmtPHP(Math.round((m.dep + m.adds - m.refs) / 100))}
                                     </div>
-                                  );
-                                })()}
+                                  </div>
+                                  <div className="kv">
+                                    <label>Balance Due</label>
+                                    <div
+                                      className="mono"
+                                      style={{ fontWeight: 700, color: m.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                    >
+                                      {fmtPHP(Math.round(m.balance / 100))}
+                                    </div>
+                                  </div>
+                                </div>
 
                                 <CustomerBlock title="Customer" row={o} />
 
@@ -1572,136 +1175,7 @@ export default function Orders() {
                                     <pre className="note">{o.note}</pre>
                                   </div>
                                 )}
-
-                                <div className="span-2">
-                                  <h4>Return Actions</h4>
-                                  {(() => {
-                                    const r = returnByOrderId[o.id];
-                                    const busy = !!returnActing[o.id];
-                                    const Tag = ({ label }) => (
-                                      <span style={{ marginLeft: 8, fontSize: 12, color: "#6b7280" }}>{label}</span>
-                                    );
-                                    return (
-                                      <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                        <button
-                                          className="save-btn"
-                                          disabled={busy || !r || (r && r.status !== "requested")}
-                                          onClick={() => approveReturn(o)}
-                                          title="Approve return request"
-                                        >
-                                          {returnActing[o.id] === "approve" ? "Approving…" : "Approve"}
-                                        </button>
-                                        <button
-                                          className="save-btn"
-                                          disabled={busy || !r || (r && r.status !== "requested")}
-                                          onClick={() => rejectReturn(o)}
-                                          title="Reject return request"
-                                          style={{ background: "#9ca3af" }}
-                                        >
-                                          {returnActing[o.id] === "reject" ? "Rejecting…" : "Reject"}
-                                        </button>
-                                        <button
-                                          className="save-btn"
-                                          disabled={
-                                            busy || !r || !["approved", "in_transit", "out_for_delivery"].includes(r.status)
-                                          }
-                                          onClick={() => markReturnReceived(o)}
-                                          title="Mark item received"
-                                          style={{ background: "#6b7e76" }}
-                                        >
-                                          {returnActing[o.id] === "received" ? "Updating…" : "Mark Received"}
-                                        </button>
-                                        <button
-                                          className="save-btn"
-                                          disabled={busy || !r || !["received", "approved"].includes(r.status)}
-                                          onClick={() => issueRefund(o)}
-                                          title="Issue refund and lock order"
-                                          style={{ background: "#111827" }}
-                                        >
-                                          {returnActing[o.id] === "refund" ? "Issuing…" : "Issue Refund"}
-                                        </button>
-                                        <Tag label={r ? `Latest: ${r.status}` : "No request found"} />
-                                      </div>
-                                    );
-                                  })()}
-                                </div>
                               </div>
-
-                              {(() => {
-                                const r = returnByOrderId[o.id];
-                                if (!r) return null;
-                                const createdMs =
-                                  (typeof r.createdAtMs === "number" && r.createdAtMs) ||
-                                  (r.createdAt ? tsToMillis(r.createdAt) : 0);
-                                return (
-                                  <div className="span-2">
-                                    <h4>Return Request Details</h4>
-                                    <div className="kv">
-                                      <label>Status</label>
-                                      <div><span className="badge">{String(r.status || "requested").toUpperCase()}</span></div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Requested</label>
-                                      <div>{fmtDate(createdMs)}</div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Reason</label>
-                                      <div>{r.reasonCode || "—"}</div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Requested Amount</label>
-                                      <div className="mono strong">{fmtPHP(r.requestedAmount || 0)}</div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Refund Method</label>
-                                      <div>
-                                        {(r.refundMethod === "original" || r.refundChannel === "GCASH")
-                                          ? "Original payment method (GCash)"
-                                          : (r.refundMethod || r.refundChannel || "—")}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>GCash</label>
-                                      <div>
-                                        {r.gcash
-                                          ? `${r.gcash.accountName || "—"} — ${fmtGCash(r.gcash.accountNumber || r.gcash.last4)}`
-                                          : "—"}
-                                      </div>
-                                    </div>
-                                    {r.message && (
-                                      <div className="span-2">
-                                        <h4>Message</h4>
-                                        <pre className="note">{r.message}</pre>
-                                      </div>
-                                    )}
-                                    {Array.isArray(r.items) && r.items.length > 0 && (
-                                      <div className="span-2">
-                                        <h4>Returned Items</h4>
-                                        <ul className="items">
-                                          {r.items.map((it, i) => (
-                                            <li key={i} className="item">
-                                              <div className="item-title">{it.title || "Item"}</div>
-                                              <div className="muted">
-                                                {it.variant ? `${it.variant} · ` : ""}Qty: {it.qty} · Unit: {fmtPHP(it.unitPrice || 0)}
-                                              </div>
-                                            </li>
-                                          ))}
-                                        </ul>
-                                      </div>
-                                    )}
-                                    {Array.isArray(r.images) && r.images.length > 0 && (
-                                      <div className="span-2">
-                                        <h4>Photos</h4>
-                                        <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                          {r.images.map((url, i) => (
-                                            <ResolvedImg key={i} pathOrUrl={url} alt={`Return ${i + 1}`} size={100} />
-                                          ))}
-                                        </div>
-                                      </div>
-                                    )}
-                                  </div>
-                                );
-                              })()}
                             </td>
                           </tr>
                         )}
@@ -1743,9 +1217,11 @@ export default function Orders() {
               )}
             </div>
           </div>
+
           {repairsErr && <p className="err">{repairsErr}</p>}
           {repairsLoading && <p className="muted">Loading…</p>}
           {!repairsLoading && repairsOrdered.length === 0 && <p className="muted">No repair orders found.</p>}
+
           {!repairsLoading && repairsOrdered.length > 0 && (
             <div className="orders-card">
               <table className="orders-table">
@@ -1776,10 +1252,17 @@ export default function Orders() {
                       ) || 0;
                     const status = String(r?.status || "processing");
                     const draftStatus = repairsDraft[id] ?? status;
-                    const linkedOrder = rows.find((o) => o?.repairId === id);
-                    const paymentStatus = linkedOrder?.paymentStatus || r?.paymentStatus || "pending";
                     const isOpen = expandedRepairId === id;
+
+                    const linkedOrder = rows.find((o) => o?.repairId === id) || null;
                     const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
+
+                    const depositProof =
+                      r?.depositPaymentProofUrl || r?.paymentProofUrl || r?.paymentProofPath || null;
+                    const additionalProofs = Array.isArray(r?.additionalPaymentProofs) ? r.additionalPaymentProofs : [];
+                    const latestAdditional =
+                      r?.lastAdditionalPaymentProofUrl || r?.lastAdditionalPaymentProofPath || null;
+
                     return (
                       <React.Fragment key={id}>
                         <tr>
@@ -1813,8 +1296,8 @@ export default function Orders() {
                               {(STATUS_LABEL[status] || status).toUpperCase()}
                             </span>
                             <div style={{ marginTop: 4 }}>
-                              <span className={paymentBadgeClass(paymentStatus)}>
-                                {String(paymentStatus).toUpperCase()}
+                              <span className={paymentBadgeClass(linkedOrder?.paymentStatus || r?.paymentStatus)}>
+                                {String(linkedOrder?.paymentStatus || r?.paymentStatus || "pending").toUpperCase()}
                               </span>
                             </div>
                           </td>
@@ -1822,7 +1305,7 @@ export default function Orders() {
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setRepairDraft(id, e.target.value)}
+                              onChange={(e) => setRepairsDraft((p) => ({ ...p, [id]: e.target.value }))}
                             >
                               {STATUS_OPTIONS.map((opt) => (
                                 <option key={opt.value} value={opt.value}>
@@ -1851,122 +1334,83 @@ export default function Orders() {
                             />
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="save-btn"
+                            <ViewButton
+                              rowId={id}
+                              open={isOpen}
                               onClick={() => setExpandedRepairId(isOpen ? null : id)}
-                              style={{ background: isOpen ? "#6b7e76" : "#2c5f4a" }}
-                              title={isOpen ? "Hide details" : "View details"}
-                            >
-                              {isOpen ? "Hide" : "View"}
-                            </button>
+                            />
                           </td>
                         </tr>
+
                         {isOpen && (
                           <tr>
                             <td colSpan={11}>
                               <div className="details-grid">
-                                {(linkedOrder?.paymentProofUrl ||
-                                  linkedOrder?.paymentProofPath ||
-                                  r?.paymentProofUrl ||
-                                  r?.paymentProofPath) && (
+                                {/* Deposit proof */}
+                                {depositProof && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
-                                    <ResolvedImg
-                                      pathOrUrl={
-                                        linkedOrder?.paymentProofUrl ||
-                                        linkedOrder?.paymentProofPath ||
-                                        r?.paymentProofUrl ||
-                                        r?.paymentProofPath
-                                      }
-                                      alt="Initial Payment Proof"
-                                      size={200}
-                                    />
+                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
                                   </div>
                                 )}
-                                {(linkedOrder?.lastAdditionalPaymentProofUrl ||
-                                  linkedOrder?.lastAdditionalPaymentProofPath) && (
+
+                                {/* Additional proofs */}
+                                {(additionalProofs.length > 0 || latestAdditional) && (
                                   <div className="span-2">
-                                    <h4>Additional Payment Proof</h4>
-                                    <ResolvedImg
-                                      pathOrUrl={
-                                        linkedOrder?.lastAdditionalPaymentProofUrl ||
-                                        linkedOrder?.lastAdditionalPaymentProofPath
-                                      }
-                                      alt="Additional Payment Proof"
-                                      size={200}
-                                    />
+                                    <h4>Additional Payment Proofs</h4>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      {additionalProofs.map((p, i) => (
+                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                      ))}
+                                      {latestAdditional && (
+                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                      )}
+                                    </div>
                                   </div>
                                 )}
+
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
                                   <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
-                                    {linkedOrder ? (
-                                      <select
-                                        className="status-select"
-                                        value={linkedOrder?.paymentStatus || "pending"}
-                                        onChange={(e) => updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)}
-                                      >
-                                        <option value="pending">Pending</option>
-                                        <option value="deposit_paid">Deposit_Paid</option>
-                                        <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
-                                        <option value="paid">Paid</option>
-                                        <option value="refunded">Refunded</option>
-                                        <option value="rejected">Rejected</option>
-                                      </select>
-                                    ) : (
-                                      <select
-                                        className="status-select"
-                                        value={r?.paymentStatus || "pending"}
-                                        onChange={(e) => updateRepairPayment(id, r, e.target.value)}
-                                      >
-                                        <option value="pending">Pending</option>
-                                        <option value="deposit_paid">Deposit_Paid</option>
-                                        <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
-                                        <option value="paid">Paid</option>
-                                        <option value="refunded">Refunded</option>
-                                        <option value="rejected">Rejected</option>
-                                      </select>
-                                    )}
-                                    <button
-                                      className="save-btn"
-                                      type="button"
-                                      style={{ background: "#374151" }}
-                                      onClick={() => recordAdditionalPaymentForRepair(id)}
-                                      title="Add to Additional Payments"
+                                    <select
+                                      className="status-select"
+                                      value={linkedOrder?.paymentStatus || r?.paymentStatus || "pending"}
+                                      onChange={(e) =>
+                                        linkedOrder
+                                          ? updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)
+                                          : updateRepairPayment(id, r, e.target.value)
+                                      }
                                     >
-                                      Record Additional Payment
-                                    </button>
+                                      <option value="pending">Pending</option>
+                                      <option value="deposit_paid">Deposit_Paid</option>
+                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="paid">Paid</option>
+                                      <option value="refunded">Refunded</option>
+                                      <option value="rejected">Rejected</option>
+                                    </select>
+
+                                    {(() => {
+                                      const target = linkedOrder || r;
+                                      const money = linkedOrder ? mLinked : computeMonies(target);
+                                      return money?.balance > 0 ? (
+                                        <button
+                                          className="save-btn"
+                                          type="button"
+                                          style={{ background: "#111827" }}
+                                          onClick={() =>
+                                            linkedOrder
+                                              ? requestRemainingBalanceForOrder(linkedOrder)
+                                              : requestRemainingBalanceForRepair(r)
+                                          }
+                                          title="Ask customer to pay the remaining balance"
+                                        >
+                                          Request: Pay Remaining Balance (₱{Math.round(money.balance / 100).toLocaleString()})
+                                        </button>
+                                      ) : null;
+                                    })()}
                                   </div>
                                 </div>
-                                <div>
-                                  <div className="kv">
-                                    <label>Status</label>
-                                    <div>
-                                      <span className={`badge status-${status}`}>
-                                        {(STATUS_LABEL[status] || status).toUpperCase()}
-                                      </span>
-                                    </div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Date</label>
-                                    <div>{when}</div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Total</label>
-                                    <div className="mono strong">{fmtPHP(linkedOrder?.total ?? total)}</div>
-                                  </div>
 
-                                  {/* NEW: Additionals shown ONLY in Repair & Custom tabs */}
-                                  {fmtAdditionals(r?.additionals) && (
-                                    <div className="kv">
-                                      <label>Additionals</label>
-                                      <div>{fmtAdditionals(r.additionals)}</div>
-                                    </div>
-                                  )}
-                                </div>
-
-                                {/* NEW: Order Total breakdown for linked order */}
                                 {mLinked && (
                                   <div>
                                     <h4>Order Total</h4>
@@ -1985,7 +1429,7 @@ export default function Orders() {
                                     <div className="kv">
                                       <label>Net Paid</label>
                                       <div className="mono strong">
-                                        {fmtPHP(Math.round((mLinked.deposit + mLinked.adds - mLinked.refunds) / 100))}
+                                        {fmtPHP(Math.round((mLinked.dep + mLinked.adds - mLinked.refs) / 100))}
                                       </div>
                                     </div>
                                     <div className="kv">
@@ -2001,6 +1445,7 @@ export default function Orders() {
                                 )}
 
                                 <CustomerBlock title="Customer" row={r} />
+
                                 {Array.isArray(r?.images) && r.images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Photos</h4>
@@ -2017,12 +1462,7 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-                                {r?.notes && (
-                                  <div className="span-2">
-                                    <h4>Notes</h4>
-                                    <pre className="note">{r.notes}</pre>
-                                  </div>
-                                )}
+
                                 <AssessmentPanel kind="repair" row={r} />
                               </div>
                             </td>
@@ -2066,11 +1506,13 @@ export default function Orders() {
               )}
             </div>
           </div>
+
           {customsErr && <p className="err">{customsErr}</p>}
           {customsLoading && <p className="muted">Loading…</p>}
           {!customsLoading && customsOrdered.length === 0 && (
             <p className="muted">No customization orders found.</p>
           )}
+
           {!customsLoading && customsOrdered.length > 0 && (
             <div className="orders-card">
               <table className="orders-table">
@@ -2104,18 +1546,23 @@ export default function Orders() {
                     const title = c?.productTitle || c?.title || c?.name || "—";
                     const isOpen = expandedCustomId === id;
 
-                    // find linked order (if any) to show order total breakdown
                     const linkedById = c?.orderId ? rows.find((o) => o.id === c.orderId) : null;
                     const linkedByFields =
                       rows.find(
                         (o) =>
                           String(o?.origin || "") === "customization" &&
                           (o?.customId === id ||
-                           o?.linkedCustomId === id ||
-                           o?.metadata?.customId === id)
+                            o?.linkedCustomId === id ||
+                            o?.metadata?.customId === id)
                       ) || null;
                     const linkedOrder = linkedById || linkedByFields;
                     const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
+
+                    const depositProof =
+                      c?.depositPaymentProofUrl || c?.paymentProofUrl || c?.paymentProofPath || null;
+                    const additionalProofs = Array.isArray(c?.additionalPaymentProofs) ? c.additionalPaymentProofs : [];
+                    const latestAdditional =
+                      c?.lastAdditionalPaymentProofUrl || c?.lastAdditionalPaymentProofPath || null;
 
                     return (
                       <React.Fragment key={id}>
@@ -2159,7 +1606,7 @@ export default function Orders() {
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setCustomDraft(id, e.target.value)}
+                              onChange={(e) => setCustomsDraft((p) => ({ ...p, [id]: e.target.value }))}
                             >
                               <option value="draft">Draft</option>
                               {STATUS_OPTIONS.map((opt) => (
@@ -2189,28 +1636,52 @@ export default function Orders() {
                             />
                           </td>
                           <td>
-                            <button
-                              type="button"
-                              className="save-btn"
+                            <ViewButton
+                              rowId={id}
+                              open={isOpen}
                               onClick={() => setExpandedCustomId(isOpen ? null : id)}
-                              style={{ background: isOpen ? "#6b7e76" : "#2c5f4a" }}
-                              title={isOpen ? "Hide details" : "View details"}
-                            >
-                              {isOpen ? "Hide" : "View"}
-                            </button>
+                            />
                           </td>
                         </tr>
+
                         {isOpen && (
                           <tr>
                             <td colSpan={13}>
                               <div className="details-grid">
+                                {/* Deposit proof */}
+                                {depositProof && (
+                                  <div className="span-2">
+                                    <h4>Initial Payment Proof</h4>
+                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
+                                  </div>
+                                )}
+
+                                {/* Additional proofs */}
+                                {(additionalProofs.length > 0 || latestAdditional) && (
+                                  <div className="span-2">
+                                    <h4>Additional Payment Proofs</h4>
+                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                      {additionalProofs.map((p, i) => (
+                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                      ))}
+                                      {latestAdditional && (
+                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                      )}
+                                    </div>
+                                  </div>
+                                )}
+
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
                                     <select
                                       className="status-select"
-                                      value={c?.paymentStatus || "pending"}
-                                      onChange={(e) => updateCustomPayment(id, e.target.value)}
+                                      value={linkedOrder?.paymentStatus || c?.paymentStatus || "pending"}
+                                      onChange={(e) =>
+                                        linkedOrder
+                                          ? updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)
+                                          : updateCustomPayment(id, e.target.value)
+                                      }
                                     >
                                       <option value="pending">Pending</option>
                                       <option value="deposit_paid">Deposit_Paid</option>
@@ -2219,55 +1690,29 @@ export default function Orders() {
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
                                     </select>
-                                    {c?.paymentProofUrl ? (
-                                      <a href={c.paymentProofUrl} target="_blank" rel="noreferrer">
-                                        <img
-                                          src={c.paymentProofUrl}
-                                          alt="Payment Proof"
-                                          style={{ width: 80, height: 80, objectFit: "cover", borderRadius: 8 }}
-                                        />
-                                      </a>
-                                    ) : (
-                                      <span className="muted">No proof uploaded</span>
-                                    )}
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="kv">
-                                    <label>Product</label>
-                                    <div>{title}</div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Category</label>
-                                    <div>{c?.category || "—"}</div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Size</label>
-                                    <div>{c?.size || "—"}</div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Unit Price</label>
-                                    <div className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</div>
-                                  </div>
-                                </div>
-                                <div>
-                                  <div className="kv">
-                                    <label>Cover</label>
-                                    <div>
-                                      {c?.cover ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}` : "—"}
-                                    </div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Additionals</label>
-                                    <div>{fmtAdditionals(c?.additionals) || "—"}</div>
-                                  </div>
-                                  <div className="kv">
-                                    <label>Date</label>
-                                    <div>{when}</div>
+
+                                    {(() => {
+                                      const target = linkedOrder || c;
+                                      const money = linkedOrder ? mLinked : computeMonies(target);
+                                      return money?.balance > 0 ? (
+                                        <button
+                                          className="save-btn"
+                                          type="button"
+                                          style={{ background: "#111827" }}
+                                          onClick={() =>
+                                            linkedOrder
+                                              ? requestRemainingBalanceForOrder(linkedOrder)
+                                              : requestRemainingBalanceForCustom(c)
+                                          }
+                                          title="Ask customer to pay the remaining balance"
+                                        >
+                                          Request: Pay Remaining Balance (₱{Math.round(money.balance / 100).toLocaleString()})
+                                        </button>
+                                      ) : null;
+                                    })()}
                                   </div>
                                 </div>
 
-                                {/* NEW: Order Total breakdown when linked order exists */}
                                 {mLinked && (
                                   <div>
                                     <h4>Order Total</h4>
@@ -2286,7 +1731,7 @@ export default function Orders() {
                                     <div className="kv">
                                       <label>Net Paid</label>
                                       <div className="mono strong">
-                                        {fmtPHP(Math.round((mLinked.deposit + mLinked.adds - mLinked.refunds) / 100))}
+                                        {fmtPHP(Math.round((mLinked.dep + mLinked.adds - mLinked.refs) / 100))}
                                       </div>
                                     </div>
                                     <div className="kv">
@@ -2302,6 +1747,7 @@ export default function Orders() {
                                 )}
 
                                 <CustomerBlock title="Customer" row={c} />
+
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Product Images</h4>
@@ -2328,20 +1774,7 @@ export default function Orders() {
                                     </div>
                                   </div>
                                 )}
-                                {c?.descriptionFromProduct && (
-                                  <div className="span-2">
-                                    <h4>Description</h4>
-                                    <div className="muted" style={{ whiteSpace: "pre-wrap" }}>
-                                      {c.descriptionFromProduct}
-                                    </div>
-                                  </div>
-                                )}
-                                {c?.notes && (
-                                  <div className="span-2">
-                                    <h4>Notes</h4>
-                                    <pre className="note">{c.notes}</pre>
-                                  </div>
-                                )}
+
                                 <AssessmentPanel kind="custom" row={c} />
                               </div>
                             </td>

@@ -3,14 +3,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
 import "../OrderSummary.css";
-import {
-  auth,
-  firestore,
-  collection,
-  query,
-  where,
-  doc,
-} from "../firebase";
+import { auth, firestore, collection, query, where, doc } from "../firebase";
 import { onAuthStateChanged } from "firebase/auth";
 import { onSnapshot, orderBy, limit } from "firebase/firestore";
 
@@ -46,6 +39,10 @@ const messages = {
     "Order received! We’d love your feedback—rate your experience when you’re ready.",
 };
 
+/* -------------------- helpers -------------------- */
+const N = (x) => Math.max(0, Math.round(Number(x || 0)));
+const cents = (php) => Math.max(0, Math.round(Number(php || 0) * 100));
+
 /* -------------------- Component -------------------- */
 export default function OrderSummary() {
   const { orderId: orderIdParam } = useParams();
@@ -54,20 +51,20 @@ export default function OrderSummary() {
 
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const qsOrderId = qs.get("orderId");
-  const customId = qs.get("customId"); // still supported if you deep-link a custom-only view
+  const customId = qs.get("customId");
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
-  const [order, setOrder] = useState(undefined);        // orders/{id}
+  const [order, setOrder] = useState(undefined);         // orders/{id}
   const [linkedCustom, setLinkedCustom] = useState(null); // custom_orders/{id}
   const [linkedRepair, setLinkedRepair] = useState(null); // repairs/{id}
 
   /* ---------- auth ---------- */
   useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
 
-  /* ---------- live subscribe to the order (by id or latest by uid) ---------- */
+  /* ---------- subscribe to the order (by id or latest by uid) ---------- */
   useEffect(() => {
-    if (!orderId || customId) return; // if viewing a pure custom page elsewhere
+    if (!orderId || customId) return;
     const ref = doc(firestore, "orders", orderId);
     const stop = onSnapshot(
       ref,
@@ -190,9 +187,14 @@ export default function OrderSummary() {
       "requestedAdditionalPaymentCents",
       "paymentStatus",
       "paymentProofUrl",
+      "depositPaymentProofUrl",
       "lastAdditionalPaymentProofUrl",
       "lastAdditionalPaymentProofPath",
       "additionalPaymentProofs",
+      "depositPaymentProofs",
+      "unitPrice",
+      "shippingFee",
+      "total",
     ];
     const out = { ...order };
     for (const k of keys) {
@@ -209,27 +211,48 @@ export default function OrderSummary() {
   const currentIdx = Math.max(0, STEPS.findIndex((s) => s.key === currentKey));
   const note = messages[currentKey];
 
-  /* ---------- payment summary ---------- */
+  /* ---------- payment math (robust fallbacks) ---------- */
   const money = useMemo(() => {
-    const src = merged || order;
-    if (!src) return { assessedC: 0, depositC: 0, addsC: 0, refundsC: 0, requestedC: 0, balanceC: 0 };
-    const N = (x) => Math.max(0, Math.round(Number(x || 0)));
-    const assessedC  = N(src.assessedTotalCents);
-    const depositC   = N(src.depositCents);
-    const addsC      = N(src.additionalPaymentsCents);
-    const refundsC   = N(src.refundsCents);
+    const src = merged || order || {};
+    // assessed: prefer explicit cents; else fallback to (unitPrice + shippingFee) if total missing
+    const assessedC =
+      N(src.assessedTotalCents) ||
+      cents(
+        src.total != null
+          ? Number(src.total)
+          : Number(src.unitPrice || 0) + Number(src.shippingFee || 0)
+      );
+
+    const depositC = N(src.depositCents);
+    const addsC = N(src.additionalPaymentsCents);
+    const refundsC = N(src.refundsCents);
     const requestedC = N(src.requestedAdditionalPaymentCents);
-    const netPaidC   = Math.max(0, depositC + addsC - refundsC);
-    const balanceC   = assessedC > 0 ? Math.max(0, assessedC - netPaidC) : 0;
-    return { assessedC, depositC, addsC, refundsC, requestedC, balanceC };
+
+    const netPaidC = Math.max(0, depositC + addsC - refundsC);
+    const balanceC = assessedC > 0 ? Math.max(0, assessedC - netPaidC) : 0;
+
+    return { assessedC, requestedC, balanceC };
   }, [order, merged]);
 
-  /* Hide Pay button if paid/refunded */
+  /* ---------- show pay button only when needed ---------- */
   const payStatus = String((merged || order)?.paymentStatus || "").toLowerCase();
-  const canPay =
+
+  // Button appears if: explicitly awaiting additional, OR a request amount exists, OR
+  // math says there’s still a balance (once assessed)
+  const showAdditionalBtn =
     payStatus !== "paid" &&
     payStatus !== "refunded" &&
-    (money.requestedC > 0 || (money.assessedC > 0 && money.balanceC > 0));
+    (payStatus === "awaiting_additional_payment" ||
+      money.requestedC > 0 ||
+      (money.assessedC > 0 && money.balanceC > 0));
+
+  const amountToPayC =
+    money.requestedC > 0
+      ? money.requestedC
+      : money.balanceC;
+
+  const isExplicitAdditional =
+    payStatus === "awaiting_additional_payment" || money.requestedC > 0;
 
   /* ---------- render ---------- */
   return (
@@ -253,41 +276,23 @@ export default function OrderSummary() {
               order={merged || order}
             />
 
-            {/* Pay button logic: priority to requested additional; else assessed balance.
-                Hidden when paymentStatus is paid/refunded. */}
-
-                {(merged || order) && (
-  <div className="os-card" style={{ marginTop: 12 }}>
-    <h4>PAYMENT SUMMARY</h4>
-    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 8 }}>
-      <div><div className="muted small">Assessed Total</div><div className="mono strong">₱{((money.assessedC||0)/100).toLocaleString()}</div></div>
-      <div><div className="muted small">Net Paid</div><div className="mono strong">₱{(((money.depositC||0)+(money.addsC||0)-(money.refundsC||0))/100).toLocaleString()}</div></div>
-      <div><div className="muted small">Requested Additional</div><div className="mono">₱{((money.requestedC||0)/100).toLocaleString()}</div></div>
-      <div><div className="muted small">Balance Due</div><div className="mono" style={{ fontWeight: 700, color: (money.balanceC>0 ? "#b91c1c" : "#1f2937") }}>₱{((money.balanceC||0)/100).toLocaleString()}</div></div>
-    </div>
-  </div>
-)}
-            {(merged || order)?.id && canPay && money.requestedC > 0 ? (
+            {showAdditionalBtn && (merged || order)?.id && amountToPayC > 0 && (
               <div style={{ marginTop: 12 }}>
                 <button
                   type="button"
                   className="os-pay-btn"
-                  onClick={() => navigate(`/payment?orderId=${(merged || order).id}`)}
+                  onClick={() =>
+                    navigate(
+                      `/payment?orderId=${(merged || order).id}${
+                        isExplicitAdditional ? "&mode=additional" : ""
+                      }`
+                    )
+                  }
                 >
-                  Pay ₱{(money.requestedC / 100).toLocaleString()} (additional)
+                  {isExplicitAdditional ? "Pay Additional" : "Pay Remaining"} ₱{(amountToPayC / 100).toLocaleString()}
                 </button>
               </div>
-            ) : (merged || order)?.id && canPay && money.balanceC > 0 && money.assessedC > 0 ? (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="os-pay-btn"
-                  onClick={() => navigate(`/payment?orderId=${(merged || order).id}`)}
-                >
-                  Pay remaining ₱{(money.balanceC / 100).toLocaleString()}
-                </button>
-              </div>
-            ) : null}
+            )}
           </>
         )}
       </div>

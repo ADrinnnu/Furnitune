@@ -10,7 +10,7 @@ import { onAuthStateChanged } from "firebase/auth";
 import { onSnapshot, limit } from "firebase/firestore";
 import "../OrderSummary.css";
 
-/* ---------- built-in placeholder (no file needed) ---------- */
+/* ---------- lightweight placeholder ---------- */
 const PLACEHOLDER =
   'data:image/svg+xml;utf8,' +
   encodeURIComponent(
@@ -36,18 +36,18 @@ function objectPathFromAnyStorageUrl(u) {
   if (!/^https?:\/\//i.test(u)) return u; // looks like a storage path already
   return null;
 }
-function isStorageLikeUrl(u) {
-  return !!objectPathFromAnyStorageUrl(u);
-}
+function isStorageLikeUrl(u) { return !!objectPathFromAnyStorageUrl(u); }
 async function resolveStorageUrl(val) {
   if (!val) return "";
   try {
     const path = objectPathFromAnyStorageUrl(val);
     if (path) return await getDownloadURL(ref(storage, path));
-    return val; // plain http(s) URL
-  } catch {
-    return "";
-  }
+    return val; // plain http(s)
+  } catch { return ""; }
+}
+async function resolveMany(urls) {
+  const uniq = [...new Set((urls || []).filter(Boolean))];
+  return Promise.all(uniq.map(resolveStorageUrl));
 }
 function safeImageSrc(primaryResolvedUrl, original) {
   if (primaryResolvedUrl) return primaryResolvedUrl;
@@ -70,6 +70,8 @@ const MERGE_FIELDS = [
   "lastAdditionalPaymentProofUrl",
   "lastAdditionalPaymentProofPath",
   "additionalPaymentProofs",
+  "depositPaymentProofUrl",
+  "depositPaymentProofs",
 ];
 
 export default function OrderSummaryCard({
@@ -84,14 +86,17 @@ export default function OrderSummaryCard({
   showAddress = false,
   shippingAddress = null,
   showSupport = true,
-  order: orderFromParent = null, // parent can pass a pre-merged order; we still enhance if linked docs have newer info
+  order: orderFromParent = null,
 }) {
   const [order, setOrder] = useState(orderFromParent === null ? undefined : orderFromParent);
   const [linkedCustom, setLinkedCustom] = useState(null);
   const [linkedRepair, setLinkedRepair] = useState(null);
 
   const [items, setItems] = useState([]);
-  const [proofUrlResolved, setProofUrlResolved] = useState("");
+
+  // proofs
+  const [depositProofUrls, setDepositProofUrls] = useState([]);
+  const [additionalProofUrls, setAdditionalProofUrls] = useState([]);
 
   /* ---------- allow parent override ---------- */
   useEffect(() => {
@@ -113,7 +118,7 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems, orderFromParent]);
 
-  /* ---------- fetch order if needed (when parent didn't pass) ---------- */
+  /* ---------- fetch order if needed ---------- */
   useEffect(() => {
     if (passedItems || orderFromParent) return;
     let stopAuth = () => {};
@@ -149,9 +154,7 @@ export default function OrderSummaryCard({
       }
     })();
 
-    return () => {
-      try { stopAuth(); } catch {}
-    };
+    return () => { try { stopAuth(); } catch {} };
   }, [orderId, passedItems, orderFromParent]);
 
   /* ---------- subscribe to linked customization (if any) ---------- */
@@ -260,31 +263,33 @@ export default function OrderSummaryCard({
     const chain = [order, linkedCustom, linkedRepair].filter(Boolean);
     for (const k of MERGE_FIELDS) {
       if (out[k] != null) continue;
-      for (const src of chain.slice(1)) { // skip original order
+      for (const src of chain.slice(1)) {
         if (src && src[k] != null) { out[k] = src[k]; break; }
       }
     }
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
-  /* ---------- resolve readable proof URL (from merged) ---------- */
+  /* ---------- resolve proof images (deposit + additional) ---------- */
   useEffect(() => {
     (async () => {
-      const raw =
-        merged?.paymentProofUrl ||
-        merged?.paymentProofPath ||
-        merged?.lastAdditionalPaymentProofUrl ||
-        merged?.lastAdditionalPaymentProofPath ||
-        "";
-      const resolved = await resolveStorageUrl(raw);
-      setProofUrlResolved(resolved); // empty if not readable
+      const m = merged || {};
+      const depositSingles = [
+        m.depositPaymentProofUrl,
+        m.paymentProofUrl,
+        m.paymentProofPath,
+      ].filter(Boolean);
+      const depositList = Array.isArray(m.depositPaymentProofs) ? m.depositPaymentProofs.map(p => p?.url || p).filter(Boolean) : [];
+      const addSingles = [
+        m.lastAdditionalPaymentProofUrl,
+        m.lastAdditionalPaymentProofPath,
+      ].filter(Boolean);
+      const addList = Array.isArray(m.additionalPaymentProofs) ? m.additionalPaymentProofs.map(p => p?.url || p).filter(Boolean) : [];
+
+      setDepositProofUrls(await resolveMany([...depositSingles, ...depositList]));
+      setAdditionalProofUrls(await resolveMany([...addSingles, ...addList]));
     })();
-  }, [
-    merged?.paymentProofUrl,
-    merged?.paymentProofPath,
-    merged?.lastAdditionalPaymentProofUrl,
-    merged?.lastAdditionalPaymentProofPath,
-  ]);
+  }, [merged]);
 
   /* ---------- money sections ---------- */
   const subtotal = useMemo(() => {
@@ -311,16 +316,24 @@ export default function OrderSummaryCard({
     const o = merged || {};
     const status = String(o.paymentStatus || "").toLowerCase();
 
-    // Only use provided cents; don't auto-fill deposit with total (avoids misleading numbers)
-    const assessedC = o.assessedTotalCents != null ? Number(o.assessedTotalCents) : toCents(total);
-    const depositC  = o.depositCents != null ? Number(o.depositCents) : 0;
-    const addsC     = Number(o.additionalPaymentsCents || 0);
-    const refundsC  = Number(o.refundsCents || 0);
+    const assessedC  = o.assessedTotalCents != null ? Number(o.assessedTotalCents) : toCents(total);
+    const depositC   = o.depositCents != null ? Number(o.depositCents) : 0;
+    const addsC      = Number(o.additionalPaymentsCents || 0);
+    const refundsC   = Number(o.refundsCents || 0);
+    const requestedC = Number(o.requestedAdditionalPaymentCents || 0);
 
     const netPaidC = Math.max(0, depositC + addsC - refundsC);
-    const balanceC = Math.max(0, assessedC - netPaidC);
 
-    return { assessedC, depositC, addsC, refundsC, netPaidC, balanceC, status };
+    // Default computed balance from assessed
+    let balanceC = Math.max(0, assessedC - netPaidC);
+
+    // If admin explicitly requested an additional amount, reflect that in Balance Due,
+    // especially when assessed == netPaid (i.e., deposit fully covered assessed earlier).
+    if (requestedC > 0 && (status === "awaiting_additional_payment" || balanceC === 0)) {
+      balanceC = Math.max(balanceC, requestedC);
+    }
+
+    return { assessedC, depositC, addsC, refundsC, netPaidC, balanceC, status, requestedC };
   }, [merged, total]);
 
   /* ---------- skeletons ---------- */
@@ -390,17 +403,41 @@ export default function OrderSummaryCard({
         <div>{String(srcOrder?.paymentStatus || "pending").toUpperCase()}</div>
       </div>
 
-      {/* Show payment proof ONLY if we resolved a readable URL */}
-      {proofUrlResolved ? (
+      {/* Deposit proof(s) */}
+      {depositProofUrls.length > 0 && (
         <div style={{ marginTop: 6 }}>
-          <img
-            src={proofUrlResolved}
-            alt="Payment Proof"
-            style={{ width: 120, height: 80, objectFit: "cover", borderRadius: 8 }}
-            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
-          />
+          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Deposit Payment Proof</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {depositProofUrls.map((u, i) => (
+              <img
+                key={i}
+                src={u || PLACEHOLDER}
+                alt={`Deposit Proof ${i + 1}`}
+                style={{ width: 120, height: 80, objectFit: "cover", borderRadius: 8 }}
+                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
+              />
+            ))}
+          </div>
         </div>
-      ) : null}
+      )}
+
+      {/* Additional proof(s) */}
+      {additionalProofUrls.length > 0 && (
+        <div style={{ marginTop: 8 }}>
+          <div className="muted" style={{ fontSize: 12, marginBottom: 4 }}>Additional Payment Proofs</div>
+          <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+            {additionalProofUrls.map((u, i) => (
+              <img
+                key={i}
+                src={u || PLACEHOLDER}
+                alt={`Additional Proof ${i + 1}`}
+                style={{ width: 120, height: 80, objectFit: "cover", borderRadius: 8 }}
+                onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
+              />
+            ))}
+          </div>
+        </div>
+      )}
 
       <div className="cart-header">🛒 Cart ({count})</div>
 
@@ -437,7 +474,8 @@ export default function OrderSummaryCard({
           <h4>DELIVERY ADDRESS</h4>
           <p>
             {(shippingAddress || srcOrder.shippingAddress)?.fullName ||
-              [ (shippingAddress || srcOrder.shippingAddress)?.firstName,
+              [
+                (shippingAddress || srcOrder.shippingAddress)?.firstName,
                 (shippingAddress || srcOrder.shippingAddress)?.lastName
               ].filter(Boolean).join(" ")}
           </p>
