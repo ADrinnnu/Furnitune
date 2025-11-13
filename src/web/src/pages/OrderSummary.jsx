@@ -55,7 +55,7 @@ export default function OrderSummary() {
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
-  const [order, setOrder] = useState(undefined);         // orders/{id}
+  const [order, setOrder] = useState(undefined);          // orders/{id}
   const [linkedCustom, setLinkedCustom] = useState(null); // custom_orders/{id}
   const [linkedRepair, setLinkedRepair] = useState(null); // repairs/{id}
 
@@ -214,7 +214,6 @@ export default function OrderSummary() {
   /* ---------- payment math (robust fallbacks) ---------- */
   const money = useMemo(() => {
     const src = merged || order || {};
-    // assessed: prefer explicit cents; else fallback to (unitPrice + shippingFee) if total missing
     const assessedC =
       N(src.assessedTotalCents) ||
       cents(
@@ -237,8 +236,6 @@ export default function OrderSummary() {
   /* ---------- show pay button only when needed ---------- */
   const payStatus = String((merged || order)?.paymentStatus || "").toLowerCase();
 
-  // Button appears if: explicitly awaiting additional, OR a request amount exists, OR
-  // math says there’s still a balance (once assessed)
   const showAdditionalBtn =
     payStatus !== "paid" &&
     payStatus !== "refunded" &&
@@ -354,13 +351,16 @@ export default function OrderSummary() {
           </p>
         </div>
 
-        <div className="os-card os-help">
-          <h4>NEED ASSISTANCE?</h4>
-          <ul>
-            <li>💬 AI ChatBot: Online now</li>
-            <li>📞 Call: 123-123-312</li>
-            <li>✉️ Email Us: Furnitune@jemeyl.com</li>
-          </ul>
+        {/* Help card – content-height, centered via CSS */}
+        <div className="os-help">
+          <div className="os-help-card">
+            <h4>NEED ASSISTANCE?</h4>
+            <ul>
+              <li>💬 AI ChatBot: Online now</li>
+              <li>📞 Call: 09650934957</li>
+              <li>✉️ Email: furnitunecp@gmail.com</li>
+            </ul>
+          </div>
         </div>
       </div>
     </div>

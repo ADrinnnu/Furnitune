@@ -279,12 +279,16 @@ export default function OrderSummaryCard({
         m.paymentProofUrl,
         m.paymentProofPath,
       ].filter(Boolean);
-      const depositList = Array.isArray(m.depositPaymentProofs) ? m.depositPaymentProofs.map(p => p?.url || p).filter(Boolean) : [];
+      const depositList = Array.isArray(m.depositPaymentProofs)
+        ? m.depositPaymentProofs.map(p => p?.url || p).filter(Boolean)
+        : [];
       const addSingles = [
         m.lastAdditionalPaymentProofUrl,
         m.lastAdditionalPaymentProofPath,
       ].filter(Boolean);
-      const addList = Array.isArray(m.additionalPaymentProofs) ? m.additionalPaymentProofs.map(p => p?.url || p).filter(Boolean) : [];
+      const addList = Array.isArray(m.additionalPaymentProofs)
+        ? m.additionalPaymentProofs.map(p => p?.url || p).filter(Boolean)
+        : [];
 
       setDepositProofUrls(await resolveMany([...depositSingles, ...depositList]));
       setAdditionalProofUrls(await resolveMany([...addSingles, ...addList]));
@@ -342,8 +346,11 @@ export default function OrderSummaryCard({
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
         <div className="cart-item">
-          <img src={PLACEHOLDER} alt="Loading"
-               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }} />
+          <img
+            src={PLACEHOLDER}
+            alt="Loading"
+            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
+          />
           <div className="cart-info">
             <p>Loading…</p>
             <span>Qty: —</span>
@@ -362,8 +369,8 @@ export default function OrderSummaryCard({
           <div className="support-box">
             <h4>NEED ASSISTANCE?</h4>
             <p>💬 AI ChatBot: Online now</p>
-            <p>📞 Call: 123-325-312</p>
-            <p>✉️ Email: Furnitune@jserwj.com</p>
+            <p>📞 Call: 09650934957</p>
+            <p>✉️ Email: furnitunecp@gmail.com</p>
           </div>
         )}
       </div>
@@ -374,8 +381,11 @@ export default function OrderSummaryCard({
       <div className={`checkout-summary ${className}`}>
         <h3>{title}</h3>
         <div className="cart-item">
-          <img src={PLACEHOLDER} alt="No order"
-               onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }} />
+          <img
+            src={PLACEHOLDER}
+            alt="No order"
+            onError={(e) => { e.currentTarget.onerror = null; e.currentTarget.src = PLACEHOLDER; }}
+          />
           <div className="cart-info">
             <p>No order</p>
             <span>Qty: —</span>
@@ -390,17 +400,21 @@ export default function OrderSummaryCard({
   const lineItems = items.length ? items : srcOrder.items || [];
   const count = lineItems.reduce((s, it) => s + Number(it.qty || 1), 0);
 
+  const statusText  = String(srcOrder?.status || "processing").toUpperCase();
+  const paymentText = String(srcOrder?.paymentStatus || "pending").toUpperCase();
+
   return (
     <div className={`checkout-summary ${className}`}>
       <h3>{title}</h3>
 
-      <div className="kv">
-        <label>Status</label>
-        <div>{String(srcOrder?.status || "processing").toUpperCase()}</div>
+      {/* Status + Payment on single lines */}
+      <div className="kv-row">
+        <span className="kv-label">Order Status: </span>
+        <span className="kv-value">{statusText}</span>
       </div>
-      <div className="kv">
-        <label>Payment</label>
-        <div>{String(srcOrder?.paymentStatus || "pending").toUpperCase()}</div>
+      <div className="kv-row">
+        <span className="kv-label">Payment Status: </span>
+        <span className="kv-value">{paymentText}</span>
       </div>
 
       {/* Deposit proof(s) */}
@@ -469,26 +483,28 @@ export default function OrderSummaryCard({
         );
       })}
 
-      {showAddress && (shippingAddress || srcOrder?.shippingAddress) && (
+      {showAddress && addr && (
         <div className="delivery-section">
           <h4>DELIVERY ADDRESS</h4>
           <p>
-            {(shippingAddress || srcOrder.shippingAddress)?.fullName ||
-              [
-                (shippingAddress || srcOrder.shippingAddress)?.firstName,
-                (shippingAddress || srcOrder.shippingAddress)?.lastName
-              ].filter(Boolean).join(" ")}
+            <strong>Name: </strong>
+            {addr.fullName ||
+              [addr.firstName, addr.lastName].filter(Boolean).join(" ")}
           </p>
-          {(shippingAddress || srcOrder.shippingAddress)?.phone && (
-            <p>{(shippingAddress || srcOrder.shippingAddress)?.phone}</p>
+          {addr.phone && (
+            <p>
+              <strong>Phone: </strong>
+              {addr.phone}
+            </p>
           )}
           <p>
+            <strong>Address: </strong>
             {[
-              (shippingAddress || srcOrder.shippingAddress)?.line1,
-              (shippingAddress || srcOrder.shippingAddress)?.line2,
-              (shippingAddress || srcOrder.shippingAddress)?.city,
-              (shippingAddress || srcOrder.shippingAddress)?.province,
-              (shippingAddress || srcOrder.shippingAddress)?.zip,
+              addr.line1,
+              addr.line2,
+              addr.city,
+              addr.province,
+              addr.zip,
             ].filter(Boolean).join(" ")}
           </p>
         </div>
@@ -518,15 +534,6 @@ export default function OrderSummaryCard({
         <strong>Balance Due</strong>
         <strong>{peso(rollups.balanceC / 100)}</strong>
       </div>
-
-      {showSupport && (
-        <div className="support-box">
-          <h4>NEED ASSISTANCE?</h4>
-          <p>💬 AI ChatBot: Online now</p>
-          <p>📞 Call: 123-325-312</p>
-          <p>✉️ Email: Furnitune@jserwj.com</p>
-        </div>
-      )}
     </div>
   );
 }
