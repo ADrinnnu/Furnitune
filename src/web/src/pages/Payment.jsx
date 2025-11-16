@@ -312,19 +312,19 @@ export default function Payment() {
 
         // Update order with proof (keep legacy field for admin UI image)
         await updateDoc(oRef, deepSanitizeForFirestore({
-          paymentProofPendingReview: true,
-          paymentProofType: "additional",
-          paymentProofUpdatedAt: serverTimestamp(),
-          lastAdditionalPaymentProofUrl: url || null,
-          lastAdditionalPaymentProofPath: storagePath || null,
-          paymentProofUrl: url || null, // legacy so Admin Orders shows image
-          additionalPaymentProofs: arrayUnion({
-            url: url || null,
-            uploadedAt: serverTimestamp(),
-            amountCents,
-            note: null,
-          }),
-        }));
+  paymentProofPendingReview: true,
+  paymentProofType: "additional",
+  paymentProofUpdatedAt: new Date(),
+  lastAdditionalPaymentProofUrl: url || null,
+  lastAdditionalPaymentProofPath: storagePath || null,
+  paymentProofUrl: url || null,
+  additionalPaymentProofs: arrayUnion({
+    url: url || null,
+    uploadedAt: new Date(),   // ← change this line
+    amountCents,
+    note: null,
+  }),
+}));
 
         // Mirror to origin doc
         try {
@@ -332,12 +332,12 @@ export default function Payment() {
             await updateDoc(doc(db, "repairs", orderData.repairId), deepSanitizeForFirestore({
               paymentProofPendingReview: true,
               paymentProofType: "additional",
-              paymentProofUpdatedAt: serverTimestamp(),
+              paymentProofUpdatedAt: new Date(),
               lastAdditionalPaymentProofUrl: url || null,
               lastAdditionalPaymentProofPath: storagePath || null,
               additionalPaymentProofs: arrayUnion({
                 url: url || null,
-                uploadedAt: serverTimestamp(),
+                uploadedAt: new Date(),
                 amountCents,
                 note: null,
               }),
@@ -350,12 +350,12 @@ export default function Payment() {
               await updateDoc(cRef, deepSanitizeForFirestore({
                 paymentProofPendingReview: true,
                 paymentProofType: "additional",
-                paymentProofUpdatedAt: serverTimestamp(),
+                paymentProofUpdatedAt: new Date(),
                 lastAdditionalPaymentProofUrl: url || null,
                 lastAdditionalPaymentProofPath: storagePath || null,
                 additionalPaymentProofs: arrayUnion({
                   url: url || null,
-                  uploadedAt: serverTimestamp(),
+                  uploadedAt: new Date(),
                   amountCents,
                   note: null,
                 }),
@@ -377,7 +377,7 @@ export default function Payment() {
             status: "processing",
             title: "Additional payment submitted",
             body: "Thanks! We’re reviewing your additional payment proof.",
-            createdAt: serverTimestamp(),
+            createdAt: new Date(),
             read: false,
           }));
         } catch {}
@@ -393,7 +393,7 @@ export default function Payment() {
 
       const orderPayload = deepSanitizeForFirestore({
         userId: uid,
-        createdAt: serverTimestamp(),
+        createdAt: new Date(),
         status: "processing",
         items: itemsLean,
         subtotal, shippingFee, total,
@@ -407,7 +407,7 @@ export default function Payment() {
         paymentStatus: "pending",
         paymentProofPendingReview: true,
         paymentProofType: "deposit",
-        paymentProofUpdatedAt: serverTimestamp(),
+        paymentProofUpdatedAt: new Date(),
 
         assessmentStatus: "pending",
         assessedTotalCents: null,
@@ -432,13 +432,13 @@ export default function Payment() {
         depositPaymentProofUrl: url || null,
         depositPaymentProofs: arrayUnion({
           url: url || null,
-          uploadedAt: serverTimestamp(),
+          uploadedAt: new Date(),
           amountCents: null,
           note: null,
         }),
         paymentProofPendingReview: true,
         paymentProofType: "deposit",
-        paymentProofUpdatedAt: serverTimestamp(),
+        paymentProofUpdatedAt: new Date(),
       }));
 
       await addAdminNotification({ orderId: orderRef.id, userId: uid, cents: toC(total), storagePath, url, kind: "initial" });
@@ -470,7 +470,7 @@ export default function Payment() {
         const customLean = deepSanitizeForFirestore({
           userId: uid,
           orderId: orderRef.id,
-          createdAt: serverTimestamp(),
+          createdAt: new Date(),
           status: "processing",
 
           productId: customDraft.productId ?? null,
@@ -499,12 +499,12 @@ export default function Payment() {
           paymentStatus: "pending",
           paymentProofPendingReview: true,
           paymentProofType: "deposit",
-          paymentProofUpdatedAt: serverTimestamp(),
+          paymentProofUpdatedAt: new Date(),
           paymentProofUrl: url || null,          // legacy view support (if admin lists custom directly)
           depositPaymentProofUrl: url || null,
           depositPaymentProofs: [{
             url: url || null,
-            uploadedAt: serverTimestamp(),
+            uploadedAt: new Date(),
             amountCents: null,
             note: null,
           }],
@@ -526,12 +526,12 @@ export default function Payment() {
             paymentStatus: "pending",
             paymentProofPendingReview: true,
             paymentProofType: "deposit",
-            paymentProofUpdatedAt: serverTimestamp(),
+            paymentProofUpdatedAt: new Date(),
             paymentProofUrl: url || null, // for any admin list that reads this directly
             depositPaymentProofUrl: url || null,
             depositPaymentProofs: arrayUnion({
               url: url || null,
-              uploadedAt: serverTimestamp(),
+              uploadedAt: new Date(),
               amountCents: null,
               note: null,
             }),
@@ -553,7 +553,7 @@ export default function Payment() {
           body: `We received your payment proof for order ${String(orderRef.id).slice(0, 6)}.`,
           image: itemsLean?.[0]?.image ?? null,
           link: `/ordersummary?orderId=${orderRef.id}`,
-          createdAt: serverTimestamp(),
+          createdAt: new Date(),
           read: false,
         }));
       } catch {}
