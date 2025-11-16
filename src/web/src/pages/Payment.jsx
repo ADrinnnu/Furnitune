@@ -16,6 +16,8 @@ import {
   query,
   where,
   arrayUnion,
+  limit as qLimit,
+  setDoc,
 } from "firebase/firestore";
 import { auth } from "../firebase";
 import qrCodeImg from "../assets/payment.jpg";
@@ -23,6 +25,26 @@ import { getCheckoutItems, clearCheckoutItems } from "../utils/checkoutSelection
 import "../Payment.css";
 
 const PENDING_KEY = "PENDING_CHECKOUT";
+
+/* ───────────────── Idempotency helpers ───────────────── */
+// A per-tab token. Survives reloads, resets when the tab closes.
+const CHECKOUT_TOKEN_KEY = "CHECKOUT_TOKEN";
+function getCheckoutToken() {
+  let t = sessionStorage.getItem(CHECKOUT_TOKEN_KEY);
+  if (!t) {
+    t = (crypto?.randomUUID?.() || Math.random().toString(36).slice(2)) + `_${Date.now()}`;
+    sessionStorage.setItem(CHECKOUT_TOKEN_KEY, t);
+  }
+  return t;
+}
+function markCommitted(token, orderId) {
+  if (!token) return;
+  sessionStorage.setItem(`checkout:committed:${token}`, orderId || "1");
+}
+function getCommittedOrderId(token) {
+  const v = sessionStorage.getItem(`checkout:committed:${token}`);
+  return v && v !== "1" ? v : v ? "1" : null; // return "1" if we only know it's committed w/o id
+}
 
 /* ───────────────── helpers ───────────────── */
 // IMPORTANT: keep FieldValue sentinels (serverTimestamp, arrayUnion) intact.
@@ -312,19 +334,19 @@ export default function Payment() {
 
         // Update order with proof (keep legacy field for admin UI image)
         await updateDoc(oRef, deepSanitizeForFirestore({
-  paymentProofPendingReview: true,
-  paymentProofType: "additional",
-  paymentProofUpdatedAt: new Date(),
-  lastAdditionalPaymentProofUrl: url || null,
-  lastAdditionalPaymentProofPath: storagePath || null,
-  paymentProofUrl: url || null,
-  additionalPaymentProofs: arrayUnion({
-    url: url || null,
-    uploadedAt: new Date(),   // ← change this line
-    amountCents,
-    note: null,
-  }),
-}));
+          paymentProofPendingReview: true,
+          paymentProofType: "additional",
+          paymentProofUpdatedAt: new Date(),
+          lastAdditionalPaymentProofUrl: url || null,
+          lastAdditionalPaymentProofPath: storagePath || null,
+          paymentProofUrl: url || null,
+          additionalPaymentProofs: arrayUnion({
+            url: url || null,
+            uploadedAt: new Date(),
+            amountCents,
+            note: null,
+          }),
+        }));
 
         // Mirror to origin doc
         try {
@@ -388,6 +410,48 @@ export default function Payment() {
       }
 
       /* ───────────────── First checkout (new order) ───────────────── */
+
+      // >>> NEW: Idempotency gate
+      const clientCheckoutId = getCheckoutToken();
+
+      // If we already committed in this tab, bounce to the existing order (if we know it) or stop.
+      const already = getCommittedOrderId(clientCheckoutId);
+      if (already) {
+        // Try to find the order by token if we only have "1"
+        let orderIdToUse = already !== "1" ? already : null;
+        if (!orderIdToUse) {
+          const dupQ = query(
+            collection(db, "orders"),
+            where("clientCheckoutId", "==", clientCheckoutId),
+            where("userId", "==", uid),
+            qLimit(1)
+          );
+          const dupSnap = await getDocs(dupQ);
+          if (!dupSnap.empty) orderIdToUse = dupSnap.docs[0].id;
+        }
+        if (orderIdToUse) {
+          alert("This payment was already submitted. Redirecting to your order.");
+          navigate(`/ordersummary?orderId=${orderIdToUse}`, { replace: true });
+          return;
+        }
+        // If truly unknown, just stop to avoid creating duplicates.
+        alert("This payment was already submitted.");
+        return;
+      }
+
+      // Try to reuse any existing order written with the same token (e.g., prior reload)
+      let existingByTokenId = null;
+      {
+        const dupQ = query(
+          collection(db, "orders"),
+          where("clientCheckoutId", "==", clientCheckoutId),
+          where("userId", "==", uid),
+          qLimit(1)
+        );
+        const dupSnap = await getDocs(dupQ);
+        if (!dupSnap.empty) existingByTokenId = dupSnap.docs[0].id;
+      }
+
       const itemsLean = buildItemsLean(items);
       const safeAddress = buildSafeAddress(pending?.shippingAddress);
 
@@ -416,18 +480,30 @@ export default function Payment() {
         additionalPaymentsCents: 0,
         refundsCents: 0,
         requestedAdditionalPaymentCents: 0,
+
+        // >>> NEW: attach idempotency token
+        clientCheckoutId,
       });
 
-      // create order
-      const orderRef = await addDoc(collection(db, "orders"), orderPayload);
+      // create or reuse order
+      let orderId = existingByTokenId;
+      if (!orderId) {
+        // Use the token as doc id for extra safety (prevents duplicates even under race conditions)
+        const orderRef = doc(collection(db, "orders"), clientCheckoutId);
+        const snap = await getDoc(orderRef);
+        if (!snap.exists()) {
+          await setDoc(orderRef, orderPayload);
+        }
+        orderId = orderRef.id;
+      }
 
       // upload payment proof (initial)
       const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
-        orderId: orderRef.id, uid, file, kind: "initial",
+        orderId, uid, file, kind: "initial",
       });
 
       // Store on order (legacy + structured fields)
-      await updateDoc(doc(db, "orders", orderRef.id), deepSanitizeForFirestore({
+      await updateDoc(doc(db, "orders", orderId), deepSanitizeForFirestore({
         paymentProofUrl: url || null,               // legacy for Admin Orders image
         depositPaymentProofUrl: url || null,
         depositPaymentProofs: arrayUnion({
@@ -441,8 +517,8 @@ export default function Payment() {
         paymentProofUpdatedAt: new Date(),
       }));
 
-      await addAdminNotification({ orderId: orderRef.id, userId: uid, cents: toC(total), storagePath, url, kind: "initial" });
-      await addOrderEvent(orderRef.id, { type: "payment_proof_submitted", amountCents: toC(total), storagePath, url: url || null });
+      await addAdminNotification({ orderId, userId: uid, cents: toC(total), storagePath, url, kind: "initial" });
+      await addOrderEvent(orderId, { type: "payment_proof_submitted", amountCents: toC(total), storagePath, url: url || null });
 
       // Customization: create custom_orders with full customer + proof fields
       if (isCustomization && customDraft) {
@@ -453,7 +529,7 @@ export default function Payment() {
             const results = await Promise.all(
               toUpload.map((r) =>
                 uploadPaymentProofWithFallback(storage, {
-                  orderId: orderRef.id,
+                  orderId,
                   uid,
                   file: dataURLtoBlob(r.dataUrl),
                   kind: "ref",
@@ -469,7 +545,7 @@ export default function Payment() {
 
         const customLean = deepSanitizeForFirestore({
           userId: uid,
-          orderId: orderRef.id,
+          orderId,
           createdAt: new Date(),
           status: "processing",
 
@@ -510,14 +586,19 @@ export default function Payment() {
           }],
         });
 
-        await addDoc(collection(db, "custom_orders"), customLean);
+        // If a customization for this order already exists (rare), do not duplicate
+        const cDupQ = query(collection(db, "custom_orders"), where("orderId", "==", orderId), qLimit(1));
+        const cDupSnap = await getDocs(cDupQ);
+        if (cDupSnap.empty) {
+          await addDoc(collection(db, "custom_orders"), customLean);
+        }
       }
 
       // Repairs: patch repair doc with shipping + initial proof
       if (repairId) {
         try {
           await updateDoc(doc(db, "repairs", repairId), deepSanitizeForFirestore({
-            orderId: orderRef.id,
+            orderId,
             shippingAddress: safeAddress || null,
             contactEmail: safeAddress?.email || null,
             userId: uid,
@@ -546,13 +627,13 @@ export default function Payment() {
         await addDoc(collection(db, "users", uid, "notifications"), deepSanitizeForFirestore({
           userId: uid,
           type: repairId ? "repair_order_placed" : "order_placed",
-          orderId: orderRef.id,
+          orderId,
           ...(repairId ? { repairId } : {}),
           status: "processing",
           title: "Thanks! We’re reviewing your payment.",
-          body: `We received your payment proof for order ${String(orderRef.id).slice(0, 6)}.`,
+          body: `We received your payment proof for order ${String(orderId).slice(0, 6)}.`,
           image: itemsLean?.[0]?.image ?? null,
-          link: `/ordersummary?orderId=${orderRef.id}`,
+          link: `/ordersummary?orderId=${orderId}`,
           createdAt: new Date(),
           read: false,
         }));
@@ -563,8 +644,11 @@ export default function Payment() {
       try { clearCheckoutItems(); } catch {}
       try { sessionStorage.removeItem("custom_draft"); } catch {}
 
+      // >>> Mark committed so reloads won't re-create
+      markCommitted(clientCheckoutId, orderId);
+
       alert("Payment proof uploaded! Waiting for admin confirmation.");
-      navigate(`/ordersummary?orderId=${orderRef.id}`, { replace: true });
+      navigate(`/ordersummary?orderId=${orderId}`, { replace: true });
     } catch (e) {
       console.error(e);
       alert("Failed to submit payment proof. Please try again.");
