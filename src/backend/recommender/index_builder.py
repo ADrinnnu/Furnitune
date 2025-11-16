@@ -283,6 +283,10 @@ def main(args):
         color_opts = item.get("colorOptions") or opts.get("colors") or []
         size_opts = item.get("sizeOptions") or opts.get("sizes") or []
 
+        # Raw images & meta for the API to reuse
+        raw_images = item.get("images") or []
+        images_by_option = item.get("imagesByOption") or {}
+
         mapping.append(
             {
                 "id": item["id"],
@@ -295,7 +299,14 @@ def main(args):
                 "colorOptions": color_opts,
                 "sizeOptions": size_opts,
                 "basePrice": item.get("basePrice"),
+                # image-related fields that the API/frontend can use
                 "image": lead or "",
+                "thumbnail": item.get("thumbnail") or lead or "",
+                "defaultImagePath": item.get("defaultImagePath") or "",
+                "heroImage": item.get("heroImage") or "",
+                "images": raw_images,
+                "imagesByOption": images_by_option,
+                # precomputed average color for color-matching
                 "avg_lab": _avg_lab(pil) if pil is not None else None,
             }
         )

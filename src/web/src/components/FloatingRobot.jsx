@@ -233,11 +233,12 @@ export default function FloatingRobot() {
         k: 1, // only one product
         text: `${recoBuildQuery(type, allAnswers)}`,
         type,
-        // ✨ added size and color so backend boosters can use them
-        size: allAnswers.size || "",
-        color: allAnswers.color || "",
+        size: allAnswers.size || "",          // 👈 send size preference
+        color: allAnswers.color || "",        // 👈 send color preference
         additionals: Array.isArray(allAnswers.additionals) ? allAnswers.additionals : [],
-        strict: !Array.isArray(allAnswers.additionals) ? false : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
+        strict: !Array.isArray(allAnswers.additionals)
+          ? false
+          : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
         w_image: 0.6,
         w_text: 0.4,
         color_weight: 0.35,
