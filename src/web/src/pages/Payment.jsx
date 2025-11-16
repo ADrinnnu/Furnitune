@@ -25,11 +25,25 @@ import "../Payment.css";
 const PENDING_KEY = "PENDING_CHECKOUT";
 
 /* ───────────────── helpers ───────────────── */
+// IMPORTANT: keep FieldValue sentinels (serverTimestamp, arrayUnion) intact.
 function deepSanitizeForFirestore(value) {
   if (value == null) return value === 0 ? 0 : null;
-  if (Array.isArray(value)) return value.map((v) => deepSanitizeForFirestore(v)).filter((v) => v !== undefined);
+
+  // Firestore FieldValue sentinel objects
+  if (typeof value === "object" && value !== null && typeof value._methodName === "string") {
+    return value;
+  }
+
+  // Dates & binary-like values
+  if (value instanceof Date || value instanceof Blob || value instanceof File) return value;
+
+  if (Array.isArray(value)) {
+    return value.map((v) => deepSanitizeForFirestore(v)).filter((v) => v !== undefined);
+  }
+
   const t = typeof value;
   if (t === "string" || t === "number" || t === "boolean") return value;
+
   if (t === "object") {
     const out = {};
     for (const k of Object.keys(value)) {
@@ -507,8 +521,8 @@ export default function Payment() {
             shippingAddress: safeAddress || null,
             contactEmail: safeAddress?.email || null,
             userId: uid,
-            createdAt: serverTimestamp(),
 
+            // DO NOT overwrite createdAt on existing repair
             paymentStatus: "pending",
             paymentProofPendingReview: true,
             paymentProofType: "deposit",
