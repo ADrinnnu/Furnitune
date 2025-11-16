@@ -78,8 +78,12 @@ export default function App() {
       setUser(u || null);
 
       if (u) {
-        ensureUserDoc(u).catch(console.error);
-      }
+  ensureUserDoc(u, {
+    source: "web",          // or "app" for the mobile app
+    createIfMissing: true,  // create doc the first time we ever see this user
+  }).catch(console.error);
+}
+
 
       const path = location.pathname;
       const isAdmin = path.startsWith("/admin");
