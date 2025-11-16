@@ -24,12 +24,15 @@ FIREBASE_BUCKET = os.getenv("FIREBASE_BUCKET", "").strip()   # e.g. furnitune-64
 def _looks_keep(p: str) -> bool:
     return isinstance(p, str) and (p.endswith("/.keep") or p.endswith(".keep"))
 
+
 def _first_nonkeep(imgs):
-    if not isinstance(imgs, list): return None
+    if not isinstance(imgs, list):
+        return None
     for u in imgs:
         if isinstance(u, str) and not _looks_keep(u):
             return u
     return None
+
 
 def _choose_lead_image(item: dict) -> str | None:
     """
@@ -41,7 +44,8 @@ def _choose_lead_image(item: dict) -> str | None:
     Returns a single http(s) or gs:// URL (may be firebasestorage.app or appspot.com).
     """
     u = _first_nonkeep(item.get("images") or [])
-    if u: return u
+    if u:
+        return u
 
     ibo = item.get("imagesByOption") or {}
     if isinstance(ibo, dict):
@@ -49,13 +53,15 @@ def _choose_lead_image(item: dict) -> str | None:
             if isinstance(sizes, dict):
                 for arr in sizes.values():
                     u = _first_nonkeep(arr)
-                    if u: return u
+                    if u:
+                        return u
 
     for key in ("defaultImagePath", "heroImage"):
         v = item.get(key)
         if isinstance(v, str) and not _looks_keep(v):
             return v
     return None
+
 
 def _normalize_gs(gs_url: str, project: str) -> str:
     """
@@ -70,13 +76,19 @@ def _normalize_gs(gs_url: str, project: str) -> str:
     bucket = FIREBASE_BUCKET or f"{project}.appspot.com"
     return f"gs://{bucket}/{path}"
 
+
 def _avg_lab(pil: Image.Image):
     try:
         im = pil.resize((96, 96)).convert("LAB")
         arr = np.asarray(im, dtype=np.float32)
-        return [float(arr[:, :, 0].mean()), float(arr[:, :, 1].mean()), float(arr[:, :, 2].mean())]
+        return [
+            float(arr[:, :, 0].mean()),
+            float(arr[:, :, 1].mean()),
+            float(arr[:, :, 2].mean()),
+        ]
     except Exception:
         return None
+
 
 def _get_access_token() -> str | None:
     """OAuth token suitable for GCS JSON API downloads."""
@@ -124,9 +136,16 @@ def _download_image_any(u: str, gcs_client: gcs.Client, bucket_default) -> Image
             try:
                 tok = _get_access_token()
                 if tok:
-                    gcs_url = f"https://storage.googleapis.com/download/storage/v1/b/{bkt_norm}/o/{urlquote(path, safe='')}"
-                    r = requests.get(gcs_url, params={"alt": "media"},
-                                     headers={"Authorization": f"Bearer {tok}"}, timeout=20)
+                    gcs_url = (
+                        f"https://storage.googleapis.com/download/storage/v1/b/"
+                        f"{bkt_norm}/o/{urlquote(path, safe='')}"
+                    )
+                    r = requests.get(
+                        gcs_url,
+                        params={"alt": "media"},
+                        headers={"Authorization": f"Bearer {tok}"},
+                        timeout=20,
+                    )
                     if r.status_code == 200 and r.content:
                         return Image.open(io.BytesIO(r.content)).convert("RGB")
             except Exception:
@@ -135,7 +154,11 @@ def _download_image_any(u: str, gcs_client: gcs.Client, bucket_default) -> Image
             # 3) Signed URL (useful if IAM is fine but token path fails)
             try:
                 blob = gcs_client.bucket(bkt_norm).blob(path)
-                url = blob.generate_signed_url(version="v4", expiration=900, method="GET")
+                url = blob.generate_signed_url(
+                    version="v4",
+                    expiration=900,
+                    method="GET",
+                )
                 r = requests.get(url, timeout=20)
                 r.raise_for_status()
                 return Image.open(io.BytesIO(r.content)).convert("RGB")
@@ -172,10 +195,13 @@ def main(args):
     else:
         cred = credentials.ApplicationDefault()
 
-    firebase_admin.initialize_app(cred, {
-        "projectId": args.project,
-        "storageBucket": bucket_name,
-    })
+    firebase_admin.initialize_app(
+        cred,
+        {
+            "projectId": args.project,
+            "storageBucket": bucket_name,
+        },
+    )
 
     # Clients
     db = firestore.client()
@@ -204,7 +230,11 @@ def main(args):
             lead = _normalize_gs(lead, args.project)
 
         # Try to fetch the image
-        pil = _download_image_any(lead, gcs_client, bucket_default) if isinstance(lead, str) and lead else None
+        pil = (
+            _download_image_any(lead, gcs_client, bucket_default)
+            if isinstance(lead, str) and lead
+            else None
+        )
 
         with torch.no_grad():
             if pil is not None:
@@ -220,11 +250,26 @@ def main(args):
                 opts = item.get("options") or {}
                 sizes = opts.get("sizes") or item.get("sizeOptions") or []
                 colors = opts.get("colors") or item.get("colorOptions") or []
-                text = " ".join([
-                    str(name), str(dept),
-                    " ".join([s.get("label") or s.get("id") or str(s) for s in sizes if isinstance(s, dict)]),
-                    " ".join([c.get("label") or c.get("name") or c.get("id") or str(c) for c in colors if isinstance(c, dict)]),
-                ]).strip() or "furniture"
+                text = " ".join(
+                    [
+                        str(name),
+                        str(dept),
+                        " ".join(
+                            [
+                                s.get("label") or s.get("id") or str(s)
+                                for s in sizes
+                                if isinstance(s, dict)
+                            ]
+                        ),
+                        " ".join(
+                            [
+                                c.get("label") or c.get("name") or c.get("id") or str(c)
+                                for c in colors
+                                if isinstance(c, dict)
+                            ]
+                        ),
+                    ]
+                ).strip() or "furniture"
                 tokens = clip.tokenize([text], truncate=True).to(device)
                 z = model.encode_text(tokens)
                 z = z / z.norm(dim=-1, keepdim=True)
@@ -233,20 +278,27 @@ def main(args):
 
         vecs.append(vec)
 
-        mapping.append({
-            "id": item["id"],
-            "title": item.get("name") or item.get("title") or "Untitled",
-            "baseType": item.get("baseType"),
-            "departmentSlug": item.get("departmentSlug"),
-            "categorySlug": item.get("categorySlug"),
-            "materials": item.get("materials") or item.get("material") or [],
-            "seatCount": item.get("seatCount"),
-            "colorOptions": item.get("colorOptions", []),
-            "sizeOptions": item.get("sizeOptions", []),
-            "basePrice": item.get("basePrice"),
-            "image": lead or "",
-            "avg_lab": _avg_lab(pil) if pil is not None else None,
-        })
+        # ----- normalize options for mapping (top-level OR options.*) -----
+        opts = item.get("options") or {}
+        color_opts = item.get("colorOptions") or opts.get("colors") or []
+        size_opts = item.get("sizeOptions") or opts.get("sizes") or []
+
+        mapping.append(
+            {
+                "id": item["id"],
+                "title": item.get("name") or item.get("title") or "Untitled",
+                "baseType": item.get("baseType"),
+                "departmentSlug": item.get("departmentSlug"),
+                "categorySlug": item.get("categorySlug"),
+                "materials": item.get("materials") or item.get("material") or [],
+                "seatCount": item.get("seatCount"),
+                "colorOptions": color_opts,
+                "sizeOptions": size_opts,
+                "basePrice": item.get("basePrice"),
+                "image": lead or "",
+                "avg_lab": _avg_lab(pil) if pil is not None else None,
+            }
+        )
 
     if not vecs:
         raise SystemExit("No vectors generated. Check your bucket name and image fields.")
@@ -261,7 +313,9 @@ def main(args):
         json.dump(mapping, f, ensure_ascii=False)
 
     print("Wrote artifacts/products.faiss and artifacts/mapping.json")
-    print(f"Summary: total={total} embedded_img={embedded_img} embedded_txt={embedded_txt}")
+    print(
+        f"Summary: total={total} embedded_img={embedded_img} embedded_txt={embedded_txt}"
+    )
 
 
 if __name__ == "__main__":

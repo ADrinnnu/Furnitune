@@ -1,4 +1,3 @@
-
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
@@ -52,6 +51,10 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
+
+# explicit boosts for explicit user prefs
+SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.35"))
+COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.25"))
 
 # -----------------------------------------------------------------------------
 # App + Clients
@@ -156,6 +159,75 @@ def _type_matches(item: dict, f_type: str) -> bool:
         if token in dep or token in cat or token in pid or token in name:
             return True
     return False
+
+# -- size/color helpers -------------------------------------------------------
+
+def _norm_token(s: str) -> str:
+    """Lowercase and remove non-alphanumeric for rough matching."""
+    return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
+
+def _collect_size_tokens(meta: dict) -> List[str]:
+    tokens: List[str] = []
+    sizes = meta.get("sizeOptions") or []
+    if isinstance(sizes, list):
+        for s in sizes:
+            if isinstance(s, dict):
+                for key in ("label", "name", "id"):
+                    v = s.get(key)
+                    if isinstance(v, str):
+                        tokens.append(v.lower())
+            elif isinstance(s, str):
+                tokens.append(s.lower())
+    # fall back to seatCount if present
+    sc = meta.get("seatCount")
+    if sc:
+        try:
+            n = int(sc)
+            tokens.append(f"{n} seater")
+            tokens.append(f"{n}-seater")
+        except Exception:
+            pass
+    return tokens
+
+def _collect_color_tokens(meta: dict) -> List[str]:
+    tokens: List[str] = []
+    colors = meta.get("colorOptions") or []
+    if isinstance(colors, list):
+        for c in colors:
+            if isinstance(c, dict):
+                for key in ("label", "name", "id"):
+                    v = c.get(key)
+                    if isinstance(v, str):
+                        tokens.append(v.lower())
+            elif isinstance(c, str):
+                tokens.append(c.lower())
+    # also tags might contain color-ish words
+    tags = meta.get("tags") or []
+    if isinstance(tags, list):
+        tokens.extend(str(t).lower() for t in tags)
+    return tokens
+
+def _size_match_score(meta: dict, pref: str) -> float:
+    if not pref:
+        return 0.0
+    pref_norm = _norm_token(pref)
+    if not pref_norm:
+        return 0.0
+    for t in _collect_size_tokens(meta):
+        if _norm_token(t) == pref_norm:
+            return 1.0
+    return 0.0
+
+def _color_match_score(meta: dict, pref: str) -> float:
+    if not pref:
+        return 0.0
+    pref_norm = _norm_token(pref)
+    if not pref_norm:
+        return 0.0
+    for t in _collect_color_tokens(meta):
+        if _norm_token(t) == pref_norm:
+            return 1.0
+    return 0.0
 
 # ---- Firestore hydration (images) -------------------------------------------
 def _hydrate_images_from_firestore(pid: str) -> List[str]:
@@ -392,6 +464,8 @@ def recommend():
         text?: str,
         image_b64?: str | null,
         type?: str,
+        size?: str,
+        color?: str,
         additionals?: [str],
         strict?: bool,
         w_image?: float=0.7,
@@ -409,6 +483,8 @@ def recommend():
     img_b64         = data.get("image_b64")
     k               = int(data.get("k") or 24)
     f_type          = (data.get("type") or "").strip()
+    size_pref       = (data.get("size") or "").strip()
+    color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
     w_image         = float(data.get("w_image", 0.7))
     w_text          = float(data.get("w_text", 0.3))
@@ -480,9 +556,7 @@ def recommend():
             related_soft.sort(key=lambda x: x["score"], reverse=True)
             related_soft = related_soft[:k]
             return jsonify({
-                "items": [],
-                "products": [],
-                "results": [],
+                "items": [], "products": [], "results": [],
                 "related": _to_ui(related_soft),
                 "from": "catalog",
                 "count": 0,
@@ -498,15 +572,42 @@ def recommend():
                     "w_text": w_text,
                     "color_mode": color_mode,
                     "color_weight": color_weight,
+                    "size_pref": size_pref,
+                    "color_pref": color_pref,
                 },
             })
     else:
         ranked = soft_boost(ranked)
 
+    # 4.2) size + color preference boosting / filtering
+    size_matches = 0
+    color_matches = 0
+    boosted: List[dict] = []
+    size_pref_norm = size_pref
+    color_pref_norm = color_pref
+
+    for it in ranked:
+        it2 = {**it}
+        s_score = _size_match_score(it2, size_pref_norm)
+        c_score = _color_match_score(it2, color_pref_norm)
+        if s_score > 0:
+            size_matches += 1
+        if c_score > 0:
+            color_matches += 1
+        it2["size_match"] = s_score
+        it2["color_match"] = c_score
+        it2["score"] = it2["score"] + s_score * SIZE_PREF_BOOST + c_score * COLOR_PREF_BOOST
+        boosted.append(it2)
+
+    if (size_pref or color_pref) and any((it.get("size_match") or 0) > 0 or (it.get("color_match") or 0) > 0 for it in boosted):
+        ranked = [it for it in boosted if (it.get("size_match") or 0) > 0 or (it.get("color_match") or 0) > 0]
+    else:
+        ranked = boosted
+
     # Ensure items have avg_lab (lazy) BEFORE color
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
 
-    # 4.5) color rerank
+    # 4.5) color rerank (room photo)
     room_lab_used = None
     if img_b64:
         ranked, room_lab_used = _rerank_by_color(ranked, img_b64, weight=color_weight, mode=color_mode)
@@ -540,6 +641,10 @@ def recommend():
             "items_with_avg_lab": sum(1 for it in ranked if it.get("avg_lab")),
             "top_item_deltaE": payload_items[0].get("color_deltaE") if payload_items else None,
             "top_item_boost": payload_items[0].get("color_boost") if payload_items else None,
+            "size_pref": size_pref,
+            "color_pref": color_pref,
+            "size_match_count": size_matches,
+            "color_match_count": color_matches,
         },
     })
 
