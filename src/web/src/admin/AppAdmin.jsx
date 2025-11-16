@@ -10,7 +10,6 @@ const Products  = React.lazy(() => import("./pages/Products.jsx"));
 const Orders    = React.lazy(() => import("./pages/Orders.jsx"));
 const Users     = React.lazy(() => import("./pages/Users.jsx"));
 const Shipments = React.lazy(() => import("./pages/Shipments.jsx"));
-const AuditLog  = React.lazy(() => import("./pages/AuditLog.jsx"));
 
 export default function AppAdmin() {
   return (
@@ -24,7 +23,6 @@ export default function AppAdmin() {
             <Route path="orders"    element={<Orders />} />
             <Route path="users"     element={<Users />} />
             <Route path="shipments" element={<Shipments />} />
-            <Route path="audit"     element={<AuditLog />} />
           </Route>
         </Route>
         <Route path="*" element={<Navigate to="/admin" replace />} />

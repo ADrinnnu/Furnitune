@@ -35,9 +35,7 @@ export default function AdminLayout() {
           <NavLink to="/admin/users" className={linkClass}>
             Users
           </NavLink>
-          <NavLink to="/admin/audit" className={linkClass}>
-            Audit Log
-          </NavLink>
+          
         </nav>
 
         <button className="admin-back" onClick={() => nav("/")}>
