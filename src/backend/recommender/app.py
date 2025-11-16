@@ -499,7 +499,11 @@ def health():
 def debug_colors():
   total = len(art.mapping_list)
   with_lab = sum(1 for m in art.mapping_list if m.get("avg_lab"))
-  return jsonify({"total": total, "with_avg_lab": with_lab, "ratio": with_avg_lab / max(1, total)})
+  return jsonify({
+    "total": total,
+    "with_avg_lab": with_lab,
+    "ratio": with_lab / max(1, total),
+  })
 
 @app.get("/reco/debug/item/<pid>")
 def debug_item(pid):

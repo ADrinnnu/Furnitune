@@ -10,6 +10,9 @@ const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
 const RECO_URL = (import.meta.env.VITE_RECO_URL || "/recommender").replace(/\/+$/, "");
 
+// how many recommendations to show
+const RECO_K = 2;
+
 // ---- panel styles ----
 const PANEL_CSS = `
 .mini-panel{position:fixed;right:22px;bottom:84px;width:420px;max-width:calc(100vw - 24px);
@@ -230,11 +233,11 @@ export default function FloatingRobot() {
 
     try {
       const body = {
-        k: 1, // only one product
+        k: RECO_K, // ask backend for RECO_K items
         text: `${recoBuildQuery(type, allAnswers)}`,
         type,
-        size: allAnswers.size || "",          // 👈 send size preference
-        color: allAnswers.color || "",        // 👈 send color preference
+        size: allAnswers.size || "",          // send size preference
+        color: allAnswers.color || "",        // send color preference
         additionals: Array.isArray(allAnswers.additionals) ? allAnswers.additionals : [],
         strict: !Array.isArray(allAnswers.additionals)
           ? false
@@ -254,12 +257,26 @@ export default function FloatingRobot() {
       if (Array.isArray(data.items) && data.items.length) items = data.items;
       else if (Array.isArray(data.related) && data.related.length) items = data.related;
 
-      const pick = (items.filter(it => itemLooksLikeType(it, type))[0]) || items[0];
-      if (pick) {
-        addRecoMsg({ role:"bot", text:"Here’s the best match from our catalog:" });
-        addRecoMsg({ role:"bot", product: pick });
+      // Prefer items that look like the chosen type, then take top RECO_K
+      const sameType = items.filter(it => itemLooksLikeType(it, type));
+      const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
+
+      if (picks.length) {
+        addRecoMsg({
+          role: "bot",
+          text: RECO_K === 1
+            ? "Here’s the best match from our catalog:"
+            : "Here are some great matches from our catalog:",
+        });
+
+        picks.forEach(p => {
+          addRecoMsg({ role: "bot", product: p });
+        });
       } else {
-        addRecoMsg({ role:"bot", text:`I couldn’t find a perfect ${type.toLowerCase()} for that selection.` });
+        addRecoMsg({
+          role: "bot",
+          text: `I couldn’t find a perfect ${type.toLowerCase()} for that selection.`,
+        });
       }
 
       addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
@@ -461,7 +478,7 @@ export default function FloatingRobot() {
                 <div>{m.text}</div>
                 {m.imageUrl && <div className="thumb" style={{marginTop:8}}><img src={m.imageUrl} alt="uploaded room"/></div>}
 
-                {/* Single best-match card only */}
+                {/* Product card(s) */}
                 {m.product && (
                   <div className="card">
                     {(() => { const p=m.product; const img=getPrimaryImage(p); return img ? <img src={img} alt={p.title||p.name||"Product"} /> : null; })()}
