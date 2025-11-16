@@ -105,6 +105,9 @@ export default function Shipments() {
   const [note, setNote] = useState("");
   const [advancing, setAdvancing] = useState(false);
 
+  // small note after cleaning
+  const [cleanNote, setCleanNote] = useState("");
+
   async function loadShipments() {
     setErr("");
     setLoading(true);
@@ -120,6 +123,36 @@ export default function Shipments() {
       setErr(String(e?.message || e));
     } finally {
       setLoading(false);
+    }
+  }
+
+  async function refreshAndClean() {
+    setErr("");
+    setLoading(true);
+    try {
+      // run cleaner first (if implemented)
+      if (typeof provider.cleanOrphanShipments === "function") {
+        const res = await provider.cleanOrphanShipments({ fix: true });
+        // res can be a number or an object like {deleted: n}
+        const n =
+          typeof res === "number"
+            ? res
+            : (res && (res.deleted ?? res.removed ?? res.count)) || 0;
+        if (n > 0) {
+          setCleanNote(`Cleaned ${n} orphan${n === 1 ? "" : "s"}.`);
+          // auto-hide message
+          setTimeout(() => setCleanNote(""), 3500);
+        } else {
+          setCleanNote("No orphans found.");
+          setTimeout(() => setCleanNote(""), 2500);
+        }
+      }
+    } catch (e) {
+      console.warn("cleanOrphanShipments failed:", e);
+      setCleanNote("");
+      // don't block refresh even if cleaning fails
+    } finally {
+      await loadShipments();
     }
   }
 
@@ -148,14 +181,19 @@ export default function Shipments() {
 
   async function onAdvance() {
     if (!selected || !nextStatus) return;
+    // avoid no-op / duplicates
+    if (nextStatus === selected.status) return;
+
     setAdvancing(true);
     setErr("");
     try {
-      await provider.advanceShipment(selected.id, nextStatus, note.trim());
+      const target = nextStatus; // status we are moving TO
+      await provider.advanceShipment(selected.id, target, note.trim());
+
       await loadShipments();
       await loadEvents(selected.id);
 
-      const allowed = ALLOWED[(selected?.status) || nextStatus] || [];
+      const allowed = ALLOWED[target] || [];
       setNextStatus(allowed[0] || "");
       setNote("");
     } catch (e) {
@@ -192,7 +230,7 @@ export default function Shipments() {
       <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
         <h2 style={{ margin: 0 }}>Shipments</h2>
         <button
-          onClick={loadShipments}
+          onClick={refreshAndClean}
           style={{
             padding: "6px 10px",
             borderRadius: 6,
@@ -201,11 +239,16 @@ export default function Shipments() {
             cursor: "pointer",
           }}
           disabled={loading}
-          title="Refresh"
+          title="Refresh & clean orphans"
         >
           ⟳ Refresh
         </button>
         {loading && <span style={{ fontSize: 12, color: "#6b7280" }}>Loading…</span>}
+        {cleanNote && (
+          <span style={{ fontSize: 12, color: "#047857" }}>
+            {cleanNote}
+          </span>
+        )}
         {err && <span style={{ marginLeft: "auto", color: "#ef4444", fontSize: 13 }}>{err}</span>}
       </div>
 
