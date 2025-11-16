@@ -49,43 +49,38 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-// ---- PDF-based additionals per type ----
+// ---- PDF-based questions per type (no additionals) ----
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
+
 const TYPE_QUESTIONS = {
   Sofa: [
     { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater"] },
     { key: "color", prompt: "What color?",  options: ["Red","White","Black","Brown"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cushion","Footrest","None"] },
   ],
   Sectional: [
     { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Throw Pillow","Footrest","None"] },
   ],
   Chair: [
     { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cushion","With or without armrest","None"] },
   ],
   Table: [
     { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Glass on top","Padded foam on top","None"] },
   ],
   Bed: [
     { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Cabinets","Pull out Bed","None"] },
   ],
   Bench: [
     { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["With storage","Pillows","None"] },
   ],
   Ottoman: [
     { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown"] },
-    { key: "additionals", prompt: "Additionals (toggle then Done)", multi: true, options: ["Decorative Tray","With storage","None"] },
   ],
 };
+
 
 // quick type check for filtering
 const TYPE_ALIASES = {
