@@ -10,28 +10,32 @@ import {
 } from "firebase/firestore";
 
 /**
- * Ensure there is a user profile document.
+ * Ensure a user profile document exists.
  *
- * - Creates the doc (with role: "user") only if createIfMissing === true.
- * - NEVER overwrites existing role or source fields on later logins.
+ * - On first create (if createIfMissing === true), sets role: "user".
+ * - On later logins, NEVER changes role or source.
+ * - Even if someone passes extra.role = "user", we keep the existing role.
  */
 export async function ensureUserDoc(u, opts = {}) {
   if (!u) return;
 
   const {
-    source,                // "web" | "app" (only used on first create)
-    createIfMissing = false, // default: DO NOT create if missing
-    touch = false,           // if true, only bump updatedAt
-    extra = {},              // extra fields for create
+    source,                 // "web" | "app" (only used on first create)
+    createIfMissing = false,
+    touch = false,          // if true, only bump updatedAt
+    extra = {},             // extra fields on create (or very careful merges)
   } = opts;
 
   const db = getFirestore(auth.app);
   const ref = doc(db, "users", u.uid);
   const snap = await getDoc(ref);
+  const existing = snap.exists() ? (snap.data() || {}) : null;
+  const existingRole = existing?.role;
+  const existingSource = existing?.source;
 
   // ---------- CREATE (first time only) ----------
   if (!snap.exists()) {
-    if (!createIfMissing) return;
+    if (!createIfMissing) return; // do nothing if we don't want auto-create
 
     const provider =
       u.providerData?.[0]?.providerId?.replace(".com", "") || "password";
@@ -43,8 +47,8 @@ export async function ensureUserDoc(u, opts = {}) {
       photo: u.photoURL ?? "",
       emailVerified: !!u.emailVerified,
       provider,
-      source: source || undefined, // "web" or "app"
-      role: "user",                // ✅ only set on FIRST create
+      source: source || undefined, // only on first create
+      role: "user",                // ✅ default role only the first time
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       ...extra,
@@ -54,32 +58,40 @@ export async function ensureUserDoc(u, opts = {}) {
 
   // ---------- UPDATE (later logins) ----------
   if (touch) {
-    // only bump timestamp
-    await updateDoc(ref, {
-      updatedAt: serverTimestamp(),
-    }).catch(() => {});
+    // Only bump updatedAt, never touch other fields.
+    await updateDoc(ref, { updatedAt: serverTimestamp() }).catch(() => {});
     return;
   }
 
-  // Safe partial update: DO NOT touch role or source here
-  const patch = {
+  // Build a safe patch (DO NOT touch role or source)
+  const basePatch = {
     email: u.email ?? null,
     emailVerified: !!u.emailVerified,
     updatedAt: serverTimestamp(),
   };
 
-  // only update name if we actually have one from Firebase
   if (u.displayName && u.displayName.trim()) {
-    patch.name = u.displayName.trim();
+    basePatch.name = u.displayName.trim();
   }
-
-  // only update photo if present
   if (u.photoURL) {
-    patch.photo = u.photoURL;
+    basePatch.photo = u.photoURL;
   }
 
-  await updateDoc(ref, patch).catch(async () => {
-    // fallback to merge setDoc if updateDoc fails for some reason
-    await setDoc(ref, patch, { merge: true });
-  });
+  // Merge in extra, BUT protect role/source from being changed
+  const patch = { ...extra, ...basePatch };
+
+  // Hard-freeze role/source if they already exist
+  if (existingRole !== undefined) {
+    patch.role = existingRole;
+  } else {
+    delete patch.role;
+  }
+  if (existingSource !== undefined) {
+    patch.source = existingSource;
+  } else {
+    // if you *really* want source to update, remove this line
+    delete patch.source;
+  }
+
+  await setDoc(ref, patch, { merge: true });
 }
