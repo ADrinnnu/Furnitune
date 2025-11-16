@@ -9,6 +9,8 @@ import {
 } from "react-router-dom";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "./firebase";
+import "./userProfileBootstrap";
+
 
 /* Layout */
 import Navbar from "./components/Navbar.jsx";

@@ -1,18 +1,29 @@
 // src/utils/ensureUserDoc.js
 import { auth } from "../firebase";
 import {
-  getFirestore, doc, getDoc, setDoc, updateDoc, serverTimestamp,
+  getFirestore,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp,
 } from "firebase/firestore";
 
 /**
- * Create profile only when allowed; never resurrect by default.
+ * Ensure a Firestore user profile exists and is lightly kept in sync.
+ *
+ * Default behaviour now:
+ *  - Creates a doc if missing (with role: "user", source: "web")
+ *  - Merges safe fields on every login (email, name, photo, emailVerified, provider)
+ *  - Does NOT overwrite role/source so admin changes stay intact.
  */
 export async function ensureUserDoc(u, opts = {}) {
   if (!u) return;
+
   const {
-    source,                // "web" | "app" (only used on create)
-    createIfMissing = false, // default: DO NOT create if missing
-    touch = false,           // default: do not update if exists
+    source = "web",          // "web" | "app" (used on create)
+    createIfMissing = true,  // ⬅ changed default: create new docs
+    touch = false,           // if true, only bump updatedAt
     extra = {},              // extra fields for create
   } = opts;
 
@@ -20,18 +31,26 @@ export async function ensureUserDoc(u, opts = {}) {
   const ref = doc(db, "users", u.uid);
   const snap = await getDoc(ref);
 
+  const providerId = u.providerData?.[0]?.providerId || "password";
+  const provider = providerId.replace(".com", "");
+
   if (!snap.exists()) {
-    if (!createIfMissing) return;          // ← critical: no resurrection
-    const provider = u.providerData?.[0]?.providerId?.replace(".com", "") || "password";
+    if (!createIfMissing) return; // optional escape hatch
+
+    const displayName =
+      (u.displayName && u.displayName.trim()) ||
+      (u.email ? u.email.split("@")[0] : "") ||
+      "";
+
     await setDoc(ref, {
       uid: u.uid,
       email: u.email ?? "",
-      name: u.displayName ?? "",
+      name: displayName,
       photo: u.photoURL ?? "",
       emailVerified: !!u.emailVerified,
       provider,
-      source: source || undefined,         // "web" or "app"
-      role: "user",
+      source,                 // "web" or "app"
+      role: "user",           // default role
       createdAt: serverTimestamp(),
       updatedAt: serverTimestamp(),
       ...extra,
@@ -39,16 +58,29 @@ export async function ensureUserDoc(u, opts = {}) {
     return;
   }
 
-  if (touch) {                              // optional lightweight bump
+  // doc already exists
+  if (touch) {
+    // just bump updatedAt if you call with { touch: true }
     await updateDoc(ref, { updatedAt: serverTimestamp() }).catch(() => {});
     return;
   }
 
-  // Optional small merge (won't touch role/source)
-  await setDoc(ref, {
-    email: u.email ?? null,
-    name: u.displayName ?? "",
+  const current = snap.data() || {};
+  const displayName =
+    (u.displayName && u.displayName.trim()) ||
+    current.name ||
+    (u.email ? u.email.split("@")[0] : "") ||
+    "";
+
+  // Merge only safe fields; role/source stay whatever is in Firestore
+  const update = {
+    email: u.email ?? current.email ?? "",
+    name: displayName,
+    photo: u.photoURL ?? current.photo ?? "",
     emailVerified: !!u.emailVerified,
+    provider: provider || current.provider || "password",
     updatedAt: serverTimestamp(),
-  }, { merge: true });
+  };
+
+  await setDoc(ref, update, { merge: true });
 }
