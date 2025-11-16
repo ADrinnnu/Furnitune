@@ -257,16 +257,49 @@ export default function OrderSummaryCard({
   }, [order, passedItems]);
 
   /* ---------- merge order + linked docs for display ---------- */
+  const NUMERIC_FIELDS = new Set([
+    "assessedTotalCents",
+    "depositCents",
+    "additionalPaymentsCents",
+    "refundsCents",
+    "requestedAdditionalPaymentCents",
+  ]);
+  function isEmptyVal(v) {
+    if (v == null) return true;
+    if (Array.isArray(v)) return v.length === 0;
+    if (typeof v === "string") return v.trim() === "";
+    return false;
+  }
+
   const merged = useMemo(() => {
     if (!order) return order; // pass through undefined/null
-    const out = { ...order };
+
+    // order first, then custom, then repair
     const chain = [order, linkedCustom, linkedRepair].filter(Boolean);
+    const out = { ...order };
+
     for (const k of MERGE_FIELDS) {
-      if (out[k] != null) continue;
+      const base = out[k];
+
+      // allow overlays to override when base is unset OR zero (for numeric)
+      const baseUnset = NUMERIC_FIELDS.has(k)
+        ? (base == null || Number(base) === 0)
+        : isEmptyVal(base);
+
+      if (!baseUnset) continue;
+
       for (const src of chain.slice(1)) {
-        if (src && src[k] != null) { out[k] = src[k]; break; }
+        const v = src?.[k];
+        if (v == null) continue;
+
+        if (NUMERIC_FIELDS.has(k)) {
+          if (base == null || Number(v) > 0) { out[k] = v; break; }
+        } else {
+          if (!isEmptyVal(v)) { out[k] = v; break; }
+        }
       }
     }
+
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
@@ -331,8 +364,7 @@ export default function OrderSummaryCard({
     // Default computed balance from assessed
     let balanceC = Math.max(0, assessedC - netPaidC);
 
-    // If admin explicitly requested an additional amount, reflect that in Balance Due,
-    // especially when assessed == netPaid (i.e., deposit fully covered assessed earlier).
+    // If admin explicitly requested an additional amount, reflect that in Balance Due
     if (requestedC > 0 && (status === "awaiting_additional_payment" || balanceC === 0)) {
       balanceC = Math.max(balanceC, requestedC);
     }

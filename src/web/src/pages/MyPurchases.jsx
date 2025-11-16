@@ -12,13 +12,13 @@ import {
   doc,
   serverTimestamp,
   addDoc,
-  getDocs,                 // ← ★ added
+  getDocs,
 } from "firebase/firestore";
 import { onAuthStateChanged } from "firebase/auth";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 import "../MyPurchases.css";
 
-/* ★ NEW: add the aggregate helpers */
+/* Aggregate helpers */
 import {
   addReviewWithAggregate,
   updateReviewWithAggregate,
@@ -154,20 +154,16 @@ function mergeOverlay(base, child) {
   return out;
 }
 
-/* ★ NEW: best-effort resolver so productIds is never empty */
+/* Resolve product IDs for rating aggregates */
 async function resolveProductIds(db, order) {
   const items = Array.isArray(order?.items) ? order.items : [];
-  // 1) direct fields
   let pids = items
     .map((it) => it?.productId || it?.id || it?.slug)
     .filter(Boolean)
     .map(String);
 
-  if (pids.length) {
-    return Array.from(new Set(pids));
-  }
+  if (pids.length) return Array.from(new Set(pids));
 
-  // 2) derive by slugifying title/name then querying products.slug
   const toSlug = (s) =>
     String(s || "")
       .trim()
@@ -177,11 +173,7 @@ async function resolveProductIds(db, order) {
       .replace(/-+/g, "-");
 
   const guesses = Array.from(
-    new Set(
-      items
-        .map((it) => it?.slug || toSlug(it?.title || it?.name))
-        .filter(Boolean)
-    )
+    new Set(items.map((it) => it?.slug || toSlug(it?.title || it?.name)).filter(Boolean))
   );
 
   const hits = new Set();
@@ -189,11 +181,8 @@ async function resolveProductIds(db, order) {
     try {
       const qSnap = await getDocs(query(collection(db, "products"), where("slug", "==", slug)));
       qSnap.forEach((d) => hits.add(d.id));
-    } catch {
-      /* ignore */
-    }
+    } catch {}
   }
-
   return Array.from(hits);
 }
 
@@ -221,7 +210,6 @@ export default function MyPurchases() {
 
   const [reviewsByOrder, setReviewsByOrder] = useState({});
 
-  /* NEW: caches for live merge */
   const ordersMapRef = React.useRef(new Map());
   const customsByOrderIdRef = React.useRef(new Map());
   const repairsByIdRef = React.useRef(new Map());
@@ -369,7 +357,7 @@ export default function MyPurchases() {
     return () => unsubs.forEach((fn) => fn && fn());
   }, [db, uid, email, recomputeMerged]);
 
-  /* Live: my reviews (unchanged) */
+  /* Live: my reviews */
   useEffect(() => {
     if (!uid) { setReviewsByOrder({}); return; }
     const q = query(collection(db, "reviews"), where("userId", "==", uid));
@@ -421,24 +409,50 @@ export default function MyPurchases() {
     }
   };
 
-  /** Completed -> TO RATE, lock returns */
+  /** TO RECEIVE -> COMPLETED, also mirror to overlay doc (custom/repair) */
   const markOrderReceived = async (order) => {
     await updateDoc(doc(db, "orders", order.id), {
-      status: "to_rate",
+      status: "completed",
       statusUpdatedAt: serverTimestamp(),
       deliveredAt: serverTimestamp(),
       receivedConfirmedAt: serverTimestamp(),
       returnLocked: true,
     });
 
+    try {
+      if (order?.repairId) {
+        await updateDoc(doc(db, "repairs", order.repairId), {
+          status: "completed",
+          statusUpdatedAt: serverTimestamp(),
+          deliveredAt: serverTimestamp(),
+          receivedConfirmedAt: serverTimestamp(),
+          returnLocked: true,
+        });
+      } else {
+        const cs = await getDocs(query(collection(db, "custom_orders"), where("orderId", "==", order.id)));
+        const cRef = cs.docs[0]?.ref;
+        if (cRef) {
+          await updateDoc(cRef, {
+            status: "completed",
+            statusUpdatedAt: serverTimestamp(),
+            deliveredAt: serverTimestamp(),
+            receivedConfirmedAt: serverTimestamp(),
+            returnLocked: true,
+          });
+        }
+      }
+    } catch (e) {
+      console.warn("Overlay mirror update failed:", e?.message || e);
+    }
+
     if (uid) {
       await addDoc(collection(db, "users", uid, "notifications"), {
         userId: uid,
         type: "order_status",
         orderId: order.id,
-        status: "to_rate",
+        status: "completed",
         title: "Order received ✔",
-        body: `Please rate order ${String(order.id).slice(0, 6)}.`,
+        body: `Your order ${String(order.id).slice(0, 6)} is now completed. Please rate your items.`,
         image: (order?.items?.[0]?.image || order?.items?.[0]?.img || null),
         link: `/ordersummary?orderId=${order.id}`,
         createdAt: serverTimestamp(),
@@ -459,7 +473,7 @@ export default function MyPurchases() {
       setConfirmReceive((p) => ({ ...p, submitting: true }));
       await markOrderReceived(confirmReceive.order);
       closeConfirmReceive();
-      setFilter("to_rate");
+      setFilter("completed");
     } catch (e) {
       console.error(e);
       alert("Failed to mark as received.");
@@ -500,7 +514,6 @@ export default function MyPurchases() {
       }
 
       const items = Array.isArray(ratingOrder.items) ? ratingOrder.items : [];
-      // ★ Resolve productIds (robust to missing productId/id/slug)
       const productIds = await resolveProductIds(db, ratingOrder);
 
       const uName =
@@ -510,7 +523,6 @@ export default function MyPurchases() {
         "User";
 
       if (productIds.length === 0) {
-        // As a last resort, still save a review without productIds (no aggregate update)
         await addDoc(collection(db, "reviews"), {
           userId: uid,
           userName: uName,
@@ -529,7 +541,6 @@ export default function MyPurchases() {
           version: 1,
           repairId: ratingOrder.repairId || null,
         });
-        console.warn("Review saved without productIds; aggregate not updated.");
         setRatingOpen(false);
         setSubmittingReview(false);
         setEditingReview({ enabled: false, reviewId: null, existing: null });
@@ -537,7 +548,6 @@ export default function MyPurchases() {
       }
 
       if (editingReview.enabled && editingReview.reviewId) {
-        // EDIT path — update rating/message/image and fix the product aggregate delta
         try {
           await updateReviewWithAggregate(db, editingReview.reviewId, {
             rating: stars,
@@ -545,7 +555,6 @@ export default function MyPurchases() {
             imageUrl,
           });
         } catch {
-          // If old review lacks productIds, fall back to creating a fresh one
           await addReviewWithAggregate(db, {
             productIds,
             userId: uid,
@@ -563,7 +572,6 @@ export default function MyPurchases() {
           });
         }
       } else {
-        // NEW review — create + aggregate update for the product(s)
         await addReviewWithAggregate(db, {
           productIds,
           userId: uid,
@@ -617,20 +625,23 @@ export default function MyPurchases() {
         const variation =
           first.size || first.variant || first.color || o?.coverMaterialLabel || "—";
         const status = String(o?.status || "processing");
-        const cancelDisabled = LOCK_CANCEL.includes(status);
 
         const rInfo = reviewsByOrder[o.id] || { count: 0, latest: null };
         const hasReview = rInfo.count >= 1;
         const alreadyEditedOnce = !!rInfo.latest?.editedOnce || rInfo.count > 1;
 
-        const showReturnInCompleted = status === "completed" && !o?.returnLocked;
-        const canConfirmReceive = status === "completed" && !o?.returnLocked;
+        const isToReceive = status === "to_receive";
 
-        const canRateHere = status === "to_rate" && !hasReview;
-        const canEditReview = status === "to_rate" && hasReview && !alreadyEditedOnce;
+        // hide rating for repairs
+        const isRepair = !!o?.repairId || getOriginKey(o) === "REPAIR";
+        const canRateHere = status === "completed" && !hasReview && !isRepair;
+        const canEditReview = status === "completed" && hasReview && !alreadyEditedOnce && !isRepair;
 
         const originKey = getOriginKey(o);
         const { startMs, endMs, ended } = getReturnInfo(o);
+
+        // NEW: cancel button visibility (only in processing)
+        const showCancel = status === "processing";
 
         return (
           <div className="order-card" key={o.id}>
@@ -675,34 +686,35 @@ export default function MyPurchases() {
               )}
 
               <div className="order-actions">
-                <button className="pending" type="button" disabled>
-                  {statusText(status)}
-                </button>
+                {/* Hide the disabled chip row for TO RECEIVE; show only the two actions */}
+                {!isToReceive && (
+                  <button className="pending" type="button" disabled>
+                    {statusText(status)}
+                  </button>
+                )}
 
-                {status === "completed" && (
+                {/* TO RECEIVE: exactly two buttons */}
+                {isToReceive && (
                   <>
-                    {canConfirmReceive && (
-                      <button
-                        className="pending"
-                        type="button"
-                        onClick={() => openConfirmReceive(o)}
-                        title="Confirm you’ve received the item"
-                      >
-                        ORDER RECEIVE
-                      </button>
-                    )}
-                    {showReturnInCompleted && (
-                      <button
-                        className="pending"
-                        type="button"
-                        onClick={() => navigate(`/return?orderId=${o.id}`)}
-                      >
-                        RETURN/REFUND
-                      </button>
-                    )}
+                    <button
+                      className="pending"
+                      type="button"
+                      onClick={() => openConfirmReceive(o)}
+                      title="Confirm you’ve received the item"
+                    >
+                      TO RECEIVE
+                    </button>
+                    <button
+                      className="pending"
+                      type="button"
+                      onClick={() => navigate(`/return?orderId=${o.id}`)}
+                    >
+                      RETURN/REFUND
+                    </button>
                   </>
                 )}
 
+                {/* COMPLETED: allow rating only (NOT for repairs) */}
                 {canRateHere && (
                   <button className="pending" onClick={() => openRatePanel(o)} type="button">
                     RATE PRODUCTS
@@ -719,23 +731,24 @@ export default function MyPurchases() {
                   </button>
                 )}
 
-                <button className="pending" onClick={contactSeller} type="button">
-                  CONTACT SELLER
-                </button>
+                {/* CONTACT SELLER shown except while in TO RECEIVE (as before) */}
+                {!isToReceive && (
+                  <button className="pending" onClick={contactSeller} type="button">
+                    CONTACT SELLER
+                  </button>
+                )}
 
-                <button
-                  className="pending"
-                  onClick={() => cancelOrder(o.id)}
-                  type="button"
-                  disabled={cancelDisabled}
-                  title={cancelDisabled ? "Order can no longer be cancelled." : "Cancel order"}
-                >
-                  {status === "refund"
-                    ? "WAITING FOR SELLER RESPONDS"
-                    : status === "cancelled"
-                    ? "CANCELLED"
-                    : "CANCEL ORDER"}
-                </button>
+                {/* NEW: show Cancel only when status is processing */}
+                {showCancel && (
+                  <button
+                    className="pending"
+                    onClick={() => cancelOrder(o.id)}
+                    type="button"
+                    title="Cancel order"
+                  >
+                    CANCEL ORDER
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -770,8 +783,7 @@ export default function MyPurchases() {
               </p>
               <p style={{ marginBottom: 12 }}>
                 <strong>Note:</strong> After confirming, this order will move to
-                <strong> TO RATE</strong>, and you won’t be able to request a
-                <strong> return/refund</strong> for it.
+                <strong> COMPLETED</strong>. You can then rate your items (not applicable for repairs). Returns will be disabled.
               </p>
             </div>
 
@@ -791,7 +803,7 @@ export default function MyPurchases() {
                   onClick={confirmReceiveNow}
                   disabled={confirmReceive.submitting}
                 >
-                  {confirmReceive.submitting ? "UPDATING…" : "CONFIRM (MOVE TO TO RATE)"}
+                  {confirmReceive.submitting ? "UPDATING…" : "CONFIRM (MOVE TO COMPLETED)"}
                 </button>
               </div>
             </div>
