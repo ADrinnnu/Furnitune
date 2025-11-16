@@ -63,10 +63,11 @@ const PRODUCTS = collection(db, "products");
 
 async function listProducts() {
   const snap = await getDocs(
-    query(PRODUCTS, orderBy("updatedAt", "desc"), limit(200))
+    query(PRODUCTS, orderBy("name", "asc"), limit(200))
   );
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
+
 async function createProduct(data) {
   const refDoc = await addDoc(PRODUCTS, {
     ...data,
