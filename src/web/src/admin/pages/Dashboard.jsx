@@ -411,7 +411,6 @@ export default function Dashboard() {
                 <tr>
                   <th>Name</th>
                   <th>Price</th>
-                  <th>Stock</th>
                   <th>Active</th>
                 </tr>
               </thead>
@@ -436,7 +435,6 @@ export default function Dashboard() {
                         });
                       })()}
                     </td>
-                    <td>{p.stock}</td>
                     <td>{p.isActive ? "Yes" : "No"}</td>
                   </tr>
                 ))}
