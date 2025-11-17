@@ -120,7 +120,8 @@ function buildNetRevenueSeriesFromSales(sales) {
   }
 
   const days = Array.from(new Set([...grossByDay.keys(), ...refundByDay.keys()])).sort();
-  let cumG = 0, cumR = 0;
+  let cumG = 0,
+    cumR = 0;
   const netSeries = [];
   for (const d of days) {
     cumG += grossByDay.get(d) || 0;
@@ -137,42 +138,109 @@ function buildNetRevenueSeriesFromSales(sales) {
 }
 
 /* =============================
-   Tiny SVG sparkline
+   Net + Profit graph
    ============================= */
 function RevenueSparkline({ data, height = 120, padding = 12 }) {
   const width = 640;
   if (!data || data.length === 0) {
     return <div className="muted small">No revenue yet.</div>;
   }
+
   const xs = data.map((d, i) =>
     data.length === 1 ? width / 2 : (i / (data.length - 1)) * (width - padding * 2) + padding
   );
+
+  const netVals = data.map((d) => d.value);
+  const profitVals = data.map((d) => d.value * 0.4); // estimated profit (40% of net)
+
   const minVal = 0;
-  const maxVal = Math.max(...data.map((d) => d.value), 1);
-  const ys = data.map((d) => {
-    const t = (d.value - minVal) / (maxVal - minVal || 1);
+  const maxVal = Math.max(...netVals, ...profitVals, 1);
+
+  const yFromVal = (val) => {
+    const t = (val - minVal) / (maxVal - minVal || 1);
     return height - padding - t * (height - padding * 2);
-  });
-  const path = xs.map((x, i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${ys[i].toFixed(2)}`).join(" ");
-  const area =
+  };
+
+  const netYs = netVals.map(yFromVal);
+  const profitYs = profitVals.map(yFromVal);
+
+  const makePath = (ys) =>
+    xs.map((x, i) => `${i === 0 ? "M" : "L"} ${x.toFixed(2)} ${ys[i].toFixed(2)}`).join(" ");
+
+  const netPath = makePath(netYs);
+  const profitPath = makePath(profitYs);
+
+  const netArea =
     `M ${xs[0]} ${height - padding} ` +
-    xs.map((x, i) => `L ${x} ${ys[i]}`).join(" ") +
+    xs.map((x, i) => `L ${x} ${netYs[i]}`).join(" ") +
     ` L ${xs[xs.length - 1]} ${height - padding} Z`;
+
   const last = data[data.length - 1];
+  const lastProfitVal = last.value * 0.4;
 
   return (
     <div>
-      <svg width="100%" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Revenue trend">
-        <line x1={padding} y1={height - padding} x2={width - padding} y2={height - padding}
-              stroke="currentColor" opacity="0.15" />
-        <path d={area} fill="currentColor" opacity="0.06" />
-        <path d={path} fill="none" stroke="currentColor" strokeWidth="2" />
-        <circle cx={xs[xs.length - 1]} cy={ys[ys.length - 1]} r="3" fill="currentColor" />
+      <svg width="100%" viewBox={`0 0 ${width} ${height}`} role="img" aria-label="Revenue and profit trend">
+        {/* baseline */}
+        <line
+          x1={padding}
+          y1={height - padding}
+          x2={width - padding}
+          y2={height - padding}
+          stroke="currentColor"
+          opacity="0.15"
+        />
+
+        {/* net revenue area + line */}
+        <path d={netArea} fill="#2563eb" opacity="0.06" />
+        <path d={netPath} fill="none" stroke="#2563eb" strokeWidth="2" />
+        <circle cx={xs[xs.length - 1]} cy={netYs[netYs.length - 1]} r="3" fill="#2563eb" />
+
+        {/* profit line */}
+        <path d={profitPath} fill="none" stroke="#16a34a" strokeWidth="2" />
+        <circle cx={xs[xs.length - 1]} cy={profitYs[profitYs.length - 1]} r="3" fill="#16a34a" />
       </svg>
-      <div className="muted small" style={{ display: "flex", justifyContent: "space-between" }}>
+
+      {/* dates + latest values */}
+      <div
+        className="muted small"
+        style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}
+      >
         <span>{data[0].date}</span>
         <span>
-          {last.date} · {last.value.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}
+          {last.date} · Net{" "}
+          {last.value.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })} · Profit{" "}
+          {lastProfitVal.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}
+        </span>
+      </div>
+
+      {/* legend */}
+      <div className="muted small" style={{ marginTop: 4, display: "flex", gap: 12 }}>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "#2563eb",
+              marginRight: 4,
+            }}
+          />
+          Net revenue
+        </span>
+        <span>
+          <span
+            style={{
+              display: "inline-block",
+              width: 10,
+              height: 10,
+              borderRadius: "50%",
+              background: "#16a34a",
+              marginRight: 4,
+            }}
+          />
+          Profit (estimated)
         </span>
       </div>
     </div>
@@ -193,7 +261,11 @@ export default function Dashboard() {
 
   // Firestore
   const db = useMemo(() => {
-    try { return getFirestore(auth?.app || undefined); } catch { return getFirestore(); }
+    try {
+      return getFirestore(auth?.app || undefined);
+    } catch {
+      return getFirestore();
+    }
   }, []);
 
   // static panels still use provider (unchanged)
@@ -214,21 +286,35 @@ export default function Dashboard() {
         if (alive) setLoading(false);
       }
     })();
-    return () => { alive = false; };
+    return () => {
+      alive = false;
+    };
   }, []);
 
   // realtime orders/repairs/custom_orders
   useEffect(() => {
     const stops = [
-      onSnapshot(collection(db, "orders"), (snap) => {
-        setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }, (e) => console.error("[Dashboard] orders snapshot:", e)),
-      onSnapshot(collection(db, "repairs"), (snap) => {
-        setRepairs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }, (e) => console.error("[Dashboard] repairs snapshot:", e)),
-      onSnapshot(collection(db, "custom_orders"), (snap) => {
-        setCustoms(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
-      }, (e) => console.error("[Dashboard] custom_orders snapshot:", e)),
+      onSnapshot(
+        collection(db, "orders"),
+        (snap) => {
+          setOrders(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        },
+        (e) => console.error("[Dashboard] orders snapshot:", e)
+      ),
+      onSnapshot(
+        collection(db, "repairs"),
+        (snap) => {
+          setRepairs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        },
+        (e) => console.error("[Dashboard] repairs snapshot:", e)
+      ),
+      onSnapshot(
+        collection(db, "custom_orders"),
+        (snap) => {
+          setCustoms(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        },
+        (e) => console.error("[Dashboard] custom_orders snapshot:", e)
+      ),
     ];
     return () => stops.forEach((s) => s && s());
   }, [db]);
@@ -236,23 +322,23 @@ export default function Dashboard() {
   // ---- Merge orders + repairs + customs into one sales list ----
   const sales = useMemo(() => {
     // Normalize orders
-    const orderSales = (orders || []).map(o => normalizeSale(o, "order"));
+    const orderSales = (orders || []).map((o) => normalizeSale(o, "order"));
 
     // If an order references a repairId, we'll skip counting that repair to avoid double-counting
     const repairIdsInOrders = new Set(
       (orders || [])
-        .map(o => o?.repairId)
+        .map((o) => o?.repairId)
         .filter(Boolean)
         .map(String)
     );
 
     // Normalize repairs that DON'T have a linked order already
     const repairSales = (repairs || [])
-      .filter(r => !repairIdsInOrders.has(String(r?.id)))
-      .map(r => normalizeSale(r, "repair"));
+      .filter((r) => !repairIdsInOrders.has(String(r?.id)))
+      .map((r) => normalizeSale(r, "repair"));
 
     // Customization: if you later link these into an order, you can add a similar exclusion.
-    const customSales = (customs || []).map(c => normalizeSale(c, "custom"));
+    const customSales = (customs || []).map((c) => normalizeSale(c, "custom"));
 
     return [...orderSales, ...repairSales, ...customSales];
   }, [orders, repairs, customs]);
@@ -269,8 +355,9 @@ export default function Dashboard() {
     ).length;
     const delivered = shipments.filter((s) => s.status === "delivered").length;
 
-    const cancelledCount =
-      sales.filter((s) => ["cancelled", "canceled"].includes(s.status)).length;
+    const cancelledCount = sales.filter((s) =>
+      ["cancelled", "canceled"].includes(s.status)
+    ).length;
 
     return {
       designs: designs.length,
@@ -301,11 +388,17 @@ export default function Dashboard() {
         <KPI label="Cancelled Orders" value={kpis.cancelledCount} />
         <KPI
           label="Refunds"
-          value={kpis.refunds.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}
+          value={kpis.refunds.toLocaleString(undefined, {
+            style: "currency",
+            currency: DISPLAY_CURRENCY,
+          })}
         />
       </div>
 
-      <div className="admin-grid" style={{ gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}>
+      <div
+        className="admin-grid"
+        style={{ gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 12 }}
+      >
         <div className="admin-card">
           <h3 style={{ marginTop: 0 }}>Recent Products</h3>
           {loading ? (
@@ -316,7 +409,6 @@ export default function Dashboard() {
             <table className="admin-table">
               <thead>
                 <tr>
-                  <th>SKU</th>
                   <th>Name</th>
                   <th>Price</th>
                   <th>Stock</th>
@@ -326,14 +418,22 @@ export default function Dashboard() {
               <tbody>
                 {products.slice(0, 8).map((p) => (
                   <tr key={p.id}>
-                    <td>{p.sku}</td>
                     <td>{p.name}</td>
                     <td>
                       {(() => {
-                        const cents = typeof p.priceCents === "number" ? p.priceCents : null;
-                        const price = cents != null ? cents / 100 : Number(p.price || 0);
+                        const cents =
+                          typeof p.priceCents === "number" ? p.priceCents : null;
+                        const price =
+                          cents != null
+                            ? cents / 100
+                            : p.basePrice != null
+                            ? Number(p.basePrice)
+                            : Number(p.price || 0);
                         const cur = p.currency || DISPLAY_CURRENCY;
-                        return Number(price || 0).toLocaleString(undefined, { style: "currency", currency: cur });
+                        return Number(price || 0).toLocaleString(undefined, {
+                          style: "currency",
+                          currency: cur,
+                        });
                       })()}
                     </td>
                     <td>{p.stock}</td>
@@ -367,7 +467,11 @@ export default function Dashboard() {
                     <td>#{String(s.id).slice(0, 6)}</td>
                     <td>{s.status}</td>
                     <td>{s.orderId || "—"}</td>
-                    <td>{s.updatedAt ? new Date(tsToMillis(s.updatedAt)).toLocaleString() : "—"}</td>
+                    <td>
+                      {s.updatedAt
+                        ? new Date(tsToMillis(s.updatedAt)).toLocaleString()
+                        : "—"}
+                    </td>
                   </tr>
                 ))}
               </tbody>
@@ -380,23 +484,50 @@ export default function Dashboard() {
       <div className="admin-card" style={{ marginTop: 12 }}>
         <h3 style={{ marginTop: 0 }}>Revenue (Net)</h3>
         <div style={{ fontSize: 28, fontWeight: 700 }}>
-          {kpis.revenue.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}
+          {kpis.revenue.toLocaleString(undefined, {
+            style: "currency",
+            currency: DISPLAY_CURRENCY,
+          })}
         </div>
-        <div className="muted small">Gross − refunds (cumulative)</div>
+        <div className="muted small">Gross – refunds (cumulative)</div>
 
-        {/* Sparkline of NET revenue over time */}
+        {/* Graph: net + profit over time */}
         <div style={{ marginTop: 8 }}>
           <RevenueSparkline data={netSeries} />
         </div>
 
-        {/* Breakdown */}
+        {/* Text breakdown (no materials, profit only as amount) */}
         <div className="muted small" style={{ marginTop: 8 }}>
           Gross:&nbsp;
-          <strong>{kpis.grossRevenue.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}</strong>
+          <strong>
+            {kpis.grossRevenue.toLocaleString(undefined, {
+              style: "currency",
+              currency: DISPLAY_CURRENCY,
+            })}
+          </strong>
           &nbsp; · Refunds:&nbsp;
-          <strong>{kpis.refunds.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}</strong>
+          <strong>
+            {kpis.refunds.toLocaleString(undefined, {
+              style: "currency",
+              currency: DISPLAY_CURRENCY,
+            })}
+          </strong>
           &nbsp; · Net:&nbsp;
-          <strong>{kpis.revenue.toLocaleString(undefined, { style: "currency", currency: DISPLAY_CURRENCY })}</strong>
+          <strong>
+            {kpis.revenue.toLocaleString(undefined, {
+              style: "currency",
+              currency: DISPLAY_CURRENCY,
+            })}
+          </strong>
+        </div>
+        <div className="muted small" style={{ marginTop: 4 }}>
+          Profit (estimated):&nbsp;
+          <strong>
+            {(kpis.revenue * 0.4).toLocaleString(undefined, {
+              style: "currency",
+              currency: DISPLAY_CURRENCY,
+            })}
+          </strong>
         </div>
       </div>
     </div>
