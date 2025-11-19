@@ -126,7 +126,6 @@ export default function Products() {
   const [form, setForm] = useState({
     name: "",
     slug: "",
-    sku: "",
     baseType: "Sectionals",
     categorySlug: "sectionals",
     departmentSlug: "living-room",
@@ -212,7 +211,7 @@ export default function Products() {
     try {
       const payload = {
         ...form,
-        slug: form.slug || toSlug(form.name) || form.sku,
+        slug: form.slug || toSlug(form.name) || form,
         basePrice: Number(form.basePrice) || 0,
         leadTimeDays: Number(form.leadTimeDays) || 0,
         dimensionDefaults: {
@@ -253,7 +252,6 @@ export default function Products() {
         id: undefined,
         name: "",
         slug: "",
-        sku: "",
         basePrice: 0,
         images: [],
         thumbnail: "",
@@ -292,16 +290,6 @@ export default function Products() {
               value={form.slug}
               onChange={(e) => {
                 setForm((f) => ({ ...f, slug: e.target.value }));
-                setDirty(true);
-              }}
-            />
-          </L>
-          <L label="SKU">
-            <input
-              className="admin-input"
-              value={form.sku}
-              onChange={(e) => {
-                setForm((f) => ({ ...f, sku: e.target.value }));
                 setDirty(true);
               }}
             />
@@ -583,7 +571,6 @@ export default function Products() {
       <table className="admin-table">
         <thead>
           <tr>
-            <th>SKU</th>
             <th>Name</th>
             <th>Slug</th>
             <th>Type</th>
@@ -595,7 +582,6 @@ export default function Products() {
         <tbody>
           {items.map((p) => (
             <tr key={p.id}>
-              <td>{p.sku}</td>
               <td>{p.name}</td>
               <td>{p.slug}</td>
               <td>{p.baseType}</td>
