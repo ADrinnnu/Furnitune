@@ -20,7 +20,8 @@ const normalizeStatus = (s) => {
   const x = String(s || "").toLowerCase();
   if (["processing", "pending"].includes(x) || !x) return "processing";
   if (["prepare", "preparing", "packaging", "for packaging"].includes(x)) return "preparing";
-  if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x)) return "to_ship";
+  if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x))
+    return "to_ship";
   if (["to_receive", "out_for_delivery", "delivered"].includes(x)) return "to_receive";
   if (["to_rate", "completed", "done"].includes(x)) return "to_rate";
   return "processing";
@@ -55,7 +56,7 @@ export default function OrderSummary() {
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
-  const [order, setOrder] = useState(undefined);          // orders/{id}
+  const [order, setOrder] = useState(undefined); // orders/{id}
   const [linkedCustom, setLinkedCustom] = useState(null); // custom_orders/{id}
   const [linkedRepair, setLinkedRepair] = useState(null); // repairs/{id}
 
@@ -95,7 +96,10 @@ export default function OrderSummary() {
 
   /* ---------- subscribe to linked customization (if any) ---------- */
   useEffect(() => {
-    if (!order || customId) { setLinkedCustom(null); return; }
+    if (!order || customId) {
+      setLinkedCustom(null);
+      return;
+    }
     const origin = String(order?.origin || "");
     const hasCustomLink =
       origin === "customization" ||
@@ -103,7 +107,10 @@ export default function OrderSummary() {
       order?.linkedCustomId ||
       order?.metadata?.customId;
 
-    if (!hasCustomLink) { setLinkedCustom(null); return; }
+    if (!hasCustomLink) {
+      setLinkedCustom(null);
+      return;
+    }
 
     const customDocId =
       order?.customId || order?.linkedCustomId || order?.metadata?.customId || null;
@@ -137,14 +144,18 @@ export default function OrderSummary() {
 
   /* ---------- subscribe to linked repair (if any) ---------- */
   useEffect(() => {
-    if (!order) { setLinkedRepair(null); return; }
+    if (!order) {
+      setLinkedRepair(null);
+      return;
+    }
     const origin = String(order?.origin || "");
     const hasRepairLink =
-      origin === "repair" ||
-      order?.repairId ||
-      order?.metadata?.repairId;
+      origin === "repair" || order?.repairId || order?.metadata?.repairId;
 
-    if (!hasRepairLink) { setLinkedRepair(null); return; }
+    if (!hasRepairLink) {
+      setLinkedRepair(null);
+      return;
+    }
 
     const repairDocId = order?.repairId || order?.metadata?.repairId || null;
 
@@ -175,7 +186,7 @@ export default function OrderSummary() {
     return stop;
   }, [order]);
 
-  /* ---------- merged view: prefer order → custom → repair ---------- */
+  /* ---------- merged view: prefer order → custom → repair (for money/proofs only) ---------- */
   const merged = useMemo(() => {
     if (!order) return order; // undefined/null passthrough
     const sourceChain = [order, linkedCustom, linkedRepair].filter(Boolean);
@@ -199,15 +210,49 @@ export default function OrderSummary() {
     const out = { ...order };
     for (const k of keys) {
       if (out[k] != null) continue;
-      for (const src of sourceChain.slice(1)) { // skip the first (order)
-        if (src[k] != null) { out[k] = src[k]; break; }
+      for (const src of sourceChain.slice(1)) {
+        // skip the first (order)
+        if (src[k] != null) {
+          out[k] = src[k];
+          break;
+        }
       }
     }
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
-  /* ---------- status + copy ---------- */
-  const currentKey = normalizeStatus((merged || order)?.status);
+  /* ---------- status + copy (pick furthest stage across order/custom/repair) ---------- */
+  const currentKey = useMemo(() => {
+    const rank = {
+      processing: 1,
+      preparing: 2,
+      to_ship: 3,
+      to_receive: 4,
+      to_rate: 5,
+    };
+
+    let best = "processing";
+    let bestScore = -1;
+
+    const candidates = [
+      linkedCustom?.status,
+      linkedRepair?.status,
+      (merged || order)?.status,
+    ];
+
+    for (const raw of candidates) {
+      if (!raw) continue;
+      const key = normalizeStatus(raw);
+      const score = rank[key] ?? 0;
+      if (score > bestScore) {
+        best = key;
+        bestScore = score;
+      }
+    }
+
+    return best;
+  }, [merged, order, linkedCustom, linkedRepair]);
+
   const currentIdx = Math.max(0, STEPS.findIndex((s) => s.key === currentKey));
   const note = messages[currentKey];
 
@@ -256,12 +301,57 @@ export default function OrderSummary() {
     <div className="os-page">
       <div className="os-left">
         {(merged ?? order) === undefined ? (
-          <div className="os-card skeleton" role="status" aria-busy="true" style={{ padding: 20 }}>
-            <div style={{ height: 20, width: 220, background: "#eee", marginBottom: 12, borderRadius: 6 }} />
-            <div style={{ height: 12, width: 120, background: "#eee", marginBottom: 8, borderRadius: 6 }} />
-            <div style={{ height: 12, width: "100%", background: "#eee", margin: "12px 0", borderRadius: 6 }} />
-            <div style={{ height: 8, width: "60%", background: "#eee", marginTop: 6, borderRadius: 6 }} />
-            <div style={{ height: 8, width: "40%", background: "#eee", marginTop: 10, borderRadius: 6 }} />
+          <div
+            className="os-card skeleton"
+            role="status"
+            aria-busy="true"
+            style={{ padding: 20 }}
+          >
+            <div
+              style={{
+                height: 20,
+                width: 220,
+                background: "#eee",
+                marginBottom: 12,
+                borderRadius: 6,
+              }}
+            />
+            <div
+              style={{
+                height: 12,
+                width: 120,
+                background: "#eee",
+                marginBottom: 8,
+                borderRadius: 6,
+              }}
+            />
+            <div
+              style={{
+                height: 12,
+                width: "100%",
+                background: "#eee",
+                margin: "12px 0",
+                borderRadius: 6,
+              }}
+            />
+            <div
+              style={{
+                height: 8,
+                width: "60%",
+                background: "#eee",
+                marginTop: 6,
+                borderRadius: 6,
+              }}
+            />
+            <div
+              style={{
+                height: 8,
+                width: "40%",
+                background: "#eee",
+                marginTop: 10,
+                borderRadius: 6,
+              }}
+            />
           </div>
         ) : (
           <>
@@ -286,7 +376,8 @@ export default function OrderSummary() {
                     )
                   }
                 >
-                  {isExplicitAdditional ? "Pay Additional" : "Pay Remaining"} ₱{(amountToPayC / 100).toLocaleString()}
+                  {isExplicitAdditional ? "Pay Additional" : "Pay Remaining"} ₱
+                  {(amountToPayC / 100).toLocaleString()}
                 </button>
               </div>
             )}
@@ -299,11 +390,21 @@ export default function OrderSummary() {
           <h4>ORDER DETAILS</h4>
           <div
             className="os-steps-bar"
-            style={{ border: "1px solid #e5e7eb", borderRadius: 12, padding: "12px 16px", background: "#fff" }}
+            style={{
+              border: "1px solid #e5e7eb",
+              borderRadius: 12,
+              padding: "12px 16px",
+              background: "#fff",
+            }}
           >
             <div
               className="os-stepper"
-              style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 24 }}
+              style={{
+                display: "flex",
+                alignItems: "center",
+                justifyContent: "space-between",
+                gap: 24,
+              }}
             >
               {STEPS.map((s, i) => {
                 const done = (merged ?? order) !== undefined && i <= currentIdx;
@@ -344,7 +445,15 @@ export default function OrderSummary() {
           </div>
           <p className="os-note" style={{ minHeight: 56, marginTop: 12 }}>
             {(merged ?? order) === undefined ? (
-              <span className="line skeleton" style={{ display: "block", height: 14, width: "70%", background: "#eee" }} />
+              <span
+                className="line skeleton"
+                style={{
+                  display: "block",
+                  height: 14,
+                  width: "70%",
+                  background: "#eee",
+                }}
+              />
             ) : (
               note
             )}

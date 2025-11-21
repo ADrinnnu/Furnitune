@@ -8,6 +8,7 @@ import {
   collection,
   serverTimestamp,
   doc,
+  setDoc,          // ✅ NEW
   updateDoc,
   getDoc,
   getDocs,
@@ -389,7 +390,8 @@ export default function Payment() {
       const itemsLean = buildItemsLean(items);
       const safeAddress = buildSafeAddress(pending?.shippingAddress);
 
-      const orderPayload = deepSanitizeForFirestore({
+      // Build base order data (without proof yet)
+      const orderBase = {
         userId: uid,
         createdAt: serverTimestamp(),
         status: "processing",
@@ -418,13 +420,13 @@ export default function Payment() {
         additionalPaymentsCents: 0,
         refundsCents: 0,
         requestedAdditionalPaymentCents: 0,
-      });
+      };
 
-      // Create order document
-      const orderRef = await addDoc(collection(db, "orders"), orderPayload);
+      // Reserve an order ID (for storage path), but DO NOT write the doc yet
+      const orderRef = doc(collection(db, "orders"));
       const orderId = orderRef.id;
 
-      // upload payment proof (initial)
+      // Upload payment proof first – if this fails, no order will be created
       const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
         orderId,
         uid,
@@ -432,20 +434,22 @@ export default function Payment() {
         kind: "initial",
       });
 
-      // Store payment proof on order
-      await updateDoc(doc(db, "orders", orderId), deepSanitizeForFirestore({
-        paymentProofUrl: url || null,               // legacy for Admin Orders image
+      // Now create the order with proof info included
+      const orderPayload = deepSanitizeForFirestore({
+        ...orderBase,
+        paymentProofUrl: url || null,          // legacy for Admin Orders image
         depositPaymentProofUrl: url || null,
-        depositPaymentProofs: arrayUnion({
-          url: url || null,
-          uploadedAt: new Date(),
-          amountCents: null,
-          note: null,
-        }),
-        paymentProofPendingReview: true,
-        paymentProofType: "deposit",
-        paymentProofUpdatedAt: new Date(),
-      }));
+        depositPaymentProofs: [
+          {
+            url: url || null,
+            uploadedAt: new Date(),
+            amountCents: null,
+            note: null,
+          },
+        ],
+      });
+
+      await setDoc(orderRef, orderPayload);
 
       await addAdminNotification({
         orderId,

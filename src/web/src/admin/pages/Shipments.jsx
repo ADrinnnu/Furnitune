@@ -1,6 +1,15 @@
 // src/admin/pages/Shipments.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { firebaseProvider as provider } from "../data/firebase/firebaseProvider";
+import { auth } from "../../firebase";
+import {
+  getFirestore,
+  doc,
+  getDoc,
+  collection,      // 🔹 NEW
+  addDoc,          // 🔹 NEW
+  serverTimestamp, // 🔹 NEW
+} from "firebase/firestore";
 
 /* ----------------------------- constants ----------------------------- */
 const STATUS_LABEL = {
@@ -50,22 +59,28 @@ function tsToMillis(ts) {
 function fmtDT(tsOrMs) {
   const ms = typeof tsOrMs === "number" ? tsOrMs : tsToMillis(tsOrMs);
   if (!ms) return "—";
-  try { return new Date(ms).toLocaleString(); } catch { return "—"; }
+  try {
+    return new Date(ms).toLocaleString();
+  } catch {
+    return "—";
+  }
 }
 
 function StatusBadge({ status }) {
   const color = STATUS_COLOR[status] || "#6b7280";
   return (
-    <span style={{
-      display: "inline-block",
-      padding: "4px 8px",
-      borderRadius: 999,
-      background: `${color}22`,
-      color,
-      fontSize: 12,
-      fontWeight: 600,
-      whiteSpace: "nowrap",
-    }}>
+    <span
+      style={{
+        display: "inline-block",
+        padding: "4px 8px",
+        borderRadius: 999,
+        background: `${color}22`,
+        color,
+        fontSize: 12,
+        fontWeight: 600,
+        whiteSpace: "nowrap",
+      }}
+    >
       {STATUS_LABEL[status] || status}
     </span>
   );
@@ -93,6 +108,8 @@ function Cell({ title, mono, center, children }) {
 
 /* ------------------------------- page -------------------------------- */
 export default function Shipments() {
+  const db = useMemo(() => getFirestore(auth.app), []);
+
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -112,7 +129,61 @@ export default function Shipments() {
     setErr("");
     setLoading(true);
     try {
-      const list = await provider.listShipments();
+      let list = await provider.listShipments();
+
+      // 🔹 enrich with user email/name from the related order
+      try {
+        const needOrderInfo = list.filter((r) => !r.userEmail && r.orderId);
+        const uniqueOrderIds = [...new Set(needOrderInfo.map((r) => r.orderId))];
+
+        if (uniqueOrderIds.length > 0 && db) {
+          const snaps = await Promise.all(
+            uniqueOrderIds.map(async (orderId) => {
+              try {
+                const snap = await getDoc(doc(db, "orders", orderId));
+                if (!snap.exists()) return null;
+                return { id: orderId, data: snap.data() };
+              } catch {
+                return null;
+              }
+            })
+          );
+
+          const orderById = {};
+          snaps.forEach((s) => {
+            if (s && s.data) orderById[s.id] = s.data;
+          });
+
+          list = list.map((r) => {
+            if (r.userEmail || !r.orderId || !orderById[r.orderId]) return r;
+            const order = orderById[r.orderId];
+
+            const email =
+              order?.contactEmail ||
+              order?.shippingAddress?.email ||
+              order?.customer?.email ||
+              order?.customerInfo?.email ||
+              "";
+
+            const name =
+              order?.shippingAddress?.fullName ||
+              order?.shippingAddress?.name ||
+              order?.customer?.name ||
+              order?.customerInfo?.name ||
+              "";
+
+            // keep r.userId as-is; we only enrich name/email
+            return {
+              ...r,
+              userEmail: email || r.userEmail || "",
+              userName: name || r.userName || "",
+            };
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to enrich shipment user info:", e);
+      }
+
       setRows(list);
       if (selected) {
         const updated = list.find((x) => x.id === selected.id);
@@ -140,7 +211,6 @@ export default function Shipments() {
             : (res && (res.deleted ?? res.removed ?? res.count)) || 0;
         if (n > 0) {
           setCleanNote(`Cleaned ${n} orphan${n === 1 ? "" : "s"}.`);
-          // auto-hide message
           setTimeout(() => setCleanNote(""), 3500);
         } else {
           setCleanNote("No orphans found.");
@@ -150,7 +220,6 @@ export default function Shipments() {
     } catch (e) {
       console.warn("cleanOrphanShipments failed:", e);
       setCleanNote("");
-      // don't block refresh even if cleaning fails
     } finally {
       await loadShipments();
     }
@@ -181,21 +250,59 @@ export default function Shipments() {
 
   async function onAdvance() {
     if (!selected || !nextStatus) return;
-    // avoid no-op / duplicates
     if (nextStatus === selected.status) return;
 
     setAdvancing(true);
     setErr("");
     try {
       const target = nextStatus; // status we are moving TO
+
+      // 1) advance shipment via provider
       await provider.advanceShipment(selected.id, target, note.trim());
 
+      // 2) reload data
       await loadShipments();
       await loadEvents(selected.id);
 
+      // 3) compute next allowed step for UI
       const allowed = ALLOWED[target] || [];
       setNextStatus(allowed[0] || "");
       setNote("");
+
+      // 4) 🔔 CREATE NOTIFICATION FOR THE USER
+      try {
+        let uid = selected.userId || null;
+
+        // fallback: if no userId on shipment, try to get it from the order
+        if (!uid && selected.orderId && db) {
+          const snap = await getDoc(doc(db, "orders", selected.orderId));
+          if (snap.exists()) {
+            const o = snap.data();
+            uid = o.userId || o.uid || null;
+          }
+        }
+
+        if (uid && selected.orderId && db) {
+          const humanLabel = STATUS_LABEL[target] || target;
+          await addDoc(
+            collection(db, "users", uid, "notifications"),
+            {
+              type: "shipment_status",
+              orderId: selected.orderId,
+              shipmentId: selected.id,
+              status: target,
+              title: `Shipment update for order ${String(
+                selected.orderId
+              ).slice(0, 6)}`,
+              body: `Your shipment is now ${humanLabel}.`,
+              createdAt: serverTimestamp(),
+              read: false,
+            }
+          );
+        }
+      } catch (e) {
+        console.warn("Failed to create shipment notification:", e);
+      }
     } catch (e) {
       console.error(e);
       setErr(String(e?.message || e));
@@ -222,7 +329,12 @@ export default function Shipments() {
   );
   const gridTemplate = columns.map((c) => c.width).join(" ");
 
-  const displayUser = (r) => r.userEmail || r.userId || "—";
+  const displayUser = (r) => {
+    const email = r.userEmail || "";
+    const name = r.userName || "";
+    if (name && email) return `${name} (${email})`;
+    return email || name || r.userId || "—";
+  };
 
   return (
     <div style={{ padding: 24 }}>
@@ -304,8 +416,12 @@ export default function Shipments() {
                   columnGap: 12,
                 }}
               >
-                <Cell title={r.id} mono>{r.id}</Cell>
-                <Cell title={r.orderId} mono>{r.orderId || "—"}</Cell>
+                <Cell title={r.id} mono>
+                  {r.id}
+                </Cell>
+                <Cell title={r.orderId} mono>
+                  {r.orderId || "—"}
+                </Cell>
                 <Cell title={displayUser(r)}>{displayUser(r)}</Cell>
                 <Cell title={STATUS_LABEL[r.status] || r.status} center>
                   <StatusBadge status={r.status} />
@@ -335,7 +451,14 @@ export default function Shipments() {
           <>
             <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
               <h3 style={{ margin: 0 }}>Shipment</h3>
-              <code style={{ background: "#f3f4f6", borderRadius: 6, padding: "2px 6px", fontSize: 12 }}>
+              <code
+                style={{
+                  background: "#f3f4f6",
+                  borderRadius: 6,
+                  padding: "2px 6px",
+                  fontSize: 12,
+                }}
+              >
                 {selected.id}
               </code>
               <div style={{ marginLeft: "auto" }}>
@@ -352,7 +475,9 @@ export default function Shipments() {
                 marginBottom: 16,
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Advance Status</div>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+                Advance Status
+              </div>
               <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
                 <label style={{ fontSize: 12, color: "#374151" }}>
                   Next status
@@ -444,25 +569,51 @@ export default function Shipments() {
               }}
             >
               <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Details</div>
-              <div style={{ fontSize: 13, display: "grid", gridTemplateColumns: "120px 1fr", rowGap: 6 }}>
-                <div style={{ color: "#6b7280" }}>Order</div><div>{selected.orderId || "—"}</div>
-                <div style={{ color: "#6b7280" }}>User</div><div>{selected.userEmail || selected.userId || "—"}</div>
-                <div style={{ color: "#6b7280" }}>Courier</div><div>{selected.courier || "—"}</div>
-                <div style={{ color: "#6b7280" }}>Tracking</div><div>{selected.trackingNumber || "—"}</div>
-                <div style={{ color: "#6b7280" }}>Created</div><div>{fmtDT(selected.createdAt)}</div>
-                <div style={{ color: "#6b7280" }}>Updated</div><div>{fmtDT(selected.updatedAt)}</div>
+              <div
+                style={{
+                  fontSize: 13,
+                  display: "grid",
+                  gridTemplateColumns: "120px 1fr",
+                  rowGap: 6,
+                }}
+              >
+                <div style={{ color: "#6b7280" }}>Order</div>
+                <div>{selected.orderId || "—"}</div>
+                <div style={{ color: "#6b7280" }}>User</div>
+                <div>{displayUser(selected)}</div>
+                <div style={{ color: "#6b7280" }}>Courier</div>
+                <div>{selected.courier || "—"}</div>
+                <div style={{ color: "#6b7280" }}>Tracking</div>
+                <div>{selected.trackingNumber || "—"}</div>
+                <div style={{ color: "#6b7280" }}>Created</div>
+                <div>{fmtDT(selected.createdAt)}</div>
+                <div style={{ color: "#6b7280" }}>Updated</div>
+                <div>{fmtDT(selected.updatedAt)}</div>
               </div>
             </div>
 
             {/* history */}
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Event History</div>
-              <div style={{ border: "1px solid #e5e7eb", borderRadius: 8, minHeight: 160, padding: 8 }}>
+              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+                Event History
+              </div>
+              <div
+                style={{
+                  border: "1px solid #e5e7eb",
+                  borderRadius: 8,
+                  minHeight: 160,
+                  padding: 8,
+                }}
+              >
                 {eventsLoading && (
-                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>Loading events…</div>
+                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>
+                    Loading events…
+                  </div>
                 )}
                 {!eventsLoading && events.length === 0 && (
-                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>No events yet.</div>
+                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>
+                    No events yet.
+                  </div>
                 )}
                 {!eventsLoading && events.length > 0 && (
                   <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
@@ -477,14 +628,24 @@ export default function Shipments() {
                           borderTop: "1px dashed #f3f4f6",
                         }}
                       >
-                        <div style={{ color: "#6b7280", fontSize: 12 }}>{fmtDT(ev.at)}</div>
+                        <div style={{ color: "#6b7280", fontSize: 12 }}>
+                          {fmtDT(ev.at)}
+                        </div>
                         <div style={{ fontSize: 13 }}>
                           <div style={{ marginBottom: 2 }}>
                             <strong>{STATUS_LABEL[ev.from] || ev.from}</strong> →{" "}
                             <strong>{STATUS_LABEL[ev.to] || ev.to}</strong>
                           </div>
-                          {ev.note && <div style={{ color: "#374151" }}>{ev.note}</div>}
-                          <div style={{ color: "#6b7280", fontSize: 12, marginTop: 2 }}>
+                          {ev.note && (
+                            <div style={{ color: "#374151" }}>{ev.note}</div>
+                          )}
+                          <div
+                            style={{
+                              color: "#6b7280",
+                              fontSize: 12,
+                              marginTop: 2,
+                            }}
+                          >
                             {ev.by ? `by ${ev.by}` : ""}
                           </div>
                         </div>

@@ -1,4 +1,3 @@
-// web/src/admin/pages/Orders.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { auth } from "../../firebase";
 import {
@@ -43,7 +42,9 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       } catch {}
     }
     run();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [pathOrUrl]);
   if (!url) return null;
   return (
@@ -51,7 +52,13 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
       <img
         src={url}
         alt={alt}
-        style={{ width: size, height: size, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
+        style={{
+          width: size,
+          height: size,
+          objectFit: "cover",
+          borderRadius: 8,
+          border: "1px solid #e5e5e5",
+        }}
       />
     </a>
   );
@@ -68,6 +75,10 @@ const STATUS_OPTIONS = [
   { value: "refund", label: "Refund / Return" },
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]));
+
+// 🔹 shipping-driven statuses (Shipments page is the source of truth)
+const SHIPPING_DRIVEN_STATUSES = new Set(["to_receive", "to_rate", "completed"]);
+
 const clrOrders = "#d9534f";
 const clrRepairs = "#b33939";
 const clrCustom = "#c62828";
@@ -85,8 +96,17 @@ function paymentBadgeClass(ps) {
 
 function pickDate(row) {
   const cands = [
-    row?.createdAt, row?.created_at, row?.createdOn, row?.created_on, row?.timestamp,
-    row?.timeCreated, row?.created, row?.createdAtClient, row?.createdAtMs, row?.created_at_ms, row?.date,
+    row?.createdAt,
+    row?.created_at,
+    row?.createdOn,
+    row?.created_on,
+    row?.timestamp,
+    row?.timeCreated,
+    row?.created,
+    row?.createdAtClient,
+    row?.createdAtMs,
+    row?.created_at_ms,
+    row?.date,
   ];
   for (const ts of cands) {
     if (ts == null) continue;
@@ -94,7 +114,7 @@ function pickDate(row) {
     if (typeof ts?.seconds === "number") return ts;
     if (typeof ts === "string" && !Number.isNaN(new Date(ts).getTime())) return ts;
     const n = Number(ts);
-    if (!Number.isNaN(n) && n > 0) return n;
+    if (!Number.isNaN(n)) return n;
   }
   return null;
 }
@@ -116,8 +136,15 @@ function fmtDate(tsLike) {
 }
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
-    "referenceImages","referenceImageUrls","customerUploads","customerUploadUrls",
-    "customerImages","refUrls","refImages","additionalImages","additionalImageUrls",
+    "referenceImages",
+    "referenceImageUrls",
+    "customerUploads",
+    "customerUploadUrls",
+    "customerImages",
+    "refUrls",
+    "refImages",
+    "additionalImages",
+    "additionalImageUrls",
   ];
   for (const k of keys) {
     const v = obj[k];
@@ -131,8 +158,9 @@ function fmtAdditionals(adds) {
   if (!adds) return "";
   const arr = Array.isArray(adds) ? adds : [adds];
   const label = (a) =>
-    typeof a === "string" ? a :
-    a?.label || a?.name || a?.title || a?.id || a?.type || "";
+    typeof a === "string"
+      ? a
+      : a?.label || a?.name || a?.title || a?.id || a?.type || "";
   return arr.map(label).filter(Boolean).join(", ");
 }
 
@@ -156,14 +184,29 @@ function computeMonies(row) {
   const balance = assessed > 0 ? Math.max(0, assessed - netPaid) : 0;
   const shipPHP = Number(row?.shippingFee || 0);
   const unitPHP = Number(row?.unitPrice || 0);
-  const displayTotalPHP = row?.total != null ? Number(row.total) : unitPHP + shipPHP;
-  return { assessed, dep, adds, refs, netPaid, balance, unitPHP, shipPHP, displayTotalPHP };
+  const displayTotalPHP =
+    row?.total != null ? Number(row.total) : unitPHP + shipPHP;
+  return {
+    assessed,
+    dep,
+    adds,
+    refs,
+    netPaid,
+    balance,
+    unitPHP,
+    shipPHP,
+    displayTotalPHP,
+  };
 }
+
 /* ---------- Ensure there is a linked ORDER for repair/custom ---------- */
-// replace your current ensureOrderForRepair with this version
 async function ensureOrderForRepair(db, repairRow) {
   // A) try to find an existing linked order by repairId
-  const qy = query(collection(db, "orders"), where("repairId", "==", repairRow.id), limit(1));
+  const qy = query(
+    collection(db, "orders"),
+    where("repairId", "==", repairRow.id),
+    limit(1)
+  );
   const snap = await getDocs(qy);
   if (!snap.empty) {
     const d = snap.docs[0];
@@ -173,12 +216,18 @@ async function ensureOrderForRepair(db, repairRow) {
   // B) create a minimal REAL order linked to this repair
   const payload = {
     userId: repairRow?.userId || repairRow?.uid || null,
-    contactEmail: repairRow?.contactEmail || repairRow?.email || repairRow?.customer?.email || repairRow?.customerInfo?.email || null,
+    contactEmail:
+      repairRow?.contactEmail ||
+      repairRow?.email ||
+      repairRow?.customer?.email ||
+      repairRow?.customerInfo?.email ||
+      null,
     shippingAddress:
-    repairRow?.shippingAddress ||
-    repairRow?.address ||
-    repairRow?.customer?.address ||
-    repairRow?.customerInfo?.address || null,
+      repairRow?.shippingAddress ||
+      repairRow?.address ||
+      repairRow?.customer?.address ||
+      repairRow?.customerInfo?.address ||
+      null,
     createdAt: serverTimestamp(),
     origin: "repair",
     repairId: repairRow.id,
@@ -194,7 +243,6 @@ async function ensureOrderForRepair(db, repairRow) {
   return { id: ref.id, ...payload };
 }
 
-
 async function ensureOrderForCustom(db, customRow) {
   // 1) Try direct link field first
   let linked = null;
@@ -208,8 +256,6 @@ async function ensureOrderForCustom(db, customRow) {
     const qy = query(
       collection(db, "orders"),
       where("origin", "==", "customization"),
-      // any of these 3 fields might be used by older/newer builds
-      // we’ll pull all and filter client-side (limit small for efficiency)
       limit(10)
     );
     const snap = await getDocs(qy);
@@ -228,42 +274,41 @@ async function ensureOrderForCustom(db, customRow) {
   // 3) If not found, create a minimal order linked to customization
   if (!linked) {
     const payload = {
-  userId:
-    customRow?.userId ||
-    customRow?.uid ||
-    customRow?.customer?.uid ||
-    customRow?.customerInfo?.uid ||
-    null,
+      userId:
+        customRow?.userId ||
+        customRow?.uid ||
+        customRow?.customer?.uid ||
+        customRow?.customerInfo?.uid ||
+        null,
 
-  contactEmail:
-    customRow?.contactEmail ||
-    customRow?.email ||
-    customRow?.customer?.email ||
-    customRow?.customerInfo?.email ||
-    null,
+      contactEmail:
+        customRow?.contactEmail ||
+        customRow?.email ||
+        customRow?.customer?.email ||
+        customRow?.customerInfo?.email ||
+        null,
 
-  shippingAddress:
-    customRow?.shippingAddress ||
-    customRow?.address ||
-    customRow?.customer?.address ||
-    customRow?.customerInfo?.address ||
-    null,
+      shippingAddress:
+        customRow?.shippingAddress ||
+        customRow?.address ||
+        customRow?.customer?.address ||
+        customRow?.customerInfo?.address ||
+        null,
 
-  createdAt: serverTimestamp(),
-  origin: "customization",
-  // store at least one of these so future matches succeed
-  customId: customRow.id,
+      createdAt: serverTimestamp(),
+      origin: "customization",
+      customId: customRow.id,
 
-  status: "to_ship",
-  statusUpdatedAt: serverTimestamp(),
+      status: "to_ship",
+      statusUpdatedAt: serverTimestamp(),
 
-  paymentStatus: customRow?.paymentStatus || "pending",
+      paymentStatus: customRow?.paymentStatus || "pending",
 
-  items: [],
-  subtotal: 0,
-  shippingFee: 0,
-  total: Number(customRow?.unitPrice || 0) || 0,
-};
+      items: [],
+      subtotal: 0,
+      shippingFee: 0,
+      total: Number(customRow?.unitPrice || 0) || 0,
+    };
 
     const ref = await addDoc(collection(db, "orders"), payload);
     linked = { id: ref.id, ...payload };
@@ -272,19 +317,17 @@ async function ensureOrderForCustom(db, customRow) {
   return linked;
 }
 
-
 /* Get the latest additional payment amount (in cents) from the row */
 function latestAdditionalCents(row) {
-  // 1) explicit field (best)
   const fromField = N(row?.lastAdditionalPaymentCents);
   if (fromField > 0) return fromField;
 
-  // 2) fall back to requested amount (common flow)
   const fromRequested = N(row?.requestedAdditionalPaymentCents);
   if (fromRequested > 0) return fromRequested;
 
-  // 3) last proof with amountCents
-  const arr = Array.isArray(row?.additionalPaymentProofs) ? row.additionalPaymentProofs : [];
+  const arr = Array.isArray(row?.additionalPaymentProofs)
+    ? row.additionalPaymentProofs
+    : [];
   for (let i = arr.length - 1; i >= 0; i--) {
     const c = N(arr[i]?.amountCents);
     if (c > 0) return c;
@@ -308,9 +351,11 @@ function applySettlement(row, basePatch, desiredStatus) {
     patch.requestedAdditionalPaymentCents = m.balance;
     patch.requestedAt = serverTimestamp();
   } else {
-    patch.paymentStatus = desiredStatus === "refunded" ? "refunded" : "paid";
+    patch.paymentStatus =
+      desiredStatus === "refunded" ? "refunded" : "paid";
     if (patch.paymentStatus === "paid") patch.paidAt = serverTimestamp();
-    if (patch.paymentStatus === "refunded") patch.refundedAt = serverTimestamp();
+    if (patch.paymentStatus === "refunded")
+      patch.refundedAt = serverTimestamp();
     patch.requestedAdditionalPaymentCents = 0;
   }
   return patch;
@@ -328,13 +373,20 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
       onMouseLeave={() => setH(false)}
       onClick={onClick}
       style={{
-        width: 34, height: 34, borderRadius: 8, border: `1px solid ${color}`,
+        width: 34,
+        height: 34,
+        borderRadius: 8,
+        border: `1px solid ${color}`,
         background: h && !disabled ? color : "#fff",
         color: h && !disabled ? "#fff" : color,
-        fontSize: 18, lineHeight: "18px", display: "inline-flex",
-        alignItems: "center", justifyContent: "center",
+        fontSize: 18,
+        lineHeight: "18px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
         cursor: disabled ? "not-allowed" : "pointer",
-        marginLeft: 6, ...style,
+        marginLeft: 6,
+        ...style,
       }}
     >
       🗑
@@ -344,50 +396,157 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
 
 function CustomerBlock({ row, title = "Customer" }) {
   const addr =
-    row?.shippingAddress || row?.address || row?.customer?.address ||
-    row?.customerInfo?.address || row?.customer_address || {};
+    row?.shippingAddress ||
+    row?.address ||
+    row?.customer?.address ||
+    row?.customerInfo?.address ||
+    row?.customer_address ||
+    {};
   const firstName =
-    addr?.firstName ?? addr?.firstname ?? row?.firstName ?? row?.firstname ?? row?.customer?.firstName ?? "";
+    addr?.firstName ??
+    addr?.firstname ??
+    row?.firstName ??
+    row?.firstname ??
+    row?.customer?.firstName ??
+    "";
   const lastName =
-    addr?.lastName ?? addr?.lastname ?? row?.lastName ?? row?.lastname ?? row?.customer?.lastName ?? "";
+    addr?.lastName ??
+    addr?.lastname ??
+    row?.lastName ??
+    row?.lastname ??
+    row?.customer?.lastName ??
+    "";
   const fullName =
-    addr?.fullName ?? addr?.name ?? row?.nameFull ?? row?.fullName ?? row?.name ??
-    row?.customer?.name ?? [firstName, lastName].filter(Boolean).join(" ");
+    addr?.fullName ??
+    addr?.name ??
+    row?.nameFull ??
+    row?.fullName ??
+    row?.name ??
+    row?.customer?.name ??
+    [firstName, lastName].filter(Boolean).join(" ");
   const email =
-    addr?.email ?? row?.shippingAddress?.email ?? row?.contactEmail ?? row?.email ??
-    row?.customer?.email ?? row?.customerInfo?.email ?? "";
-  const phone = addr?.phone ?? row?.contactPhone ?? row?.phone ?? row?.customer?.phone ?? row?.customerInfo?.phone ?? "";
-  const line1 = addr?.line1 ?? addr?.address1 ?? row?.line1 ?? row?.address1 ?? "";
-  const line2 = addr?.line2 ?? addr?.address2 ?? row?.line2 ?? row?.address2 ?? "";
-  const city = addr?.city ?? row?.city ?? row?.shippingCity ?? row?.customer?.city ?? row?.customerInfo?.city ?? "";
-  const province = addr?.province ?? addr?.state ?? row?.province ?? row?.state ?? row?.shippingProvince ?? "";
-  const zip = addr?.zip ?? addr?.postalCode ?? addr?.postcode ?? row?.zip ?? row?.postalCode ?? row?.postcode ?? "";
-  const country = addr?.country ?? addr?.countryCode ?? row?.country ?? row?.shippingCountry ?? row?.countryCode ?? "";
-  const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? "";
+    addr?.email ??
+    row?.shippingAddress?.email ??
+    row?.contactEmail ??
+    row?.email ??
+    row?.customer?.email ??
+    row?.customerInfo?.email ??
+    "";
+  const phone =
+    addr?.phone ??
+    row?.contactPhone ??
+    row?.phone ??
+    row?.customer?.phone ??
+    row?.customerInfo?.phone ??
+    "";
+  const line1 =
+    addr?.line1 ??
+    addr?.address1 ??
+    row?.line1 ??
+    row?.address1 ??
+    "";
+  const line2 =
+    addr?.line2 ??
+    addr?.address2 ??
+    row?.line2 ??
+    row?.address2 ??
+    "";
+  const city =
+    addr?.city ??
+    row?.city ??
+    row?.shippingCity ??
+    row?.customer?.city ??
+    row?.customerInfo?.city ??
+    "";
+  const province =
+    addr?.province ??
+    addr?.state ??
+    row?.province ??
+    row?.state ??
+    row?.shippingProvince ??
+    "";
+  const zip =
+    addr?.zip ??
+    addr?.postalCode ??
+    addr?.postcode ??
+    row?.zip ??
+    row?.postalCode ??
+    row?.postcode ??
+    "";
+  const country =
+    addr?.country ??
+    addr?.countryCode ??
+    row?.country ??
+    row?.shippingCountry ??
+    row?.countryCode ??
+    "";
+  const uid =
+    row?.userId ??
+    row?.uid ??
+    row?.customer?.uid ??
+    row?.customerInfo?.uid ??
+    "";
   return (
     <div className="span-2">
       <h4>{title}</h4>
-      <div style={{ display: "grid", gridTemplateColumns: "160px 1fr", gap: "8px 16px", alignItems: "center", maxWidth: 720 }}>
-        <div className="kv"><label style={{ fontWeight: 600 }}>Name</label></div><div>{fullName || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>Email</label></div><div>{email || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>Phone</label></div><div>{phone || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>Address</label></div><div>{[line1, line2].filter(Boolean).join(", ") || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>City / Province / ZIP</label></div><div>{[city, province, zip].filter(Boolean).join(" · ") || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>Country</label></div><div>{country || "—"}</div>
-        <div className="kv"><label style={{ fontWeight: 600 }}>User ID</label></div><div className="mono">{uid || "—"}</div>
+      <div
+        style={{
+          display: "grid",
+          gridTemplateColumns: "160px 1fr",
+          gap: "8px 16px",
+          alignItems: "center",
+          maxWidth: 720,
+        }}
+      >
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Name</label>
+        </div>
+        <div>{fullName || "—"}</div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Email</label>
+        </div>
+        <div>{email || "—"}</div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Phone</label>
+        </div>
+        <div>{phone || "—"}</div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Address</label>
+        </div>
+        <div>
+          {[line1, line2].filter(Boolean).join(", ") || "—"}
+        </div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>
+            City / Province / ZIP
+          </label>
+        </div>
+        <div>
+          {[city, province, zip].filter(Boolean).join(" · ") || "—"}
+        </div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>Country</label>
+        </div>
+        <div>{country || "—"}</div>
+        <div className="kv">
+          <label style={{ fontWeight: 600 }}>User ID</label>
+        </div>
+        <div className="mono">{uid || "—"}</div>
       </div>
     </div>
   );
 }
-
-/* ------------------------- Assessment Panel ------------------------- */
 function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
-    row?.assessedTotalCents != null ? Math.round(Number(row.assessedTotalCents) / 100) : ""
+    row?.assessedTotalCents != null
+      ? Math.round(Number(row.assessedTotalCents) / 100)
+      : ""
   );
   const [note, setNote] = useState(row?.assessmentNotes ?? "");
   const [amountPHP, setAmountPHP] = useState(
-    row?.requestedAdditionalPaymentCents != null ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100) : ""
+    row?.requestedAdditionalPaymentCents != null
+      ? Math.round(Number(row.requestedAdditionalPaymentCents) / 100)
+      : ""
   );
   const dep = Number(row?.depositCents || 0);
   const adds = Number(row?.additionalPaymentsCents || 0);
@@ -401,28 +560,71 @@ function AssessmentPanel({ kind, row }) {
       <h4>Finalize & Request Payment</h4>
       <div className="kv">
         <label>Final Total (₱)</label>
-        <input className="status-select" type="number" value={assessed} onChange={(e) => setAssessed(e.target.value)} placeholder="e.g. 43441" />
+        <input
+          className="status-select"
+          type="number"
+          value={assessed}
+          onChange={(e) => setAssessed(e.target.value)}
+          placeholder="e.g. 43441"
+        />
       </div>
       <div className="kv">
         <label>Request amount now (₱)</label>
         <div style={{ display: "flex", gap: 8 }}>
-          <input className="status-select" type="number" value={amountPHP} onChange={(e) => setAmountPHP(e.target.value)} placeholder="leave blank to request computed balance" />
-          <button className="save-btn" type="button" onClick={setToBalance}>Use Balance (₱{(balance / 100).toLocaleString()})</button>
+          <input
+            className="status-select"
+            type="number"
+            value={amountPHP}
+            onChange={(e) => setAmountPHP(e.target.value)}
+            placeholder="leave blank to request computed balance"
+          />
+          <button
+            className="save-btn"
+            type="button"
+            onClick={setToBalance}
+          >
+            Use Balance (₱{(balance / 100).toLocaleString()})
+          </button>
         </div>
       </div>
       <div className="kv">
         <label>Message to customer</label>
-        <textarea className="note" rows={2} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Explain why the additional amount is needed" />
+        <textarea
+          className="note"
+          rows={2}
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Explain why the additional amount is needed"
+        />
       </div>
       <div className="muted small" style={{ marginTop: 6 }}>
-        Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l: <b>₱{(adds / 100).toLocaleString()}</b> · Refunds: <b>₱{(refs / 100).toLocaleString()}</b> · Computed Balance: <b>₱{(balance / 100).toLocaleString()}</b>
+        Deposit: <b>₱{(dep / 100).toLocaleString()}</b> · Add’l:{" "}
+        <b>₱{(adds / 100).toLocaleString()}</b> · Refunds:{" "}
+        <b>₱{(refs / 100).toLocaleString()}</b> · Computed Balance:{" "}
+        <b>₱{(balance / 100).toLocaleString()}</b>
       </div>
-      <div style={{ display: "flex", gap: 8, marginTop: 10, flexWrap: "wrap" }}>
+      <div
+        style={{
+          display: "flex",
+          gap: 8,
+          marginTop: 10,
+          flexWrap: "wrap",
+        }}
+      >
         <button
           className="save-btn"
           onClick={async () => {
-            const assessedCents = Math.max(0, Math.round(Number(assessed || 0) * 100));
-            const requestCentsInput = amountPHP === "" ? null : Math.max(0, Math.round(Number(amountPHP || 0) * 100));
+            const assessedCents = Math.max(
+              0,
+              Math.round(Number(assessed || 0) * 100)
+            );
+            const requestCentsInput =
+              amountPHP === ""
+                ? null
+                : Math.max(
+                    0,
+                    Math.round(Number(amountPHP || 0) * 100)
+                  );
             try {
               await upsertAssessmentAndRequest({
                 kind,
@@ -434,38 +636,68 @@ function AssessmentPanel({ kind, row }) {
               alert("Assessment saved and request sent.");
               return;
             } catch (e) {
-              if (!/linked order not found/i.test(String(e?.message || ""))) {
+              if (
+                !/linked order not found/i.test(
+                  String(e?.message || "")
+                )
+              ) {
                 alert(e?.message || "Failed to save assessment.");
                 return;
               }
               try {
                 const db = getFirestore(auth.app);
                 const dep = Number(row?.depositCents || 0);
-                const adds = Number(row?.additionalPaymentsCents || 0);
+                const adds = Number(
+                  row?.additionalPaymentsCents || 0
+                );
                 const refs = Number(row?.refundsCents || 0);
-                const computedBalance = Math.max(0, assessedCents - (dep + adds - refs));
-                const requestCents = requestCentsInput == null ? computedBalance : requestCentsInput;
-                const coll = kind === "repair" ? "repairs" : "custom_orders";
+                const computedBalance = Math.max(
+                  0,
+                  assessedCents - (dep + adds - refs)
+                );
+                const requestCents =
+                  requestCentsInput == null
+                    ? computedBalance
+                    : requestCentsInput;
+                const coll =
+                  kind === "repair" ? "repairs" : "custom_orders";
                 await updateDoc(doc(db, coll, row.id), {
                   assessedTotalCents: assessedCents,
                   requestedAdditionalPaymentCents: requestCents,
                   assessmentNotes: note || "",
                   assessedAt: serverTimestamp(),
                   requestedAt: serverTimestamp(),
-                  paymentStatus: requestCents > 0 ? "awaiting_additional_payment" : "paid",
+                  paymentStatus:
+                    requestCents > 0
+                      ? "awaiting_additional_payment"
+                      : "paid",
                 });
-                const uid = row?.userId ?? row?.uid ?? row?.customer?.uid ?? row?.customerInfo?.uid ?? null;
+                const uid =
+                  row?.userId ??
+                  row?.uid ??
+                  row?.customer?.uid ??
+                  row?.customerInfo?.uid ??
+                  null;
                 if (uid) {
-                  await addDoc(collection(db, "users", uid, "notifications"), {
-                    type: "additional_payment_request",
-                    ...(kind === "repair" ? { repairId: row.id } : { customId: row.id }),
-                    title: "Additional payment requested",
-                    body: `Please pay ₱${Math.round(requestCents / 100).toLocaleString()} to proceed.`,
-                    createdAt: serverTimestamp(),
-                    read: false,
-                  });
+                  await addDoc(
+                    collection(db, "users", uid, "notifications"),
+                    {
+                      type: "additional_payment_request",
+                      ...(kind === "repair"
+                        ? { repairId: row.id }
+                        : { customId: row.id }),
+                      title: "Additional payment requested",
+                      body: `Please pay ₱${Math.round(
+                        requestCents / 100
+                      ).toLocaleString()} to proceed.`,
+                      createdAt: serverTimestamp(),
+                      read: false,
+                    }
+                  );
                 }
-                alert("Assessment saved and request sent (no linked order).");
+                alert(
+                  "Assessment saved and request sent (no linked order)."
+                );
               } catch (e2) {
                 alert(e2?.message || "Fallback save failed.");
               }
@@ -476,11 +708,15 @@ function AssessmentPanel({ kind, row }) {
         </button>
       </div>
 
-      {(row?.lastAdditionalPaymentProofUrl || row?.lastAdditionalPaymentProofPath) && (
+      {(row?.lastAdditionalPaymentProofUrl ||
+        row?.lastAdditionalPaymentProofPath) && (
         <div className="span-2" style={{ marginTop: 12 }}>
           <h4>Latest Additional Payment Proof</h4>
           <ResolvedImg
-            pathOrUrl={row.lastAdditionalPaymentProofUrl || row.lastAdditionalPaymentProofPath}
+            pathOrUrl={
+              row.lastAdditionalPaymentProofUrl ||
+              row.lastAdditionalPaymentProofPath
+            }
             alt="Additional Payment Proof"
             size={200}
           />
@@ -489,6 +725,7 @@ function AssessmentPanel({ kind, row }) {
     </div>
   );
 }
+
 /* ------------------------- MAIN COMPONENT ------------------------- */
 export default function Orders() {
   const db = useMemo(() => getFirestore(auth.app), []);
@@ -566,7 +803,9 @@ export default function Orders() {
         setCustomsLoading(false);
       },
       (e) => {
-        setCustomsErr(e?.message || "Failed to load customization orders.");
+        setCustomsErr(
+          e?.message || "Failed to load customization orders."
+        );
         setCustomsLoading(false);
       }
     );
@@ -575,28 +814,46 @@ export default function Orders() {
 
   /* ---------- derived lists ---------- */
   const productOrders = useMemo(
-    () => rows.filter((o) => !o?.repairId && String(o?.origin || "catalog") !== "customization"),
+    () =>
+      rows.filter(
+        (o) =>
+          !o?.repairId &&
+          String(o?.origin || "catalog") !== "customization"
+      ),
     [rows]
   );
 
   const ordered = useMemo(() => {
     const sorted = [...productOrders].sort(
-      (a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
+      (a, b) =>
+        tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
     );
     if (filter === "all") return sorted;
-    return sorted.filter((o) => (o?.status || "processing") === filter);
+    return sorted.filter(
+      (o) => (o?.status || "processing") === filter
+    );
   }, [productOrders, filter]);
 
   const repairsOrdered = useMemo(() => {
-    const sorted = [...repairs].sort((a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a)));
+    const sorted = [...repairs].sort(
+      (a, b) =>
+        tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
+    );
     if (repairsFilter === "all") return sorted;
-    return sorted.filter((r) => (r?.status || "processing") === repairsFilter);
+    return sorted.filter(
+      (r) => (r?.status || "processing") === repairsFilter
+    );
   }, [repairs, repairsFilter]);
 
   const customsOrdered = useMemo(() => {
-    const sorted = [...customs].sort((a, b) => tsToMillis(pickDate(b)) - tsToMillis(pickDate(a)));
+    const sorted = [...customs].sort(
+      (a, b) =>
+        tsToMillis(pickDate(b)) - tsToMillis(pickDate(a))
+    );
     if (customsFilter === "all") return sorted;
-    return sorted.filter((c) => (c?.status || "draft") === customsFilter);
+    return sorted.filter(
+      (c) => (c?.status || "draft") === customsFilter
+    );
   }, [customs, customsFilter]);
 
   function fmtPHP(n) {
@@ -615,7 +872,10 @@ export default function Orders() {
   async function requestRemainingBalanceForOrder(orderRow) {
     const db2 = getFirestore(auth.app);
     const m = computeMonies(orderRow);
-    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    if (m.balance <= 0) {
+      alert("No remaining balance to request.");
+      return;
+    }
     const patch = {
       assessedTotalCents: assessedCentsFrom(orderRow),
       requestedAdditionalPaymentCents: m.balance,
@@ -624,29 +884,47 @@ export default function Orders() {
       paymentUpdatedAt: serverTimestamp(),
     };
     await updateDoc(doc(db2, "orders", orderRow.id), patch);
-    setRows(prev => prev.map(o => o.id === orderRow.id ? { ...o, ...patch } : o));
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === orderRow.id ? { ...o, ...patch } : o
+      )
+    );
 
     const uid = orderRow?.userId;
     if (uid) {
-      await addDoc(collection(db2, "users", uid, "notifications"), {
-        type: "additional_payment_request",
-        orderId: orderRow.id,
-        title: "Additional payment requested",
-        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to complete your order.`,
-        createdAt: serverTimestamp(),
-        read: false,
-      });
+      await addDoc(
+        collection(db2, "users", uid, "notifications"),
+        {
+          type: "additional_payment_request",
+          orderId: orderRow.id,
+          title: "Additional payment requested",
+          body: `Please pay ₱${Math.round(
+            m.balance / 100
+          ).toLocaleString()} to complete your order.`,
+          createdAt: serverTimestamp(),
+          read: false,
+        }
+      );
     }
-    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
+    alert(
+      `Requested ₱${Math.round(
+        m.balance / 100
+      ).toLocaleString()} remaining balance.`
+    );
   }
 
   async function requestRemainingBalanceForRepair(repairRow) {
     const db2 = getFirestore(auth.app);
-    const linkedOrder = rows.find(o => o?.repairId === repairRow.id) || null;
-    if (linkedOrder) return requestRemainingBalanceForOrder(linkedOrder);
+    const linkedOrder =
+      rows.find((o) => o?.repairId === repairRow.id) || null;
+    if (linkedOrder)
+      return requestRemainingBalanceForOrder(linkedOrder);
 
     const m = computeMonies(repairRow);
-    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    if (m.balance <= 0) {
+      alert("No remaining balance to request.");
+      return;
+    }
     const patch = {
       assessedTotalCents: assessedCentsFrom(repairRow),
       requestedAdditionalPaymentCents: m.balance,
@@ -655,33 +933,57 @@ export default function Orders() {
       paymentUpdatedAt: serverTimestamp(),
     };
     await updateDoc(doc(db2, "repairs", repairRow.id), patch);
-    setRepairs(prev => prev.map(r => r.id === repairRow.id ? { ...r, ...patch } : r));
-    const uid = repairRow?.userId ?? repairRow?.uid ?? repairRow?.customer?.uid ?? null;
+    setRepairs((prev) =>
+      prev.map((r) =>
+        r.id === repairRow.id ? { ...r, ...patch } : r
+      )
+    );
+    const uid =
+      repairRow?.userId ??
+      repairRow?.uid ??
+      repairRow?.customer?.uid ??
+      null;
     if (uid) {
-      await addDoc(collection(db2, "users", uid, "notifications"), {
-        type: "additional_payment_request",
-        repairId: repairRow.id,
-        title: "Additional payment requested",
-        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to proceed with your repair.`,
-        createdAt: serverTimestamp(),
-        read: false,
-      });
+      await addDoc(
+        collection(db2, "users", uid, "notifications"),
+        {
+          type: "additional_payment_request",
+          repairId: repairRow.id,
+          title: "Additional payment requested",
+          body: `Please pay ₱${Math.round(
+            m.balance / 100
+          ).toLocaleString()} to proceed with your repair.`,
+          createdAt: serverTimestamp(),
+          read: false,
+        }
+      );
     }
-    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
+    alert(
+      `Requested ₱${Math.round(
+        m.balance / 100
+      ).toLocaleString()} remaining balance.`
+    );
   }
 
   async function requestRemainingBalanceForCustom(customRow) {
     const db2 = getFirestore(auth.app);
     const linkedOrder =
-      rows.find(o =>
-        String(o?.origin||"") === "customization" &&
-        (o?.customId === customRow.id || o?.linkedCustomId === customRow.id || o?.metadata?.customId === customRow.id)
+      rows.find(
+        (o) =>
+          String(o?.origin || "") === "customization" &&
+          (o?.customId === customRow.id ||
+            o?.linkedCustomId === customRow.id ||
+            o?.metadata?.customId === customRow.id)
       ) || null;
 
-    if (linkedOrder) return requestRemainingBalanceForOrder(linkedOrder);
+    if (linkedOrder)
+      return requestRemainingBalanceForOrder(linkedOrder);
 
     const m = computeMonies(customRow);
-    if (m.balance <= 0) { alert("No remaining balance to request."); return; }
+    if (m.balance <= 0) {
+      alert("No remaining balance to request.");
+      return;
+    }
     const patch = {
       assessedTotalCents: assessedCentsFrom(customRow),
       requestedAdditionalPaymentCents: m.balance,
@@ -689,194 +991,305 @@ export default function Orders() {
       requestedAt: serverTimestamp(),
       paymentUpdatedAt: serverTimestamp(),
     };
-    await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
-    setCustoms(prev => prev.map(c => c.id === customRow.id ? { ...c, ...patch } : c));
-    const uid = customRow?.userId ?? customRow?.uid ?? customRow?.customer?.uid ?? null;
+    await updateDoc(
+      doc(db2, "custom_orders", customRow.id),
+      patch
+    );
+    setCustoms((prev) =>
+      prev.map((c) =>
+        c.id === customRow.id ? { ...c, ...patch } : c
+      )
+    );
+    const uid =
+      customRow?.userId ??
+      customRow?.uid ??
+      customRow?.customer?.uid ??
+      null;
     if (uid) {
-      await addDoc(collection(db2, "users", uid, "notifications"), {
-        type: "additional_payment_request",
-        customId: customRow.id,
-        title: "Additional payment requested",
-        body: `Please pay ₱${Math.round(m.balance/100).toLocaleString()} to continue your customization.`,
-        createdAt: serverTimestamp(),
-        read: false,
-      });
+      await addDoc(
+        collection(db2, "users", uid, "notifications"),
+        {
+          type: "additional_payment_request",
+          customId: customRow.id,
+          title: "Additional payment requested",
+          body: `Please pay ₱${Math.round(
+            m.balance / 100
+          ).toLocaleString()} to continue your customization.`,
+          createdAt: serverTimestamp(),
+          read: false,
+        }
+      );
     }
-    alert(`Requested ₱${Math.round(m.balance/100).toLocaleString()} remaining balance.`);
+    alert(
+      `Requested ₱${Math.round(
+        m.balance / 100
+      ).toLocaleString()} remaining balance.`
+    );
   }
+
   async function updatePaymentForCustomization(customRow, nextStatus) {
-  const db2 = getFirestore(auth.app);
+    const db2 = getFirestore(auth.app);
 
-  // 1) Ensure there's a real order linked to this customization
-  const linkedOrder = await ensureOrderForCustom(db2, customRow);
+    // 1) Ensure there's a real order linked to this customization
+    const linkedOrder = await ensureOrderForCustom(db2, customRow);
 
-  // 2) Update the order's payment using the existing order updater
-  await updateOrderPayment(linkedOrder.id, linkedOrder, nextStatus);
+    // 2) Update the order's payment using the existing order updater
+    await updateOrderPayment(
+      linkedOrder.id,
+      linkedOrder,
+      nextStatus
+    );
 
-  // 3) Mirror payment fields back to the customization doc
-  //    (pull a fresh order snapshot so we can copy accurate amounts)
-  let freshOrder = linkedOrder;
-  try {
-    const s = await getDoc(doc(db2, "orders", linkedOrder.id));
-    if (s.exists()) freshOrder = { id: s.id, ...s.data() };
-  } catch {}
+    // 3) Mirror payment fields back to the customization doc
+    let freshOrder = linkedOrder;
+    try {
+      const s = await getDoc(doc(db2, "orders", linkedOrder.id));
+      if (s.exists()) freshOrder = { id: s.id, ...s.data() };
+    } catch {}
 
-  const patch = {
-    paymentStatus: String(nextStatus || "").toLowerCase(),
-    paymentUpdatedAt: serverTimestamp(),
-    // helpful mirrors so the Customization table shows the right numbers
-    depositCents: freshOrder?.depositCents ?? null,
-    additionalPaymentsCents: freshOrder?.additionalPaymentsCents ?? null,
-    refundsCents: freshOrder?.refundsCents ?? null,
-    assessedTotalCents: freshOrder?.assessedTotalCents ?? null,
-    requestedAdditionalPaymentCents: freshOrder?.requestedAdditionalPaymentCents ?? 0,
-    paymentProofPendingReview: !!freshOrder?.paymentProofPendingReview,
-  };
+    const patch = {
+      paymentStatus: String(nextStatus || "").toLowerCase(),
+      paymentUpdatedAt: serverTimestamp(),
+      depositCents: freshOrder?.depositCents ?? null,
+      additionalPaymentsCents:
+        freshOrder?.additionalPaymentsCents ?? null,
+      refundsCents: freshOrder?.refundsCents ?? null,
+      assessedTotalCents:
+        freshOrder?.assessedTotalCents ?? null,
+      requestedAdditionalPaymentCents:
+        freshOrder?.requestedAdditionalPaymentCents ?? 0,
+      paymentProofPendingReview:
+        !!freshOrder?.paymentProofPendingReview,
+    };
 
-  await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
+    await updateDoc(
+      doc(db2, "custom_orders", customRow.id),
+      patch
+    );
 
-  // 4) Update local state for UI immediately
-  setCustoms(prev => prev.map(c => c.id === customRow.id ? { ...c, ...patch } : c));
-  setRows(prev => prev.map(o => o.id === freshOrder.id ? { ...o, paymentStatus: patch.paymentStatus } : o));
-}
-
+    // 4) Update local state for UI immediately
+    setCustoms((prev) =>
+      prev.map((c) =>
+        c.id === customRow.id ? { ...c, ...patch } : c
+      )
+    );
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === freshOrder.id
+          ? { ...o, paymentStatus: patch.paymentStatus }
+          : o
+      )
+    );
+  }
 
   /* ------------------------- Payment status updaters ------------------------- */
   async function updateOrderPayment(orderId, currentRow, nextStatus) {
-  const db2 = getFirestore(auth.app);
-  const val = String(nextStatus || "").toLowerCase();
-  let patch = { paymentUpdatedAt: serverTimestamp() };
+    const db2 = getFirestore(auth.app);
+    const val = String(nextStatus || "").toLowerCase();
+    let patch = { paymentUpdatedAt: serverTimestamp() };
 
-  if (val === "deposit_paid") {
-    const defaultPHP = Math.round(
-      Number(
-        currentRow?.assessedTotalCents != null
-          ? currentRow.assessedTotalCents / 100
-          : currentRow?.total != null
-          ? currentRow.total
-          : (Number(currentRow?.unitPrice || 0) + Number(currentRow?.shippingFee || 0))
+    if (val === "deposit_paid") {
+      const defaultPHP = Math.round(
+        Number(
+          currentRow?.assessedTotalCents != null
+            ? currentRow.assessedTotalCents / 100
+            : currentRow?.total != null
+            ? currentRow.total
+            : Number(currentRow?.unitPrice || 0) +
+              Number(currentRow?.shippingFee || 0)
+        )
+      );
+      const ans = prompt(
+        `Enter initial payment amount (₱).`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(
+          0,
+          Math.round(Number(ans || 0))
+        );
+        patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
+      }
+      patch = applySettlement(
+        currentRow,
+        patch,
+        "deposit_paid"
+      );
+    } else if (val === "paid") {
+      const latestC = latestAdditionalCents(currentRow);
+      if (latestC > 0) {
+        patch.additionalPaymentsCents =
+          N(currentRow?.additionalPaymentsCents) + latestC;
+        patch.lastAdditionalPaymentCents = latestC;
+        patch.requestedAdditionalPaymentCents = 0;
+        patch.paymentProofPendingReview = false;
+      }
+      patch = applySettlement(
+        { ...currentRow, ...patch },
+        patch,
+        "paid"
+      );
+    } else {
+      patch.paymentStatus = val;
+      if (val === "refunded")
+        patch.refundedAt = serverTimestamp();
+      if (val !== "awaiting_additional_payment") {
+        patch.requestedAdditionalPaymentCents = Number(
+          currentRow?.requestedAdditionalPaymentCents || 0
+        );
+      }
+    }
+
+    await updateDoc(doc(db2, "orders", orderId), patch);
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === orderId ? { ...o, ...patch } : o
       )
     );
-    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
-    if (ans !== null && ans !== "") {
-      const pesos = Math.max(0, Math.round(Number(ans || 0)));
-      patch.depositCents = pesos * 100;
-      patch.deposit = pesos;
-    }
-    patch = applySettlement(currentRow, patch, "deposit_paid");
-  } else if (val === "paid") {
-    // Fold latest additional amount into cumulative additionalPaymentsCents
-    const latestC = latestAdditionalCents(currentRow);
-    if (latestC > 0) {
-      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
-      patch.lastAdditionalPaymentCents = latestC;
-      patch.requestedAdditionalPaymentCents = 0;
-      patch.paymentProofPendingReview = false;
-    }
-    // Auto-settle to zero balance (align assessed if needed)
-    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
-  } else {
-    patch.paymentStatus = val;
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
-    if (val !== "awaiting_additional_payment") {
-      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
-    }
   }
 
-  await updateDoc(doc(db2, "orders", orderId), patch);
-  setRows((prev) => prev.map((o) => (o.id === orderId ? { ...o, ...patch } : o)));
-}
+  async function updateRepairPayment(
+    repairId,
+    currentRow,
+    nextStatus
+  ) {
+    const db2 = getFirestore(auth.app);
+    const val = String(nextStatus || "").toLowerCase();
+    let patch = { paymentUpdatedAt: serverTimestamp() };
 
+    if (val === "deposit_paid") {
+      const defaultPHP = Math.round(
+        Number(
+          currentRow?.assessedTotalCents != null
+            ? currentRow.assessedTotalCents / 100
+            : currentRow?.total || 0
+        )
+      );
+      const ans = prompt(
+        `Enter initial payment amount (₱).`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(
+          0,
+          Math.round(Number(ans || 0))
+        );
+        patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
+      }
+      patch = applySettlement(
+        currentRow,
+        patch,
+        "deposit_paid"
+      );
+    } else if (val === "paid") {
+      const latestC = latestAdditionalCents(currentRow);
+      if (latestC > 0) {
+        patch.additionalPaymentsCents =
+          N(currentRow?.additionalPaymentsCents) + latestC;
+        patch.lastAdditionalPaymentCents = latestC;
+        patch.requestedAdditionalPaymentCents = 0;
+        patch.paymentProofPendingReview = false;
+      }
+      patch = applySettlement(
+        { ...currentRow, ...patch },
+        patch,
+        "paid"
+      );
+    } else {
+      patch.paymentStatus = val;
+      if (val === "refunded")
+        patch.refundedAt = serverTimestamp();
+      if (val !== "awaiting_additional_payment") {
+        patch.requestedAdditionalPaymentCents = Number(
+          currentRow?.requestedAdditionalPaymentCents || 0
+        );
+      }
+    }
 
-  async function updateRepairPayment(repairId, currentRow, nextStatus) {
-  const db2 = getFirestore(auth.app);
-  const val = String(nextStatus || "").toLowerCase();
-  let patch = { paymentUpdatedAt: serverTimestamp() };
-
-  if (val === "deposit_paid") {
-    const defaultPHP = Math.round(
-      Number(
-        currentRow?.assessedTotalCents != null
-          ? currentRow.assessedTotalCents / 100
-          : currentRow?.total || 0
+    await updateDoc(doc(db2, "repairs", repairId), patch);
+    setRepairs((prev) =>
+      prev.map((r) =>
+        r.id === repairId ? { ...r, ...patch } : r
       )
     );
-    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
-    if (ans !== null && ans !== "") {
-      const pesos = Math.max(0, Math.round(Number(ans || 0)));
-      patch.depositCents = pesos * 100;
-      patch.deposit = pesos;
-    }
-    patch = applySettlement(currentRow, patch, "deposit_paid");
-  } else if (val === "paid") {
-    const latestC = latestAdditionalCents(currentRow);
-    if (latestC > 0) {
-      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
-      patch.lastAdditionalPaymentCents = latestC;
-      patch.requestedAdditionalPaymentCents = 0;
-      patch.paymentProofPendingReview = false;
-    }
-    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
-  } else {
-    patch.paymentStatus = val;
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
-    if (val !== "awaiting_additional_payment") {
-      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
-    }
   }
-
-  await updateDoc(doc(db2, "repairs", repairId), patch);
-  setRepairs((prev) => prev.map((r) => (r.id === repairId ? { ...r, ...patch } : r)));
-}
-
 
   async function updateCustomPayment(customId, nextStatus) {
-  const db2 = getFirestore(auth.app);
-  const val = String(nextStatus || "").toLowerCase();
+    const db2 = getFirestore(auth.app);
+    const val = String(nextStatus || "").toLowerCase();
 
-  // fetch current row correctly
-  const snap = await getDoc(doc(db2, "custom_orders", customId));
-  const currentRow = snap.exists() ? { id: snap.id, ...snap.data() } : {};
+    // fetch current row correctly
+    const snap = await getDoc(
+      doc(db2, "custom_orders", customId)
+    );
+    const currentRow = snap.exists()
+      ? { id: snap.id, ...snap.data() }
+      : {};
 
-  let patch = { paymentUpdatedAt: serverTimestamp() };
+    let patch = { paymentUpdatedAt: serverTimestamp() };
 
-  if (val === "deposit_paid") {
-    const defaultPHP = Math.round(
-      Number(
-        currentRow?.assessedTotalCents != null
-          ? currentRow.assessedTotalCents / 100
-          : currentRow?.unitPrice || 0
+    if (val === "deposit_paid") {
+      const defaultPHP = Math.round(
+        Number(
+          currentRow?.assessedTotalCents != null
+            ? currentRow.assessedTotalCents / 100
+            : currentRow?.unitPrice || 0
+        )
+      );
+      const ans = prompt(
+        `Enter initial payment amount (₱).`,
+        String(defaultPHP || "")
+      );
+      if (ans !== null && ans !== "") {
+        const pesos = Math.max(
+          0,
+          Math.round(Number(ans || 0))
+        );
+        patch.depositCents = pesos * 100;
+        patch.deposit = pesos;
+      }
+      patch = applySettlement(
+        currentRow,
+        patch,
+        "deposit_paid"
+      );
+    } else if (val === "paid") {
+      const latestC = latestAdditionalCents(currentRow);
+      if (latestC > 0) {
+        patch.additionalPaymentsCents =
+          N(currentRow?.additionalPaymentsCents) + latestC;
+        patch.lastAdditionalPaymentCents = latestC;
+        patch.requestedAdditionalPaymentCents = 0;
+        patch.paymentProofPendingReview = false;
+      }
+      patch = applySettlement(
+        { ...currentRow, ...patch },
+        patch,
+        "paid"
+      );
+    } else {
+      patch.paymentStatus = val;
+      if (val === "refunded")
+        patch.refundedAt = serverTimestamp();
+      if (val !== "awaiting_additional_payment") {
+        patch.requestedAdditionalPaymentCents = Number(
+          currentRow?.requestedAdditionalPaymentCents || 0
+        );
+      }
+    }
+
+    await updateDoc(
+      doc(db2, "custom_orders", customId),
+      patch
+    );
+    setCustoms((prev) =>
+      prev.map((c) =>
+        c.id === customId ? { ...c, ...patch } : c
       )
     );
-    const ans = prompt(`Enter initial payment amount (₱).`, String(defaultPHP || ""));
-    if (ans !== null && ans !== "") {
-      const pesos = Math.max(0, Math.round(Number(ans || 0)));
-      patch.depositCents = pesos * 100;
-      patch.deposit = pesos;
-    }
-    patch = applySettlement(currentRow, patch, "deposit_paid");
-  } else if (val === "paid") {
-    const latestC = latestAdditionalCents(currentRow);
-    if (latestC > 0) {
-      patch.additionalPaymentsCents = N(currentRow?.additionalPaymentsCents) + latestC;
-      patch.lastAdditionalPaymentCents = latestC;
-      patch.requestedAdditionalPaymentCents = 0;
-      patch.paymentProofPendingReview = false;
-    }
-    patch = applySettlement({ ...currentRow, ...patch }, patch, "paid");
-  } else {
-    patch.paymentStatus = val;
-    if (val === "refunded") patch.refundedAt = serverTimestamp();
-    if (val !== "awaiting_additional_payment") {
-      patch.requestedAdditionalPaymentCents = Number(currentRow?.requestedAdditionalPaymentCents || 0);
-    }
   }
-
-  await updateDoc(doc(db2, "custom_orders", customId), patch);
-  setCustoms((prev) => prev.map((c) => (c.id === customId ? { ...c, ...patch } : c)));
-}
-
-
   /* ------------------------- Order status updaters ------------------------- */
   async function saveStatus(id) {
     const newStatus = draft[id];
@@ -916,7 +1329,9 @@ export default function Orders() {
       }
       const uid = orderRow?.userId;
       if (uid) {
-        const firstItem = Array.isArray(orderRow?.items) ? orderRow.items[0] : null;
+        const firstItem = Array.isArray(orderRow?.items)
+          ? orderRow.items[0]
+          : null;
         await addDoc(collection(db, "users", uid, "notifications"), {
           type: "order_status",
           orderId: id,
@@ -937,62 +1352,74 @@ export default function Orders() {
   }
 
   async function saveRepairStatus(id) {
-  const newStatus = repairsDraft[id];
-  if (!newStatus) return;
-  setRepairsSaving((p) => ({ ...p, [id]: true }));
-  try {
-    const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
-    await updateDoc(doc(getFirestore(auth.app), "repairs", id), updates);
-    setRepairs((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
+    const newStatus = repairsDraft[id];
+    if (!newStatus) return;
+    setRepairsSaving((p) => ({ ...p, [id]: true }));
+    try {
+      const updates = {
+        status: newStatus,
+        statusUpdatedAt: serverTimestamp(),
+      };
+      await updateDoc(doc(getFirestore(auth.app), "repairs", id), updates);
+      setRepairs((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
+      );
 
-    // 🔹 NEW: if repair moved to "to_ship", ensure a shipment exists for its linked order
-    if (newStatus === "to_ship") {
+      // 🔹 if repair moved to "to_ship", ensure a shipment exists for its linked order
+      if (newStatus === "to_ship") {
+        const db2 = getFirestore(auth.app);
+        const rRow = repairs.find((x) => x.id === id) || { id };
+        const linkedOrder = await ensureOrderForRepair(db2, rRow);
+        if (linkedOrder) {
+          try {
+            await ensureShipmentForOrder(linkedOrder);
+          } catch {}
+        }
+      }
+    } catch (e) {
+      alert(e?.message || "Failed to update repair status.");
+    } finally {
+      setRepairsSaving((p) => ({ ...p, [id]: false }));
+    }
+  }
+
+  // saveCustomStatus with shipment ensure
+  async function saveCustomStatus(id) {
+    const newStatus = customsDraft[id];
+    if (!newStatus) return;
+    setCustomsSaving((p) => ({ ...p, [id]: true }));
+
+    try {
       const db2 = getFirestore(auth.app);
-      const rRow = repairs.find((x) => x.id === id) || { id };
-      const linkedOrder = await ensureOrderForRepair(db2, rRow);
-      if (linkedOrder) {
-        try { await ensureShipmentForOrder(linkedOrder); } catch {}
+      const updates = {
+        status: newStatus,
+        statusUpdatedAt: serverTimestamp(),
+      };
+      await updateDoc(doc(db2, "custom_orders", id), updates);
+      setCustoms((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
+      );
+
+      if (newStatus === "to_ship") {
+        // 1) get the latest row for this custom
+        const cRow = customs.find((x) => x.id === id) || { id };
+
+        // 2) ensure we have a REAL order doc linked to this customization
+        const linkedOrder = await ensureOrderForCustom(db2, cRow, "to_ship");
+
+        // 3) make sure a shipment exists for that order
+        try {
+          await ensureShipmentForOrder(linkedOrder);
+        } catch (e) {
+          console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
+        }
       }
+    } catch (e) {
+      alert(e?.message || "Failed to update customization status.");
+    } finally {
+      setCustomsSaving((p) => ({ ...p, [id]: false }));
     }
-  } catch (e) {
-    alert(e?.message || "Failed to update repair status.");
-  } finally {
-    setRepairsSaving((p) => ({ ...p, [id]: false }));
   }
-}
-
-  // Replace your saveCustomStatus with this
-async function saveCustomStatus(id) {
-  const newStatus = customsDraft[id];
-  if (!newStatus) return;
-  setCustomsSaving((p) => ({ ...p, [id]: true }));
-
-  try {
-    const db2 = getFirestore(auth.app);
-    const updates = { status: newStatus, statusUpdatedAt: serverTimestamp() };
-    await updateDoc(doc(db2, "custom_orders", id), updates);
-    setCustoms((prev) => prev.map((r) => (r.id === id ? { ...r, ...updates } : r)));
-
-    if (newStatus === "to_ship") {
-      // 1) get the latest row for this custom
-      const cRow = customs.find((x) => x.id === id) || { id };
-
-      // 2) ensure we have a REAL order doc linked to this customization
-      const linkedOrder = await ensureOrderForCustom(db2, cRow, "to_ship");
-
-      // 3) make sure a shipment exists for that order
-      try { await ensureShipmentForOrder(linkedOrder); } catch (e) {
-        console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
-      }
-    }
-  } catch (e) {
-    alert(e?.message || "Failed to update customization status.");
-  } finally {
-    setCustomsSaving((p) => ({ ...p, [id]: false }));
-  }
-}
-
-
 
   async function deleteOrderCascade(id) {
     try {
@@ -1028,7 +1455,9 @@ async function saveCustomStatus(id) {
         rows.find(
           (o) =>
             String(o?.origin || "") === "customization" &&
-            (o?.customId === id || o?.linkedCustomId === id || o?.metadata?.customId === id)
+            (o?.customId === id ||
+              o?.linkedCustomId === id ||
+              o?.metadata?.customId === id)
         ) || null;
       if (linked) await deleteOrderCascade(linked.id);
       await deleteDoc(doc(getFirestore(auth.app), "custom_orders", id));
@@ -1073,7 +1502,10 @@ async function saveCustomStatus(id) {
   /* -------------------- Render: Orders tab -------------------- */
   return (
     <div className="admin-orders">
-      <div className="orders-topbar" style={{ marginBottom: 16, justifyContent: "space-between" }}>
+      <div
+        className="orders-topbar"
+        style={{ marginBottom: 16, justifyContent: "space-between" }}
+      >
         <div className="status-toolbar">
           <TabButton id="orders" label="Orders" count={productOrders.length} />
         </div>
@@ -1105,7 +1537,9 @@ async function saveCustomStatus(id) {
                     {btn.label}
                     {btn.key !== "all" && (
                       <span className="chip-count">
-                        {productOrders.filter((o) => (o?.status || "processing") === btn.key).length}
+                        {productOrders.filter(
+                          (o) => (o?.status || "processing") === btn.key
+                        ).length}
                       </span>
                     )}
                   </button>
@@ -1116,7 +1550,9 @@ async function saveCustomStatus(id) {
 
           {err && <p className="err">{err}</p>}
           {loading && <p className="muted">Loading…</p>}
-          {!loading && ordered.length === 0 && <p className="muted">No orders found.</p>}
+          {!loading && ordered.length === 0 && (
+            <p className="muted">No orders found.</p>
+          )}
 
           {!loading && ordered.length > 0 && (
             <div className="orders-card">
@@ -1139,11 +1575,16 @@ async function saveCustomStatus(id) {
                     const when = fmtDate(pickDate(o));
                     const name =
                       o?.shippingAddress?.fullName ||
-                      [o?.shippingAddress?.firstName, o?.shippingAddress?.lastName].filter(Boolean).join(" ") ||
+                      [o?.shippingAddress?.firstName, o?.shippingAddress?.lastName]
+                        .filter(Boolean)
+                        .join(" ") ||
                       o?.contactEmail ||
                       "—";
                     const itemsCount = Array.isArray(o?.items)
-                      ? o.items.reduce((sum, it) => sum + (Number(it?.qty) || 1), 0)
+                      ? o.items.reduce(
+                          (sum, it) => sum + (Number(it?.qty) || 1),
+                          0
+                        )
                       : 0;
                     const m = computeMonies(o);
                     const totalDisplay = fmtPHP(m.displayTotalPHP);
@@ -1152,11 +1593,20 @@ async function saveCustomStatus(id) {
                     const pay = String(o?.paymentStatus || "pending");
                     const isOpen = expandedOrderId === id;
 
-                    const additionalProofs = Array.isArray(o?.additionalPaymentProofs) ? o.additionalPaymentProofs : [];
+                    const additionalProofs = Array.isArray(
+                      o?.additionalPaymentProofs
+                    )
+                      ? o.additionalPaymentProofs
+                      : [];
                     const depositProof =
-                      o?.depositPaymentProofUrl || o?.paymentProofUrl || o?.paymentProofPath || null;
+                      o?.depositPaymentProofUrl ||
+                      o?.paymentProofUrl ||
+                      o?.paymentProofPath ||
+                      null;
                     const latestAdditional =
-                      o?.lastAdditionalPaymentProofUrl || o?.lastAdditionalPaymentProofPath || null;
+                      o?.lastAdditionalPaymentProofUrl ||
+                      o?.lastAdditionalPaymentProofPath ||
+                      null;
 
                     return (
                       <React.Fragment key={id}>
@@ -1171,17 +1621,31 @@ async function saveCustomStatus(id) {
                               {(STATUS_LABEL[status] || status).toUpperCase()}
                             </span>
                             <div style={{ marginTop: 4 }}>
-                              <span className={paymentBadgeClass(pay)}>{pay.toUpperCase()}</span>
+                              <span className={paymentBadgeClass(pay)}>
+                                {pay.toUpperCase()}
+                              </span>
                             </div>
                           </td>
                           <td className="nowrap">
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setDraft((prev) => ({ ...prev, [id]: e.target.value }))}
+                              onChange={(e) =>
+                                setDraft((prev) => ({
+                                  ...prev,
+                                  [id]: e.target.value,
+                                }))
+                              }
                             >
                               {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
+                                <option
+                                  key={opt.value}
+                                  value={opt.value}
+                                  // 🔹 prevent manually choosing shipping-driven states on Orders page
+                                  disabled={SHIPPING_DRIVEN_STATUSES.has(
+                                    opt.value
+                                  )}
+                                >
                                   {opt.label}
                                 </option>
                               ))}
@@ -1189,9 +1653,13 @@ async function saveCustomStatus(id) {
                             <button
                               className="save-btn"
                               onClick={() => saveStatus(id)}
-                              disabled={saving[id] || draftStatus === status}
+                              disabled={
+                                saving[id] || draftStatus === status
+                              }
                               type="button"
-                              title={draftStatus === status ? "No changes" : "Save"}
+                              title={
+                                draftStatus === status ? "No changes" : "Save"
+                              }
                             >
                               {saving[id] ? "Saving…" : "Save"}
                             </button>
@@ -1200,7 +1668,11 @@ async function saveCustomStatus(id) {
                               disabled={!!deleting[id]}
                               title="Delete order"
                               onClick={() => {
-                                if (confirm("Delete this order? This cannot be undone.")) {
+                                if (
+                                  confirm(
+                                    "Delete this order? This cannot be undone."
+                                  )
+                                ) {
                                   deleteOrderCascade(id);
                                 }
                               }}
@@ -1210,7 +1682,11 @@ async function saveCustomStatus(id) {
                             <ViewButton
                               rowId={id}
                               open={isOpen}
-                              onClick={() => setExpandedOrderId(isOpen ? null : id)}
+                              onClick={() =>
+                                setExpandedOrderId(
+                                  isOpen ? null : id
+                                )
+                              }
                             />
                           </td>
                         </tr>
@@ -1224,20 +1700,40 @@ async function saveCustomStatus(id) {
                                 {depositProof && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
-                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
+                                    <ResolvedImg
+                                      pathOrUrl={depositProof}
+                                      alt="Initial Payment Proof"
+                                      size={200}
+                                    />
                                   </div>
                                 )}
 
                                 {/* Additional proofs (array + latest) */}
-                                {(additionalProofs.length > 0 || latestAdditional) && (
+                                {(additionalProofs.length > 0 ||
+                                  latestAdditional) && (
                                   <div className="span-2">
                                     <h4>Additional Payment Proofs</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
                                       {additionalProofs.map((p, i) => (
-                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                        <ResolvedImg
+                                          key={i}
+                                          pathOrUrl={p?.url || p}
+                                          alt={`Additional ${i + 1}`}
+                                          size={120}
+                                        />
                                       ))}
                                       {latestAdditional && (
-                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                        <ResolvedImg
+                                          pathOrUrl={latestAdditional}
+                                          alt="Latest Additional"
+                                          size={120}
+                                        />
                                       )}
                                     </div>
                                   </div>
@@ -1245,15 +1741,32 @@ async function saveCustomStatus(id) {
 
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
                                     <select
                                       className="status-select"
                                       value={o.paymentStatus || "pending"}
-                                      onChange={(e) => updateOrderPayment(o.id, o, e.target.value)}
+                                      onChange={(e) =>
+                                        updateOrderPayment(
+                                          o.id,
+                                          o,
+                                          e.target.value
+                                        )
+                                      }
                                     >
                                       <option value="pending">Pending</option>
-                                      <option value="deposit_paid">Deposit_Paid</option>
-                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="deposit_paid">
+                                        Deposit_Paid
+                                      </option>
+                                      <option value="awaiting_additional_payment">
+                                        Awaiting_Additional_Payment
+                                      </option>
                                       <option value="paid">Paid</option>
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
@@ -1264,10 +1777,16 @@ async function saveCustomStatus(id) {
                                         className="save-btn"
                                         type="button"
                                         style={{ background: "#111827" }}
-                                        onClick={() => requestRemainingBalanceForOrder(o)}
+                                        onClick={() =>
+                                          requestRemainingBalanceForOrder(o)
+                                        }
                                         title="Ask customer to pay the remaining balance"
                                       >
-                                        Request: Pay Remaining Balance (₱{Math.round(m.balance / 100).toLocaleString()})
+                                        Request: Pay Remaining Balance (₱
+                                        {Math.round(
+                                          m.balance / 100
+                                        ).toLocaleString()}
+                                        )
                                       </button>
                                     )}
                                   </div>
@@ -1277,8 +1796,12 @@ async function saveCustomStatus(id) {
                                   <div className="kv">
                                     <label>Status</label>
                                     <div>
-                                      <span className={`badge status-${status}`}>
-                                        {(STATUS_LABEL[status] || status).toUpperCase()}
+                                      <span
+                                        className={`badge status-${status}`}
+                                      >
+                                        {(
+                                          STATUS_LABEL[status] || status
+                                        ).toUpperCase()}
                                       </span>
                                     </div>
                                   </div>
@@ -1288,12 +1811,16 @@ async function saveCustomStatus(id) {
                                   </div>
                                   <div className="kv">
                                     <label>Total</label>
-                                    <div className="mono strong">{totalDisplay}</div>
+                                    <div className="mono strong">
+                                      {totalDisplay}
+                                    </div>
                                   </div>
                                   {o?.shippingFee != null && (
                                     <div className="kv">
                                       <label>Shipping Fee</label>
-                                      <div className="mono">{fmtPHP(o.shippingFee)}</div>
+                                      <div className="mono">
+                                        {fmtPHP(o.shippingFee)}
+                                      </div>
                                     </div>
                                   )}
                                 </div>
@@ -1303,45 +1830,78 @@ async function saveCustomStatus(id) {
                                   <h4>Order Total</h4>
                                   <div className="kv">
                                     <label>Unit Price</label>
-                                    <div className="mono">{fmtPHP(m.unitPHP)}</div>
+                                    <div className="mono">
+                                      {fmtPHP(m.unitPHP)}
+                                    </div>
                                   </div>
                                   <div className="kv">
                                     <label>Shipping</label>
-                                    <div className="mono">{fmtPHP(m.shipPHP)}</div>
+                                    <div className="mono">
+                                      {fmtPHP(m.shipPHP)}
+                                    </div>
                                   </div>
                                   <div className="kv">
                                     <label>Total</label>
-                                    <div className="mono strong">{fmtPHP(m.displayTotalPHP)}</div>
+                                    <div className="mono strong">
+                                      {fmtPHP(m.displayTotalPHP)}
+                                    </div>
                                   </div>
                                   <div className="kv">
                                     <label>Net Paid</label>
                                     <div className="mono strong">
-                                      {fmtPHP(Math.round((m.dep + m.adds - m.refs) / 100))}
+                                      {fmtPHP(
+                                        Math.round(
+                                          (m.dep + m.adds - m.refs) / 100
+                                        )
+                                      )}
                                     </div>
                                   </div>
                                   <div className="kv">
                                     <label>Balance Due</label>
                                     <div
                                       className="mono"
-                                      style={{ fontWeight: 700, color: m.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                      style={{
+                                        fontWeight: 700,
+                                        color:
+                                          m.balance > 0
+                                            ? "#b91c1c"
+                                            : "#1f2937",
+                                      }}
                                     >
-                                      {fmtPHP(Math.round(m.balance / 100))}
+                                      {fmtPHP(
+                                        Math.round(m.balance / 100)
+                                      )}
                                     </div>
                                   </div>
                                 </div>
 
-                                <CustomerBlock title="Customer" row={o} />
+                                <CustomerBlock
+                                  title="Customer"
+                                  row={o}
+                                />
 
                                 <div className="span-2">
                                   <h4>Items</h4>
                                   <ul className="items">
                                     {(o?.items || []).map((it, i) => (
-                                      <li key={i} className="item">
-                                        <div className="item-title">{it?.title || it?.name || "Item"}</div>
-                                        <div className="muted">
-                                          {it?.size ? `${it.size} ` : ""}Qty: {it?.qty ?? 1}
+                                      <li
+                                        key={i}
+                                        className="item"
+                                      >
+                                        <div className="item-title">
+                                          {it?.title ||
+                                            it?.name ||
+                                            "Item"}
                                         </div>
-                                        <div className="mono">{fmtPHP(it?.price)}</div>
+                                        <div className="muted">
+                                          {it?.size
+                                            ? `${it.size} `
+                                            : ""}
+                                          Qty: {it?.qty ?? 1}
+                                        </div>
+                                        <div className="mono">
+                                          {fmtPHP(it?.price)}
+                                        </div>
                                       </li>
                                     ))}
                                   </ul>
@@ -1350,7 +1910,9 @@ async function saveCustomStatus(id) {
                                 {o?.note && (
                                   <div className="span-2">
                                     <h4>Note</h4>
-                                    <pre className="note">{o.note}</pre>
+                                    <pre className="note">
+                                      {o.note}
+                                    </pre>
                                   </div>
                                 )}
                               </div>
@@ -1366,7 +1928,6 @@ async function saveCustomStatus(id) {
           )}
         </>
       )}
-
       {/* -------------------- REPAIRS TAB -------------------- */}
       {activeTab === "repairs" && (
         <>
@@ -1398,7 +1959,9 @@ async function saveCustomStatus(id) {
 
           {repairsErr && <p className="err">{repairsErr}</p>}
           {repairsLoading && <p className="muted">Loading…</p>}
-          {!repairsLoading && repairsOrdered.length === 0 && <p className="muted">No repair orders found.</p>}
+          {!repairsLoading && repairsOrdered.length === 0 && (
+            <p className="muted">No repair orders found.</p>
+          )}
 
           {!repairsLoading && repairsOrdered.length > 0 && (
             <div className="orders-card">
@@ -1426,7 +1989,9 @@ async function saveCustomStatus(id) {
                     const total =
                       Number(
                         r?.total ??
-                          (r?.typePrice || 0) + (r?.coverMaterialPrice || 0) + (r?.frameMaterialPrice || 0)
+                          (r?.typePrice || 0) +
+                            (r?.coverMaterialPrice || 0) +
+                            (r?.frameMaterialPrice || 0)
                       ) || 0;
                     const status = String(r?.status || "processing");
                     const draftStatus = repairsDraft[id] ?? status;
@@ -1436,10 +2001,17 @@ async function saveCustomStatus(id) {
                     const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
 
                     const depositProof =
-                      r?.depositPaymentProofUrl || r?.paymentProofUrl || r?.paymentProofPath || null;
-                    const additionalProofs = Array.isArray(r?.additionalPaymentProofs) ? r.additionalPaymentProofs : [];
+                      r?.depositPaymentProofUrl ||
+                      r?.paymentProofUrl ||
+                      r?.paymentProofPath ||
+                      null;
+                    const additionalProofs = Array.isArray(r?.additionalPaymentProofs)
+                      ? r.additionalPaymentProofs
+                      : [];
                     const latestAdditional =
-                      r?.lastAdditionalPaymentProofUrl || r?.lastAdditionalPaymentProofPath || null;
+                      r?.lastAdditionalPaymentProofUrl ||
+                      r?.lastAdditionalPaymentProofPath ||
+                      null;
 
                     return (
                       <React.Fragment key={id}>
@@ -1458,11 +2030,18 @@ async function saveCustomStatus(id) {
                                     <img
                                       src={url}
                                       alt={`Photo ${i + 1}`}
-                                      style={{ width: 40, height: 40, objectFit: "cover", borderRadius: 6 }}
+                                      style={{
+                                        width: 40,
+                                        height: 40,
+                                        objectFit: "cover",
+                                        borderRadius: 6,
+                                      }}
                                     />
                                   </a>
                                 ))}
-                                {r.images.length > 4 && <span className="muted">+{r.images.length - 4}</span>}
+                                {r.images.length > 4 && (
+                                  <span className="muted">+{r.images.length - 4}</span>
+                                )}
                               </div>
                             ) : (
                               <span>{r?.imagesCount ?? 0}</span>
@@ -1474,8 +2053,16 @@ async function saveCustomStatus(id) {
                               {(STATUS_LABEL[status] || status).toUpperCase()}
                             </span>
                             <div style={{ marginTop: 4 }}>
-                              <span className={paymentBadgeClass(linkedOrder?.paymentStatus || r?.paymentStatus)}>
-                                {String(linkedOrder?.paymentStatus || r?.paymentStatus || "pending").toUpperCase()}
+                              <span
+                                className={paymentBadgeClass(
+                                  linkedOrder?.paymentStatus || r?.paymentStatus
+                                )}
+                              >
+                                {String(
+                                  linkedOrder?.paymentStatus ||
+                                    r?.paymentStatus ||
+                                    "pending"
+                                ).toUpperCase()}
                               </span>
                             </div>
                           </td>
@@ -1483,10 +2070,22 @@ async function saveCustomStatus(id) {
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setRepairsDraft((p) => ({ ...p, [id]: e.target.value }))}
+                              onChange={(e) =>
+                                setRepairsDraft((p) => ({
+                                  ...p,
+                                  [id]: e.target.value,
+                                }))
+                              }
                             >
                               {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
+                                <option
+                                  key={opt.value}
+                                  value={opt.value}
+                                  // 🔹 disable shipping-driven statuses here too
+                                  disabled={SHIPPING_DRIVEN_STATUSES.has(
+                                    opt.value
+                                  )}
+                                >
                                   {opt.label}
                                 </option>
                               ))}
@@ -1494,9 +2093,13 @@ async function saveCustomStatus(id) {
                             <button
                               className="save-btn"
                               onClick={() => saveRepairStatus(id)}
-                              disabled={repairsSaving[id] || draftStatus === status}
+                              disabled={
+                                repairsSaving[id] || draftStatus === status
+                              }
                               type="button"
-                              title={draftStatus === status ? "No changes" : "Save"}
+                              title={
+                                draftStatus === status ? "No changes" : "Save"
+                              }
                             >
                               {repairsSaving[id] ? "Saving…" : "Save"}
                             </button>
@@ -1505,7 +2108,11 @@ async function saveCustomStatus(id) {
                               disabled={!!repDeleting[id]}
                               title="Delete repair"
                               onClick={() => {
-                                if (confirm("Delete this repair (and any linked order)? This cannot be undone.")) {
+                                if (
+                                  confirm(
+                                    "Delete this repair (and any linked order)? This cannot be undone."
+                                  )
+                                ) {
                                   deleteRepairCascade(id);
                                 }
                               }}
@@ -1515,7 +2122,11 @@ async function saveCustomStatus(id) {
                             <ViewButton
                               rowId={id}
                               open={isOpen}
-                              onClick={() => setExpandedRepairId(isOpen ? null : id)}
+                              onClick={() =>
+                                setExpandedRepairId(
+                                  isOpen ? null : id
+                                )
+                              }
                             />
                           </td>
                         </tr>
@@ -1528,7 +2139,11 @@ async function saveCustomStatus(id) {
                                 {depositProof && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
-                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
+                                    <ResolvedImg
+                                      pathOrUrl={depositProof}
+                                      alt="Initial Payment Proof"
+                                      size={200}
+                                    />
                                   </div>
                                 )}
 
@@ -1536,12 +2151,27 @@ async function saveCustomStatus(id) {
                                 {(additionalProofs.length > 0 || latestAdditional) && (
                                   <div className="span-2">
                                     <h4>Additional Payment Proofs</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
                                       {additionalProofs.map((p, i) => (
-                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                        <ResolvedImg
+                                          key={i}
+                                          pathOrUrl={p?.url || p}
+                                          alt={`Additional ${i + 1}`}
+                                          size={120}
+                                        />
                                       ))}
                                       {latestAdditional && (
-                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                        <ResolvedImg
+                                          pathOrUrl={latestAdditional}
+                                          alt="Latest Additional"
+                                          size={120}
+                                        />
                                       )}
                                     </div>
                                   </div>
@@ -1549,19 +2179,42 @@ async function saveCustomStatus(id) {
 
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 8, flexWrap: "wrap" }}>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 8,
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
                                     <select
                                       className="status-select"
-                                      value={linkedOrder?.paymentStatus || r?.paymentStatus || "pending"}
+                                      value={
+                                        linkedOrder?.paymentStatus ||
+                                        r?.paymentStatus ||
+                                        "pending"
+                                      }
                                       onChange={(e) =>
                                         linkedOrder
-                                          ? updateOrderPayment(linkedOrder.id, linkedOrder, e.target.value)
-                                          : updateRepairPayment(id, r, e.target.value)
+                                          ? updateOrderPayment(
+                                              linkedOrder.id,
+                                              linkedOrder,
+                                              e.target.value
+                                            )
+                                          : updateRepairPayment(
+                                              id,
+                                              r,
+                                              e.target.value
+                                            )
                                       }
                                     >
                                       <option value="pending">Pending</option>
-                                      <option value="deposit_paid">Deposit_Paid</option>
-                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="deposit_paid">
+                                        Deposit_Paid
+                                      </option>
+                                      <option value="awaiting_additional_payment">
+                                        Awaiting_Additional_Payment
+                                      </option>
                                       <option value="paid">Paid</option>
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
@@ -1569,7 +2222,9 @@ async function saveCustomStatus(id) {
 
                                     {(() => {
                                       const target = linkedOrder || r;
-                                      const money = linkedOrder ? mLinked : computeMonies(target);
+                                      const money = linkedOrder
+                                        ? mLinked
+                                        : computeMonies(target);
                                       return money?.balance > 0 ? (
                                         <button
                                           className="save-btn"
@@ -1577,12 +2232,20 @@ async function saveCustomStatus(id) {
                                           style={{ background: "#111827" }}
                                           onClick={() =>
                                             linkedOrder
-                                              ? requestRemainingBalanceForOrder(linkedOrder)
-                                              : requestRemainingBalanceForRepair(r)
+                                              ? requestRemainingBalanceForOrder(
+                                                  linkedOrder
+                                                )
+                                              : requestRemainingBalanceForRepair(
+                                                  r
+                                                )
                                           }
                                           title="Ask customer to pay the remaining balance"
                                         >
-                                          Request: Pay Remaining Balance (₱{Math.round(money.balance / 100).toLocaleString()})
+                                          Request: Pay Remaining Balance (₱
+                                          {Math.round(
+                                            money.balance / 100
+                                          ).toLocaleString()}
+                                          )
                                         </button>
                                       ) : null;
                                     })()}
@@ -1594,29 +2257,52 @@ async function saveCustomStatus(id) {
                                     <h4>Order Total</h4>
                                     <div className="kv">
                                       <label>Unit Price</label>
-                                      <div className="mono">{fmtPHP(mLinked.unitPHP)}</div>
+                                      <div className="mono">
+                                        {fmtPHP(mLinked.unitPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Shipping</label>
-                                      <div className="mono">{fmtPHP(mLinked.shipPHP)}</div>
+                                      <div className="mono">
+                                        {fmtPHP(mLinked.shipPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Total</label>
-                                      <div className="mono strong">{fmtPHP(mLinked.displayTotalPHP)}</div>
+                                      <div className="mono strong">
+                                        {fmtPHP(mLinked.displayTotalPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Net Paid</label>
                                       <div className="mono strong">
-                                        {fmtPHP(Math.round((mLinked.dep + mLinked.adds - mLinked.refs) / 100))}
+                                        {fmtPHP(
+                                          Math.round(
+                                            (mLinked.dep +
+                                              mLinked.adds -
+                                              mLinked.refs) /
+                                              100
+                                          )
+                                        )}
                                       </div>
                                     </div>
                                     <div className="kv">
                                       <label>Balance Due</label>
                                       <div
                                         className="mono"
-                                        style={{ fontWeight: 700, color: mLinked.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                        style={{
+                                          fontWeight: 700,
+                                          color:
+                                            mLinked.balance > 0
+                                              ? "#b91c1c"
+                                              : "#1f2937",
+                                        }}
                                       >
-                                        {fmtPHP(Math.round(mLinked.balance / 100))}
+                                        {fmtPHP(
+                                          Math.round(
+                                            mLinked.balance / 100
+                                          )
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -1624,22 +2310,39 @@ async function saveCustomStatus(id) {
 
                                 <CustomerBlock title="Customer" row={r} />
 
-                                {Array.isArray(r?.images) && r.images.length > 0 && (
-                                  <div className="span-2">
-                                    <h4>Photos</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
-                                      {r.images.map((url, i) => (
-                                        <a key={i} href={url} target="_blank" rel="noreferrer">
-                                          <img
-                                            src={url}
-                                            alt={`Repair ${i + 1}`}
-                                            style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }}
-                                          />
-                                        </a>
-                                      ))}
+                                {Array.isArray(r?.images) &&
+                                  r.images.length > 0 && (
+                                    <div className="span-2">
+                                      <h4>Photos</h4>
+                                      <div
+                                        style={{
+                                          display: "flex",
+                                          gap: 8,
+                                          flexWrap: "wrap",
+                                        }}
+                                      >
+                                        {r.images.map((url, i) => (
+                                          <a
+                                            key={i}
+                                            href={url}
+                                            target="_blank"
+                                            rel="noreferrer"
+                                          >
+                                            <img
+                                              src={url}
+                                              alt={`Repair ${i + 1}`}
+                                              style={{
+                                                width: 100,
+                                                height: 100,
+                                                objectFit: "cover",
+                                                borderRadius: 8,
+                                              }}
+                                            />
+                                          </a>
+                                        ))}
+                                      </div>
                                     </div>
-                                  </div>
-                                )}
+                                  )}
 
                                 <AssessmentPanel kind="repair" row={r} />
                               </div>
@@ -1677,7 +2380,9 @@ async function saveCustomStatus(id) {
                     <span className="chip-count">
                       {btn.key === "all"
                         ? customs.length
-                        : customs.filter((c) => (c?.status || "draft") === btn.key).length}
+                        : customs.filter(
+                            (c) => (c?.status || "draft") === btn.key
+                          ).length}
                     </span>
                   </button>
                 )
@@ -1718,13 +2423,17 @@ async function saveCustomStatus(id) {
                     const cust = c?.contactEmail || c?.userId || "—";
                     const images = Array.isArray(c?.images) ? c.images : [];
                     const refImgs = pickCustomerReferenceImages(c);
-                    const unit = c?.unitPrice != null ? Number(c.unitPrice) : null;
+                    const unit =
+                      c?.unitPrice != null ? Number(c.unitPrice) : null;
                     const status = String(c?.status || "draft");
                     const draftStatus = customsDraft[id] ?? status;
-                    const title = c?.productTitle || c?.title || c?.name || "—";
+                    const title =
+                      c?.productTitle || c?.title || c?.name || "—";
                     const isOpen = expandedCustomId === id;
 
-                    const linkedById = c?.orderId ? rows.find((o) => o.id === c.orderId) : null;
+                    const linkedById = c?.orderId
+                      ? rows.find((o) => o.id === c.orderId)
+                      : null;
                     const linkedByFields =
                       rows.find(
                         (o) =>
@@ -1734,16 +2443,30 @@ async function saveCustomStatus(id) {
                             o?.metadata?.customId === id)
                       ) || null;
                     const linkedOrder = linkedById || linkedByFields;
-                    const mLinked = linkedOrder ? computeMonies(linkedOrder) : null;
+                    const mLinked = linkedOrder
+                      ? computeMonies(linkedOrder)
+                      : null;
 
-                    const pay = String(linkedOrder?.paymentStatus ?? c?.paymentStatus ?? "pending");
-
+                    const pay = String(
+                      linkedOrder?.paymentStatus ??
+                        c?.paymentStatus ??
+                        "pending"
+                    );
 
                     const depositProof =
-                      c?.depositPaymentProofUrl || c?.paymentProofUrl || c?.paymentProofPath || null;
-                    const additionalProofs = Array.isArray(c?.additionalPaymentProofs) ? c.additionalPaymentProofs : [];
+                      c?.depositPaymentProofUrl ||
+                      c?.paymentProofUrl ||
+                      c?.paymentProofPath ||
+                      null;
+                    const additionalProofs = Array.isArray(
+                      c?.additionalPaymentProofs
+                    )
+                      ? c.additionalPaymentProofs
+                      : [];
                     const latestAdditional =
-                      c?.lastAdditionalPaymentProofUrl || c?.lastAdditionalPaymentProofPath || null;
+                      c?.lastAdditionalPaymentProofUrl ||
+                      c?.lastAdditionalPaymentProofPath ||
+                      null;
 
                     return (
                       <React.Fragment key={id}>
@@ -1754,42 +2477,83 @@ async function saveCustomStatus(id) {
                           <td>{title}</td>
                           <td>{c?.category || "—"}</td>
                           <td>{c?.size || "—"}</td>
-                          <td>{c?.cover ? `${c.cover.materialType || "—"} / ${c.cover.color || "—"}` : "—"}</td>
+                          <td>
+                            {c?.cover
+                              ? `${c.cover.materialType || "—"} / ${
+                                  c.cover.color || "—"
+                                }`
+                              : "—"}
+                          </td>
                           <td>{fmtAdditionals(c?.additionals) || "—"}</td>
                           <td>
                             {images.length || refImgs.length ? (
-                              <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                                {[...images, ...refImgs].slice(0, 3).map((url, i) => (
-                                  <ResolvedImg key={i} pathOrUrl={url} alt={`Custom ${i + 1}`} size={40} />
-                                ))}
+                              <div
+                                style={{
+                                  display: "flex",
+                                  gap: 6,
+                                  flexWrap: "wrap",
+                                }}
+                              >
+                                {[...images, ...refImgs]
+                                  .slice(0, 3)
+                                  .map((url, i) => (
+                                    <ResolvedImg
+                                      key={i}
+                                      pathOrUrl={url}
+                                      alt={`Custom ${i + 1}`}
+                                      size={40}
+                                    />
+                                  ))}
                                 {[...images, ...refImgs].length > 3 && (
-                                  <span className="muted">+{[...images, ...refImgs].length - 3}</span>
+                                  <span className="muted">
+                                    +{[...images, ...refImgs].length - 3}
+                                  </span>
                                 )}
                               </div>
                             ) : (
                               "—"
                             )}
                           </td>
-                          <td className="mono strong">{unit != null ? fmtPHP(unit) : "—"}</td>
+                          <td className="mono strong">
+                            {unit != null ? fmtPHP(unit) : "—"}
+                          </td>
                           <td>
-                            <span className={`badge status-${status === "draft" ? "processing" : status}`}>
-                              {status === "draft" ? "DRAFT" : (STATUS_LABEL[status] || status).toUpperCase()}
+                            <span
+                              className={`badge status-${
+                                status === "draft" ? "processing" : status
+                              }`}
+                            >
+                              {status === "draft"
+                                ? "DRAFT"
+                                : (STATUS_LABEL[status] || status).toUpperCase()}
                             </span>
                             <div style={{ marginTop: 4 }}>
                               <span className={paymentBadgeClass(pay)}>
                                 {pay.toUpperCase()}
-                                </span>
-                                </div>
+                              </span>
+                            </div>
                           </td>
                           <td className="nowrap">
                             <select
                               className="status-select"
                               value={draftStatus}
-                              onChange={(e) => setCustomsDraft((p) => ({ ...p, [id]: e.target.value }))}
+                              onChange={(e) =>
+                                setCustomsDraft((p) => ({
+                                  ...p,
+                                  [id]: e.target.value,
+                                }))
+                              }
                             >
                               <option value="draft">Draft</option>
                               {STATUS_OPTIONS.map((opt) => (
-                                <option key={opt.value} value={opt.value}>
+                                <option
+                                  key={opt.value}
+                                  value={opt.value}
+                                  // 🔹 disable shipping-driven statuses here too
+                                  disabled={SHIPPING_DRIVEN_STATUSES.has(
+                                    opt.value
+                                  )}
+                                >
                                   {opt.label}
                                 </option>
                               ))}
@@ -1797,9 +2561,13 @@ async function saveCustomStatus(id) {
                             <button
                               className="save-btn"
                               onClick={() => saveCustomStatus(id)}
-                              disabled={customsSaving[id] || draftStatus === status}
+                              disabled={
+                                customsSaving[id] || draftStatus === status
+                              }
                               type="button"
-                              title={draftStatus === status ? "No changes" : "Save"}
+                              title={
+                                draftStatus === status ? "No changes" : "Save"
+                              }
                             >
                               {customsSaving[id] ? "Saving…" : "Save"}
                             </button>
@@ -1808,7 +2576,11 @@ async function saveCustomStatus(id) {
                               disabled={!!customDeleting[id]}
                               title="Delete customization order"
                               onClick={() => {
-                                if (confirm("Delete this customization order? This cannot be undone.")) {
+                                if (
+                                  confirm(
+                                    "Delete this customization order? This cannot be undone."
+                                  )
+                                ) {
                                   deleteCustomCascade(id);
                                 }
                               }}
@@ -1818,7 +2590,11 @@ async function saveCustomStatus(id) {
                             <ViewButton
                               rowId={id}
                               open={isOpen}
-                              onClick={() => setExpandedCustomId(isOpen ? null : id)}
+                              onClick={() =>
+                                setExpandedCustomId(
+                                  isOpen ? null : id
+                                )
+                              }
                             />
                           </td>
                         </tr>
@@ -1831,20 +2607,40 @@ async function saveCustomStatus(id) {
                                 {depositProof && (
                                   <div className="span-2">
                                     <h4>Initial Payment Proof</h4>
-                                    <ResolvedImg pathOrUrl={depositProof} alt="Initial Payment Proof" size={200} />
+                                    <ResolvedImg
+                                      pathOrUrl={depositProof}
+                                      alt="Initial Payment Proof"
+                                      size={200}
+                                    />
                                   </div>
                                 )}
 
                                 {/* Additional proofs */}
-                                {(additionalProofs.length > 0 || latestAdditional) && (
+                                {(additionalProofs.length > 0 ||
+                                  latestAdditional) && (
                                   <div className="span-2">
                                     <h4>Additional Payment Proofs</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
                                       {additionalProofs.map((p, i) => (
-                                        <ResolvedImg key={i} pathOrUrl={p?.url || p} alt={`Additional ${i + 1}`} size={120} />
+                                        <ResolvedImg
+                                          key={i}
+                                          pathOrUrl={p?.url || p}
+                                          alt={`Additional ${i + 1}`}
+                                          size={120}
+                                        />
                                       ))}
                                       {latestAdditional && (
-                                        <ResolvedImg pathOrUrl={latestAdditional} alt="Latest Additional" size={120} />
+                                        <ResolvedImg
+                                          pathOrUrl={latestAdditional}
+                                          alt="Latest Additional"
+                                          size={120}
+                                        />
                                       )}
                                     </div>
                                   </div>
@@ -1852,19 +2648,35 @@ async function saveCustomStatus(id) {
 
                                 <div className="span-2">
                                   <h4>Payment Status</h4>
-                                  <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap" }}>
+                                  <div
+                                    style={{
+                                      display: "flex",
+                                      alignItems: "center",
+                                      gap: 12,
+                                      flexWrap: "wrap",
+                                    }}
+                                  >
                                     <select
                                       className="status-select"
-                                      value={linkedOrder?.paymentStatus || c?.paymentStatus || "pending"}
-                                      onChange={(e) => updatePaymentForCustomization(c, e.target.value)
-
+                                      value={
+                                        linkedOrder?.paymentStatus ||
+                                        c?.paymentStatus ||
+                                        "pending"
                                       }
-
-                        
+                                      onChange={(e) =>
+                                        updatePaymentForCustomization(
+                                          c,
+                                          e.target.value
+                                        )
+                                      }
                                     >
                                       <option value="pending">Pending</option>
-                                      <option value="deposit_paid">Deposit_Paid</option>
-                                      <option value="awaiting_additional_payment">Awaiting_Additional_Payment</option>
+                                      <option value="deposit_paid">
+                                        Deposit_Paid
+                                      </option>
+                                      <option value="awaiting_additional_payment">
+                                        Awaiting_Additional_Payment
+                                      </option>
                                       <option value="paid">Paid</option>
                                       <option value="refunded">Refunded</option>
                                       <option value="rejected">Rejected</option>
@@ -1872,7 +2684,9 @@ async function saveCustomStatus(id) {
 
                                     {(() => {
                                       const target = linkedOrder || c;
-                                      const money = linkedOrder ? mLinked : computeMonies(target);
+                                      const money = linkedOrder
+                                        ? mLinked
+                                        : computeMonies(target);
                                       return money?.balance > 0 ? (
                                         <button
                                           className="save-btn"
@@ -1880,12 +2694,20 @@ async function saveCustomStatus(id) {
                                           style={{ background: "#111827" }}
                                           onClick={() =>
                                             linkedOrder
-                                              ? requestRemainingBalanceForOrder(linkedOrder)
-                                              : requestRemainingBalanceForCustom(c)
+                                              ? requestRemainingBalanceForOrder(
+                                                  linkedOrder
+                                                )
+                                              : requestRemainingBalanceForCustom(
+                                                  c
+                                                )
                                           }
                                           title="Ask customer to pay the remaining balance"
                                         >
-                                          Request: Pay Remaining Balance (₱{Math.round(money.balance / 100).toLocaleString()})
+                                          Request: Pay Remaining Balance (₱
+                                          {Math.round(
+                                            money.balance / 100
+                                          ).toLocaleString()}
+                                          )
                                         </button>
                                       ) : null;
                                     })()}
@@ -1897,29 +2719,52 @@ async function saveCustomStatus(id) {
                                     <h4>Order Total</h4>
                                     <div className="kv">
                                       <label>Unit Price</label>
-                                      <div className="mono">{fmtPHP(mLinked.unitPHP)}</div>
+                                      <div className="mono">
+                                        {fmtPHP(mLinked.unitPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Shipping</label>
-                                      <div className="mono">{fmtPHP(mLinked.shipPHP)}</div>
+                                      <div className="mono">
+                                        {fmtPHP(mLinked.shipPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Total</label>
-                                      <div className="mono strong">{fmtPHP(mLinked.displayTotalPHP)}</div>
+                                      <div className="mono strong">
+                                        {fmtPHP(mLinked.displayTotalPHP)}
+                                      </div>
                                     </div>
                                     <div className="kv">
                                       <label>Net Paid</label>
                                       <div className="mono strong">
-                                        {fmtPHP(Math.round((mLinked.dep + mLinked.adds - mLinked.refs) / 100))}
+                                        {fmtPHP(
+                                          Math.round(
+                                            (mLinked.dep +
+                                              mLinked.adds -
+                                              mLinked.refs) /
+                                              100
+                                          )
+                                        )}
                                       </div>
                                     </div>
                                     <div className="kv">
                                       <label>Balance Due</label>
                                       <div
                                         className="mono"
-                                        style={{ fontWeight: 700, color: mLinked.balance > 0 ? "#b91c1c" : "#1f2937" }}
+                                        style={{
+                                          fontWeight: 700,
+                                          color:
+                                            mLinked.balance > 0
+                                              ? "#b91c1c"
+                                              : "#1f2937",
+                                        }}
                                       >
-                                        {fmtPHP(Math.round(mLinked.balance / 100))}
+                                        {fmtPHP(
+                                          Math.round(
+                                            mLinked.balance / 100
+                                          )
+                                        )}
                                       </div>
                                     </div>
                                   </div>
@@ -1930,13 +2775,29 @@ async function saveCustomStatus(id) {
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Product Images</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
                                       {images.map((url, i) => (
-                                        <a key={i} href={url} target="_blank" rel="noreferrer">
+                                        <a
+                                          key={i}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noreferrer"
+                                        >
                                           <img
                                             src={url}
                                             alt={`Custom ${i + 1}`}
-                                            style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8 }}
+                                            style={{
+                                              width: 100,
+                                              height: 100,
+                                              objectFit: "cover",
+                                              borderRadius: 8,
+                                            }}
                                           />
                                         </a>
                                       ))}
@@ -1946,9 +2807,20 @@ async function saveCustomStatus(id) {
                                 {refImgs.length > 0 && (
                                   <div className="span-2">
                                     <h4>Reference Images (customer)</h4>
-                                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                                    <div
+                                      style={{
+                                        display: "flex",
+                                        gap: 8,
+                                        flexWrap: "wrap",
+                                      }}
+                                    >
                                       {refImgs.map((url, i) => (
-                                        <ResolvedImg key={i} pathOrUrl={url} alt={`Reference ${i + 1}`} size={100} />
+                                        <ResolvedImg
+                                          key={i}
+                                          pathOrUrl={url}
+                                          alt={`Reference ${i + 1}`}
+                                          size={100}
+                                        />
                                       ))}
                                     </div>
                                   </div>
