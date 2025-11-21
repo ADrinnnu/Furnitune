@@ -59,9 +59,18 @@ and offer repair services even for items not purchased from us.
 `.trim();
 
 function loadInfo() {
-  // 1) ENV override
+  // 1) ENV override (accept plain text OR JSON string with { "info": "..." })
   const env = process.env.FURNITUNE_INFO;
-  if (env && env.trim()) return env.trim();
+  if (env && env.trim()) {
+    const trimmed = env.trim();
+    if (trimmed.startsWith("{")) {
+      try {
+        const j = JSON.parse(trimmed);
+        if (typeof j?.info === "string" && j.info.trim()) return j.info.trim();
+      } catch { /* not JSON, fall through to return as-is */ }
+    }
+    return trimmed;
+  }
 
   // 2) File next to this server file
   try {
