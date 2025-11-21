@@ -104,32 +104,6 @@ export default function HomepageSections() {
           ))}
         </div>
       </section>
-
-      <section className="reviews-section">
-        <h3 className="reviews-heading">
-          THE REVIEWS? WELL... <br />
-          <span className="stars">★★★★★</span>
-        </h3>
-        <div className="cards-container">
-          {reviews.map((r, i) => (
-            <div key={i} className="review-card">
-              <div
-                className="review-image"
-                style={{ backgroundImage: `url(${r.image})` }}
-              ></div>
-              <div className="review-content">
-                <h4>{r.title}</h4>
-                <p className="quote">“{r.quote}”</p>
-                <p className="reviewer">{r.name}</p>
-              </div>
-            </div>
-          ))}
-        </div>
-        <p className="footer-note">
-          Don’t just take our word for it—our customers say it all. Experience
-          the quality today! So, what are you waiting for? Shop now!
-        </p>
-      </section>
     </div>
   );
 }
