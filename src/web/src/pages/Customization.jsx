@@ -340,6 +340,9 @@ export default function Customization() {
   // reference images (up to 3) → store data URLs until checkout
   const [referenceImages, setReferenceImages] = useState([]); // [{name, dataUrl}]
 
+  // 🔴 VALIDATION ERROR STATE (NEW)
+  const [placeOrderError, setPlaceOrderError] = useState("");
+
   // esc + scroll lock when drawer open
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && setCatalogOpen(false);
@@ -554,6 +557,21 @@ export default function Customization() {
   });
 
   const handlePlaceOrder = async () => {
+    // 🔴 SIMPLE VALIDATION (NEW)
+    setPlaceOrderError("");
+    const missing = [];
+    if (!selectedProduct) missing.push("product");
+    if (!size) missing.push("size");
+    if (coverEnabled && !coverColor) missing.push("cover color");
+    if (!coverMaterialType) missing.push("cover material");
+
+    if (missing.length) {
+      setPlaceOrderError(
+        `Please fill out the following before placing your order: ${missing.join(", ")}.`
+      );
+      return;
+    }
+
     try {
       // Build draft first so it survives redirect to Login
       const draft = {
@@ -819,6 +837,12 @@ export default function Customization() {
           <button className="place-order" onClick={handlePlaceOrder} type="button">
             PLACE ORDER
           </button>
+
+          {placeOrderError && (
+            <p style={{ color: "red", marginTop: 8, fontSize: 13 }}>
+              {placeOrderError}
+            </p>
+          )}
         </div>
       </div>
     </div>

@@ -15,6 +15,7 @@ import {
   orderBy,
   limit,
   serverTimestamp,
+  setDoc,              // 👈 added
 } from "firebase/firestore";
 import {
   getStorage,
@@ -179,21 +180,33 @@ async function listProducts() {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// 👇 UPDATED: use slug as document ID, and strip out `id`
 async function createProduct(data) {
-  const refDoc = await addDoc(PRODUCTS, {
-    ...data,
+  const { id: _ignore, ...rest } = data || {};
+  const slug = rest.slug || toSlug(rest.name || "");
+  if (!slug) {
+    throw new Error("Slug is required to create a product.");
+  }
+
+  const refDoc = doc(db, "products", slug);
+  await setDoc(refDoc, {
+    ...rest,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
   const fresh = await getDoc(refDoc);
   return { id: fresh.id, ...fresh.data() };
 }
+
+// 👇 UPDATED: strip `id` so it never gets written as a field
 async function updateProduct(id, data) {
+  const { id: _ignore, ...rest } = data || {};
   const refDoc = doc(db, "products", id);
-  await updateDoc(refDoc, { ...data, updatedAt: serverTimestamp() });
+  await updateDoc(refDoc, { ...rest, updatedAt: serverTimestamp() });
   const fresh = await getDoc(refDoc);
   return { id: fresh.id, ...fresh.data() };
 }
+
 async function deleteProduct(id) {
   await deleteDoc(doc(db, "products", id));
 }
@@ -390,7 +403,16 @@ export default function Products() {
         hex: c.hex,
       }));
 
-      // start payload from state
+      // start payload from state, but strip out fields Firestore shouldn't see as undefined
+      const {
+        id: _throwAwayId,
+        ratingAvg,
+        ratingSum,
+        reviewsCount,
+        ...formWithoutMeta
+      } = form;
+
+      // start payload from cleaned form
       let measurementPayload = { ...measurementImages };
       let imagesByOptionPayload = { ...imagesByOption };
 
@@ -438,7 +460,7 @@ export default function Products() {
       }
 
       const payload = {
-        ...form,
+        ...formWithoutMeta,
         slug,
         basePrice: Number(form.basePrice) || 0,
         leadTimeDays: Number(form.leadTimeDays) || 0,
