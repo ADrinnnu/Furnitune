@@ -13,6 +13,9 @@ import { getFirestore, collection, query, where, onSnapshot } from "firebase/fir
 
 const PRODUCT_ROUTE_PREFIX = "/product/";
 
+// preset X positions (px) for the download button
+const DOWNLOAD_POSITIONS = [0, -140, 140]; // middle, left, right
+
 export default function Navbar() {
   const { cartItems } = useCart();
   const count = (cartItems || []).reduce((sum, it) => sum + (it.qty || 0), 0);
@@ -36,6 +39,9 @@ export default function Navbar() {
   // ✅ admin flag from Firestore users/{uid}.role
   const { isAdmin } = useIsAdmin();
 
+  // state for the download button position index
+  const [downloadPosIndex, setDownloadPosIndex] = useState(0);
+
   // single lightweight auth listener (no reload here)
   useEffect(() => {
     const unsub = onIdTokenChanged(auth, (u) => setUser(u || null));
@@ -44,13 +50,20 @@ export default function Navbar() {
 
   // subscribe to unread notifications for current user
   useEffect(() => {
-    if (!user) { setUnread(0); return; }
+    if (!user) {
+      setUnread(0);
+      return;
+    }
     const db = getFirestore(auth.app);
     const qRef = query(
       collection(db, "users", user.uid, "notifications"),
       where("read", "==", false)
     );
-    const stop = onSnapshot(qRef, (snap) => setUnread(snap.size), () => setUnread(0));
+    const stop = onSnapshot(
+      qRef,
+      (snap) => setUnread(snap.size),
+      () => setUnread(0)
+    );
     return stop;
   }, [user]);
 
@@ -108,16 +121,24 @@ export default function Navbar() {
     setResults([]);
   }
 
-  const initials =
-    (
-      user?.displayName?.trim().split(/\s+/).map((n) => n[0]).join("") ||
-      user?.email?.[0] ||
-      "U"
-    )
-      .toUpperCase()
-      .slice(0, 2);
+  const initials = (
+    user?.displayName
+      ?.trim()
+      .split(/\s+/)
+      .map((n) => n[0])
+      .join("") ||
+    user?.email?.[0] ||
+    "U"
+  )
+    .toUpperCase()
+    .slice(0, 2);
 
   const activeClass = ({ isActive }) => (isActive ? "active" : undefined);
+
+  // when you hover the button, jump to next position
+  const handleDownloadHover = () => {
+    setDownloadPosIndex((prev) => (prev + 1) % DOWNLOAD_POSITIONS.length);
+  };
 
   return (
     <header className="nav">
@@ -133,17 +154,23 @@ export default function Navbar() {
             style={{ position: "relative", display: "inline-block" }}
           >
             <button
-  className="icon-btn"
-  aria-label="Search"
-  title="Search"
-  onClick={() => {
-    setOpenSearch((s) => !s);
-    setTimeout(() => searchInputRef.current?.focus(), 0);
-  }}
-  style={{ background: "transparent", border: 0, outline: "none", boxShadow: "none", padding: 0 }}
->
-  🔍
-</button>
+              className="icon-btn"
+              aria-label="Search"
+              title="Search"
+              onClick={() => {
+                setOpenSearch((s) => !s);
+                setTimeout(() => searchInputRef.current?.focus(), 0);
+              }}
+              style={{
+                background: "transparent",
+                border: 0,
+                outline: "none",
+                boxShadow: "none",
+                padding: 0,
+              }}
+            >
+              🔍
+            </button>
 
             {openSearch && (
               <div
@@ -182,7 +209,13 @@ export default function Navbar() {
                 {q.length > 0 && (
                   <div style={{ maxHeight: 320, overflowY: "auto" }}>
                     {results.length === 0 ? (
-                      <div style={{ padding: "10px 12px", color: "#666", fontSize: 13 }}>
+                      <div
+                        style={{
+                          padding: "10px 12px",
+                          color: "#666",
+                          fontSize: 13,
+                        }}
+                      >
                         No matches
                       </div>
                     ) : (
@@ -202,11 +235,26 @@ export default function Navbar() {
                             textAlign: "left",
                             cursor: "pointer",
                           }}
-                          onMouseOver={(e) => (e.currentTarget.style.background = "rgba(0,0,0,0.06)")}
-                          onMouseOut={(e) => (e.currentTarget.style.background = "transparent")}
+                          onMouseOver={(e) => {
+                            e.currentTarget.style.background =
+                              "rgba(0,0,0,0.06)";
+                          }}
+                          onMouseOut={(e) => {
+                            e.currentTarget.style.background = "transparent";
+                          }}
                         >
-                          <span style={{ width: 18, textAlign: "center", opacity: 0.8 }}>🔍</span>
-                          <span style={{ fontSize: 14, color: "#222" }}>{p.name}</span>
+                          <span
+                            style={{
+                              width: 18,
+                              textAlign: "center",
+                              opacity: 0.8,
+                            }}
+                          >
+                            🔍
+                          </span>
+                          <span style={{ fontSize: 14, color: "#222" }}>
+                            {p.name}
+                          </span>
                         </button>
                       ))
                     )}
@@ -245,7 +293,9 @@ export default function Navbar() {
             <Link
               to="/notifications"
               className="icon-btn"
-              aria-label={`Notifications${unread ? ` (${unread} unread)` : ""}`}
+              aria-label={`Notifications${
+                unread ? ` (${unread} unread)` : ""
+              }`}
               title="Notifications"
             >
               🔔
@@ -302,18 +352,30 @@ export default function Navbar() {
                 <div className="profile-dropdown">
                   <div className="pd-head">ACCOUNT SETTINGS</div>
 
-                  <Link to="/account" className="pd-item" onClick={() => setOpen(false)}>
+                  <Link
+                    to="/account"
+                    className="pd-item"
+                    onClick={() => setOpen(false)}
+                  >
                     <span className="pd-ic">👤</span>
                     <span>My Account</span>
                   </Link>
 
-                  <Link to="/mypurchases" className="pd-item" onClick={() => setOpen(false)}>
+                  <Link
+                    to="/mypurchases"
+                    className="pd-item"
+                    onClick={() => setOpen(false)}
+                  >
                     <span className="pd-ic">🛒</span>
                     <span>My Purchases</span>
                   </Link>
 
                   {user && isAdmin && (
-                    <Link to="/admin" className="pd-item" onClick={() => setOpen(false)}>
+                    <Link
+                      to="/admin"
+                      className="pd-item"
+                      onClick={() => setOpen(false)}
+                    >
                       <span className="pd-ic">🛡️</span>
                       <span>Admin Dashboard</span>
                     </Link>
@@ -332,19 +394,65 @@ export default function Navbar() {
 
       <div className="menu-bar container">
         <nav className="categories">
-          <NavLink to="/all"          className={activeClass} end>ALL FURNITURES</NavLink>
-          <NavLink to="/best-sellers" className={activeClass}>BEST SELLERS</NavLink>
-          <NavLink to="/new-designs"  className={activeClass}>NEW DESIGNS</NavLink>
-          <NavLink to="/living-room"  className={activeClass}>LIVING ROOM</NavLink>
-          <NavLink to="/bedroom"      className={activeClass}>BEDROOM</NavLink>
-          <NavLink to="/dining-room"  className={activeClass}>DINING ROOM</NavLink>
-          <NavLink to="/outdoor"      className={activeClass}>OUTDOOR</NavLink>
+          <NavLink to="/all" className={activeClass} end>
+            ALL FURNITURES
+          </NavLink>
+          <NavLink to="/best-sellers" className={activeClass}>
+            BEST SELLERS
+          </NavLink>
+          <NavLink to="/new-designs" className={activeClass}>
+            NEW DESIGNS
+          </NavLink>
+          <NavLink to="/living-room" className={activeClass}>
+            LIVING ROOM
+          </NavLink>
+          <NavLink to="/bedroom" className={activeClass}>
+            BEDROOM
+          </NavLink>
+          <NavLink to="/dining-room" className={activeClass}>
+            DINING ROOM
+          </NavLink>
+          <NavLink to="/outdoor" className={activeClass}>
+            OUTDOOR
+          </NavLink>
         </nav>
 
-        <div className="actions">
-          <NavLink to="/Customization" className={activeClass}>CUSTOMIZE</NavLink>
+        <div
+          className="actions"
+          style={{ display: "flex", alignItems: "center", gap: 12 }}
+        >
+          <NavLink to="/Customization" className={activeClass}>
+            CUSTOMIZE
+          </NavLink>
           <span>|</span>
-          <NavLink to="/Repair" className={activeClass}>REPAIR</NavLink>
+          <NavLink to="/Repair" className={activeClass}>
+            REPAIR
+          </NavLink>
+
+          {/* DOWNLOAD pill button that jumps position on hover */}
+          <NavLink
+            to="/downloads"
+            onMouseEnter={handleDownloadHover}
+            style={{
+              marginLeft: 16,
+              backgroundColor: "#1f5a3b",
+              color: "#ffffff",
+              padding: "6px 24px",
+              borderRadius: 999,
+              fontSize: 12,
+              fontWeight: 700,
+              letterSpacing: "0.08em",
+              textTransform: "uppercase",
+              border: "none",
+              textDecoration: "none",
+              display: "inline-flex",
+              alignItems: "center",
+              justifyContent: "center",
+              transform: `translateX(${DOWNLOAD_POSITIONS[downloadPosIndex]}px)`,
+            }}
+          >
+            Download
+          </NavLink>
         </div>
       </div>
     </header>
