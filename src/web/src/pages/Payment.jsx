@@ -187,24 +187,36 @@ export default function Payment() {
     };
   }, [uploading]);
 
-  // load existing order for addl payment
+  // load existing order for addl payment (orders/custom_orders/repairs)
   useEffect(() => {
     (async () => {
       if (!existingOrderId) return;
 
-      // Try orders/{id} first, then custom_orders/{id} as fallback
+      // Try orders/{id}, then custom_orders/{id}, then repairs/{id}
       let snap = await getDoc(doc(db, "orders", existingOrderId));
+      let kind = "orders";
+
       if (!snap.exists()) {
-        const customSnap = await getDoc(doc(db, "custom_orders", existingOrderId));
-        if (!customSnap.exists()) {
-          alert("Order not found.");
-          navigate("/", { replace: true });
-          return;
+        const customRef = doc(db, "custom_orders", existingOrderId);
+        const customSnap = await getDoc(customRef);
+        if (customSnap.exists()) {
+          snap = customSnap;
+          kind = "custom";
+        } else {
+          const repairRef = doc(db, "repairs", existingOrderId);
+          const repairSnap = await getDoc(repairRef);
+          if (!repairSnap.exists()) {
+            alert("Order not found.");
+            navigate("/", { replace: true });
+            return;
+          }
+          snap = repairSnap;
+          kind = "repairs";
         }
-        snap = customSnap;
       }
 
-      const o = { id: snap.id, ...snap.data() };
+      const raw = snap.data() || {};
+      const o = { id: snap.id, ...raw, _kind: kind };
       setExistingOrder(o);
 
       const assessedC = Nint(o.assessedTotalCents);
@@ -303,7 +315,7 @@ export default function Payment() {
     }
   }
 
-  // 🔁 now supports different top-level collections (orders/custom_orders)
+  // 🔁 now supports different top-level collections (orders/custom_orders/repairs)
   async function addOrderEvent(orderId, payload, collName = "orders") {
     try {
       await addDoc(
@@ -345,20 +357,28 @@ export default function Payment() {
       }
       const storage = getStorage(auth.app);
 
-      /* ───────────────── Additional payment (existing order doc) ───────────────── */
+      /* ───────────────── Additional payment (existing order/custom/repair doc) ───────────────── */
       if (existingOrderId) {
-        // Detect whether this id lives in orders or custom_orders
+        // Detect whether this id lives in orders, custom_orders or repairs
         let primaryRef = doc(db, "orders", existingOrderId);
         let primarySnap = await getDoc(primaryRef);
-        let primaryKind = "orders"; // "orders" | "custom"
+        let primaryKind = "orders"; // "orders" | "custom" | "repairs"
 
         if (!primarySnap.exists()) {
           const customRef = doc(db, "custom_orders", existingOrderId);
           const customSnap = await getDoc(customRef);
-          if (!customSnap.exists()) throw new Error("Order not found.");
-          primaryRef = customRef;
-          primarySnap = customSnap;
-          primaryKind = "custom";
+          if (customSnap.exists()) {
+            primaryRef = customRef;
+            primarySnap = customSnap;
+            primaryKind = "custom";
+          } else {
+            const repairRef = doc(db, "repairs", existingOrderId);
+            const repairSnap = await getDoc(repairRef);
+            if (!repairSnap.exists()) throw new Error("Order not found.");
+            primaryRef = repairRef;
+            primarySnap = repairSnap;
+            primaryKind = "repairs";
+          }
         }
 
         const orderData = primarySnap.data() || {};
@@ -412,7 +432,7 @@ export default function Payment() {
           } catch (e) {
             console.warn("Origin mirror (additional) failed:", e);
           }
-        } else {
+        } else if (primaryKind === "custom") {
           // primary is custom_orders; mirror to linked orders/{orderId} if it exists
           try {
             if (orderData?.orderId) {
@@ -423,6 +443,18 @@ export default function Payment() {
             }
           } catch (e) {
             console.warn("Linked order mirror (additional) failed:", e);
+          }
+        } else if (primaryKind === "repairs") {
+          // primary is repairs; optionally mirror to linked orders if ever present
+          try {
+            if (orderData?.orderId) {
+              await updateDoc(
+                doc(db, "orders", orderData.orderId),
+                deepSanitizeForFirestore(patchBase)
+              );
+            }
+          } catch (e) {
+            console.warn("Linked order mirror (repair additional) failed:", e);
           }
         }
 
@@ -435,9 +467,13 @@ export default function Payment() {
           kind: "additional",
         });
 
-        // 🔁 choose the correct collection for events
+        // choose the correct collection for events
         const collNameForEvents =
-          primaryKind === "custom" ? "custom_orders" : "orders";
+          primaryKind === "custom"
+            ? "custom_orders"
+            : primaryKind === "repairs"
+            ? "repairs"
+            : "orders";
 
         await addOrderEvent(
           existingOrderId,
@@ -450,19 +486,35 @@ export default function Payment() {
           collNameForEvents
         );
 
+        // user notification (different payload for repairs)
         try {
+          const notifPayload =
+            primaryKind === "repairs"
+              ? {
+                  userId: uid,
+                  type: "repair_status",
+                  repairId: existingOrderId,
+                  status: "processing",
+                  title: "Additional payment submitted",
+                  body:
+                    "Thanks! We’re reviewing your additional payment proof for your repair.",
+                  createdAt: new Date(),
+                  read: false,
+                }
+              : {
+                  userId: uid,
+                  type: "order_status",
+                  orderId: existingOrderId,
+                  status: "processing",
+                  title: "Additional payment submitted",
+                  body: "Thanks! We’re reviewing your additional payment proof.",
+                  createdAt: new Date(),
+                  read: false,
+                };
+
           await addDoc(
             collection(db, "users", uid, "notifications"),
-            deepSanitizeForFirestore({
-              userId: uid,
-              type: "order_status",
-              orderId: existingOrderId,
-              status: "processing",
-              title: "Additional payment submitted",
-              body: "Thanks! We’re reviewing your additional payment proof.",
-              createdAt: new Date(),
-              read: false,
-            })
+            deepSanitizeForFirestore(notifPayload)
           );
         } catch {}
 
@@ -472,7 +524,9 @@ export default function Payment() {
         const qs =
           primaryKind === "orders"
             ? `orderId=${existingOrderId}`
-            : `customId=${existingOrderId}`;
+            : primaryKind === "custom"
+            ? `customId=${existingOrderId}`
+            : `repairId=${existingOrderId}`;
         navigate(`/ordersummary?${qs}`, { replace: true });
         return;
       }
@@ -736,8 +790,8 @@ export default function Payment() {
 
       /* ───── CATALOG CHECKOUT: normal orders/{orderId} doc ───── */
 
-      const itemsLeanCatalog = itemsLean;
-      const safeAddressCatalog = safeAddress;
+      const itemsLeanCatalog = buildItemsLean(items);
+      const safeAddressCatalog = buildSafeAddress(pending?.shippingAddress);
 
       // Base order data
       const orderBase = {
@@ -853,10 +907,41 @@ export default function Payment() {
     }
   };
 
-  const summaryOrder =
-    existingOrderId && existingOrder
-      ? existingOrder
-      : { items, subtotal, shippingFee, total };
+  // Build a summary object for the right-hand OrderSummaryCard
+  let summaryOrder;
+  if (existingOrderId && existingOrder) {
+    // If this is a repair doc without items, synthesize a single line item
+    if (
+      (existingOrder.origin === "repair" || existingOrder._kind === "repairs") &&
+      (!Array.isArray(existingOrder.items) || existingOrder.items.length === 0)
+    ) {
+      const img =
+        Array.isArray(existingOrder.images) && existingOrder.images.length
+          ? existingOrder.images[0]
+          : null;
+      summaryOrder = {
+        ...existingOrder,
+        items: [
+          {
+            title:
+              existingOrder.typeLabel ||
+              existingOrder.productTitle ||
+              "Repair Order",
+            qty: 1,
+            price:
+              existingOrder.total != null
+                ? Number(existingOrder.total)
+                : 0,
+            image: img,
+          },
+        ],
+      };
+    } else {
+      summaryOrder = existingOrder;
+    }
+  } else {
+    summaryOrder = { items, subtotal, shippingFee, total };
+  }
 
   return (
     <div className="payment-container">
