@@ -1,4 +1,3 @@
-// src/pages/OrderSummary.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useParams, useLocation, useNavigate } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -19,10 +18,12 @@ const STEPS = [
 const normalizeStatus = (s) => {
   const x = String(s || "").toLowerCase();
   if (["processing", "pending"].includes(x) || !x) return "processing";
-  if (["prepare", "preparing", "packaging", "for packaging"].includes(x)) return "preparing";
+  if (["prepare", "preparing", "packaging", "for packaging"].includes(x))
+    return "preparing";
   if (["to_ship", "shipping", "shipped", "in_transit", "ready_to_ship"].includes(x))
     return "to_ship";
-  if (["to_receive", "out_for_delivery", "delivered"].includes(x)) return "to_receive";
+  if (["to_receive", "out_for_delivery", "delivered"].includes(x))
+    return "to_receive";
   if (["to_rate", "completed", "done"].includes(x)) return "to_rate";
   return "processing";
 };
@@ -44,7 +45,6 @@ const messages = {
 const N = (x) => Math.max(0, Math.round(Number(x || 0)));
 const cents = (php) => Math.max(0, Math.round(Number(php || 0) * 100));
 
-/* -------------------- Component -------------------- */
 export default function OrderSummary() {
   const { orderId: orderIdParam } = useParams();
   const location = useLocation();
@@ -53,30 +53,72 @@ export default function OrderSummary() {
   const qs = useMemo(() => new URLSearchParams(location.search), [location.search]);
   const qsOrderId = qs.get("orderId");
   const customId = qs.get("customId");
+  const repairId = qs.get("repairId");
   const orderId = orderIdParam || qsOrderId || null;
 
   const [uid, setUid] = useState(null);
-  const [order, setOrder] = useState(undefined); // orders/{id}
-  const [linkedCustom, setLinkedCustom] = useState(null); // custom_orders/{id}
-  const [linkedRepair, setLinkedRepair] = useState(null); // repairs/{id}
+  const [order, setOrder] = useState(undefined); // main doc (orders/custom_orders/repairs)
+  const [linkedCustom, setLinkedCustom] = useState(null); // extra overlay when base is orders
+  const [linkedRepair, setLinkedRepair] = useState(null);
 
   /* ---------- auth ---------- */
-  useEffect(() => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)), []);
+  useEffect(
+    () => onAuthStateChanged(auth, (u) => setUid(u?.uid || null)),
+    []
+  );
 
-  /* ---------- subscribe to the order (by id or latest by uid) ---------- */
+  /* ---------- subscribe to primary doc ---------- */
   useEffect(() => {
-    if (!orderId || customId) return;
+    let stop = () => {};
+
+    // 1) direct custom-only
+    if (customId && !orderId && !repairId) {
+      const ref = doc(firestore, "custom_orders", customId);
+      stop = onSnapshot(
+        ref,
+        (snap) =>
+          setOrder(
+            snap.exists()
+              ? { id: snap.id, ...snap.data(), origin: "customization" }
+              : null
+          ),
+        () => setOrder(null)
+      );
+      return stop;
+    }
+
+    // 2) direct repair-only
+    if (repairId && !orderId && !customId) {
+      const ref = doc(firestore, "repairs", repairId);
+      stop = onSnapshot(
+        ref,
+        (snap) =>
+          setOrder(
+            snap.exists()
+              ? { id: snap.id, ...snap.data(), origin: "repair", repairId: snap.id }
+              : null
+          ),
+        () => setOrder(null)
+      );
+      return stop;
+    }
+
+    // 3) standard orders collection
+    if (!orderId || customId || repairId) return;
+
     const ref = doc(firestore, "orders", orderId);
-    const stop = onSnapshot(
+    stop = onSnapshot(
       ref,
-      (snap) => setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+      (snap) =>
+        setOrder(snap.exists() ? { id: snap.id, ...snap.data() } : null),
       () => setOrder(null)
     );
     return stop;
-  }, [orderId, customId]);
+  }, [orderId, customId, repairId]);
 
+  /* ---------- fallback: latest order by uid ---------- */
   useEffect(() => {
-    if (orderId || customId || !uid) return;
+    if (orderId || customId || repairId || !uid) return;
     const qRef = query(
       collection(firestore, "orders"),
       where("userId", "==", uid),
@@ -92,10 +134,11 @@ export default function OrderSummary() {
       () => setOrder(null)
     );
     return stop;
-  }, [uid, orderId, customId]);
+  }, [uid, orderId, customId, repairId]);
 
-  /* ---------- subscribe to linked customization (if any) ---------- */
+  /* ---------- subscribe to linked customization (only when base is orders) ---------- */
   useEffect(() => {
+    // if we navigated via ?customId=... then order already IS the custom doc
     if (!order || customId) {
       setLinkedCustom(null);
       return;
@@ -119,7 +162,10 @@ export default function OrderSummary() {
       const ref = doc(firestore, "custom_orders", customDocId);
       const stop = onSnapshot(
         ref,
-        (snap) => setLinkedCustom(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+        (snap) =>
+          setLinkedCustom(
+            snap.exists() ? { id: snap.id, ...snap.data() } : null
+          ),
         () => setLinkedCustom(null)
       );
       return stop;
@@ -142,9 +188,9 @@ export default function OrderSummary() {
     return stop;
   }, [order, customId]);
 
-  /* ---------- subscribe to linked repair (if any) ---------- */
+  /* ---------- subscribe to linked repair (only when base is orders) ---------- */
   useEffect(() => {
-    if (!order) {
+    if (!order || repairId) {
       setLinkedRepair(null);
       return;
     }
@@ -163,13 +209,15 @@ export default function OrderSummary() {
       const ref = doc(firestore, "repairs", repairDocId);
       const stop = onSnapshot(
         ref,
-        (snap) => setLinkedRepair(snap.exists() ? { id: snap.id, ...snap.data() } : null),
+        (snap) =>
+          setLinkedRepair(
+            snap.exists() ? { id: snap.id, ...snap.data() } : null
+          ),
         () => setLinkedRepair(null)
       );
       return stop;
     }
 
-    // reverse lookup by orderId
     const qRef = query(
       collection(firestore, "repairs"),
       where("orderId", "==", order.id),
@@ -184,7 +232,7 @@ export default function OrderSummary() {
       () => setLinkedRepair(null)
     );
     return stop;
-  }, [order]);
+  }, [order, repairId]);
 
   /* ---------- merged view: prefer order → custom → repair (for money/proofs only) ---------- */
   const merged = useMemo(() => {
@@ -198,6 +246,7 @@ export default function OrderSummary() {
       "requestedAdditionalPaymentCents",
       "paymentStatus",
       "paymentProofUrl",
+      "paymentProofUrlPath",
       "depositPaymentProofUrl",
       "lastAdditionalPaymentProofUrl",
       "lastAdditionalPaymentProofPath",
@@ -211,7 +260,6 @@ export default function OrderSummary() {
     for (const k of keys) {
       if (out[k] != null) continue;
       for (const src of sourceChain.slice(1)) {
-        // skip the first (order)
         if (src[k] != null) {
           out[k] = src[k];
           break;
@@ -278,7 +326,6 @@ export default function OrderSummary() {
     return { assessedC, requestedC, balanceC };
   }, [order, merged]);
 
-  /* ---------- show pay button only when needed ---------- */
   const payStatus = String((merged || order)?.paymentStatus || "").toLowerCase();
 
   const showAdditionalBtn =
@@ -289,9 +336,7 @@ export default function OrderSummary() {
       (money.assessedC > 0 && money.balanceC > 0));
 
   const amountToPayC =
-    money.requestedC > 0
-      ? money.requestedC
-      : money.balanceC;
+    money.requestedC > 0 ? money.requestedC : money.balanceC;
 
   const isExplicitAdditional =
     payStatus === "awaiting_additional_payment" || money.requestedC > 0;
@@ -357,30 +402,32 @@ export default function OrderSummary() {
           <>
             <OrderSummaryCard
               title="ORDER SUMMARY"
-              orderId={(merged || order)?.id || orderId || customId}
+              orderId={(merged || order)?.id || orderId || customId || repairId}
               showAddress
               showSupport={false}
               order={merged || order}
             />
 
-            {showAdditionalBtn && (merged || order)?.id && amountToPayC > 0 && (
-              <div style={{ marginTop: 12 }}>
-                <button
-                  type="button"
-                  className="os-pay-btn"
-                  onClick={() =>
-                    navigate(
-                      `/payment?orderId=${(merged || order).id}${
-                        isExplicitAdditional ? "&mode=additional" : ""
-                      }`
-                    )
-                  }
-                >
-                  {isExplicitAdditional ? "Pay Additional" : "Pay Remaining"} ₱
-                  {(amountToPayC / 100).toLocaleString()}
-                </button>
-              </div>
-            )}
+            {showAdditionalBtn &&
+              (merged || order)?.id &&
+              amountToPayC > 0 && (
+                <div style={{ marginTop: 12 }}>
+                  <button
+                    type="button"
+                    className="os-pay-btn"
+                    onClick={() =>
+                      navigate(
+                        `/payment?orderId=${(merged || order).id}${
+                          isExplicitAdditional ? "&mode=additional" : ""
+                        }`
+                      )
+                    }
+                  >
+                    {isExplicitAdditional ? "Pay Additional" : "Pay Remaining"} ₱
+                    {(amountToPayC / 100).toLocaleString()}
+                  </button>
+                </div>
+              )}
           </>
         )}
       </div>
@@ -407,7 +454,8 @@ export default function OrderSummary() {
               }}
             >
               {STEPS.map((s, i) => {
-                const done = (merged ?? order) !== undefined && i <= currentIdx;
+                const done =
+                  (merged ?? order) !== undefined && i <= currentIdx;
                 return (
                   <div
                     key={s.key}
@@ -428,7 +476,9 @@ export default function OrderSummary() {
                         height: 36,
                         lineHeight: "36px",
                         borderRadius: "50%",
-                        border: done ? "3px solid #2e7d32" : "3px solid #d1d5db",
+                        border: done
+                          ? "3px solid #2e7d32"
+                          : "3px solid #d1d5db",
                         fontSize: 18,
                         userSelect: "none",
                       }}

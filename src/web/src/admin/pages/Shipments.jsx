@@ -6,9 +6,11 @@ import {
   getFirestore,
   doc,
   getDoc,
-  collection,      // 🔹 NEW
-  addDoc,          // 🔹 NEW
-  serverTimestamp, // 🔹 NEW
+  deleteDoc,
+  collection,
+  addDoc,
+  serverTimestamp,
+  updateDoc,
 } from "firebase/firestore";
 
 /* ----------------------------- constants ----------------------------- */
@@ -36,16 +38,39 @@ const STATUS_COLOR = {
   cancelled: "#ef4444",
 };
 
+/**
+ * ALLOWED transitions for the admin UI.
+ * You asked that "completed/returned" be customer-controlled.
+ * So:
+ *  - admin can only go up to OUT_FOR_DELIVERY
+ *  - no transition to DELIVERED or RETURNED in this screen
+ */
 const ALLOWED = {
   pending: ["processing", "cancelled"],
   processing: ["ready_to_ship", "cancelled"],
   ready_to_ship: ["shipped", "cancelled"],
   shipped: ["in_transit"],
   in_transit: ["out_for_delivery"],
-  out_for_delivery: ["delivered"],
-  delivered: ["returned"],
+  // ⛔ stop here; no Delivered in dropdown
+  out_for_delivery: [],
+  // also no Delivered -> Returned from here
+  delivered: [],
   returned: [],
   cancelled: [],
+};
+
+/**
+ * How shipment status maps into the linked order/custom/repair status.
+ * For your flow:
+ *  - everything from shipped → delivered keeps the order at `to_receive`
+ *    so the customer can choose COMPLETED or RETURN/REFUND on MyPurchases.
+ */
+const ORDER_STATUS_BY_SHIPMENT = {
+  shipped: "to_receive",
+  in_transit: "to_receive",
+  out_for_delivery: "to_receive",
+  delivered: "to_receive", // even if set by webhook / other process
+  returned: "refund",
 };
 
 /* ------------------------------- helpers ----------------------------- */
@@ -56,6 +81,7 @@ function tsToMillis(ts) {
   const d = new Date(ts);
   return isNaN(d.getTime()) ? 0 : d.getTime();
 }
+
 function fmtDT(tsOrMs) {
   const ms = typeof tsOrMs === "number" ? tsOrMs : tsToMillis(tsOrMs);
   if (!ms) return "—";
@@ -64,6 +90,37 @@ function fmtDT(tsOrMs) {
   } catch {
     return "—";
   }
+}
+
+function IconTrashBtn({ title = "Delete", disabled, onClick }) {
+  const [hover, setHover] = React.useState(false);
+
+  return (
+    <button
+      type="button"
+      title={title}
+      disabled={!!disabled}
+      onMouseEnter={() => setHover(true)}
+      onMouseLeave={() => setHover(false)}
+      onClick={onClick}
+      style={{
+        width: 32,
+        height: 32,
+        borderRadius: 8,
+        border: "1px solid #b91c1c",
+        background: hover && !disabled ? "#b91c1c" : "#fff",
+        color: hover && !disabled ? "#fff" : "#b91c1c",
+        fontSize: 16,
+        lineHeight: "16px",
+        display: "inline-flex",
+        alignItems: "center",
+        justifyContent: "center",
+        cursor: disabled ? "not-allowed" : "pointer",
+      }}
+    >
+      🗑
+    </button>
+  );
 }
 
 function StatusBadge({ status }) {
@@ -106,6 +163,66 @@ function Cell({ title, mono, center, children }) {
   );
 }
 
+/* 🔎 helper: figure out which user + link to notify for a shipment */
+async function resolveShipmentNotificationTarget(db, shipmentRow) {
+  if (!shipmentRow || !db) return { uid: null, link: null, customerName: "" };
+
+  const kind = shipmentRow.kind || "orders";
+  const collName =
+    kind === "repairs"
+      ? "repairs"
+      : kind === "custom_orders"
+      ? "custom_orders"
+      : "orders";
+
+  let uid = shipmentRow.userId || shipmentRow.uid || null;
+  let customerName = shipmentRow.userName || shipmentRow.customerName || "";
+
+  const docId = shipmentRow.orderId || "";
+
+  const pullUserFromDoc = (o = {}) => {
+    const u =
+      o.userId ??
+      o.uid ??
+      o.customer?.uid ??
+      o.customerInfo?.uid ??
+      null;
+    const name =
+      o.customerName ??
+      o.name ??
+      o.fullName ??
+      o.customer?.name ??
+      o.customerInfo?.name ??
+      "";
+    return { u, name };
+  };
+
+  if (docId && (!uid || !customerName)) {
+    try {
+      const snap = await getDoc(doc(db, collName, docId));
+      if (snap.exists()) {
+        const o = snap.data();
+        const { u, name } = pullUserFromDoc(o);
+        if (!uid && u) uid = u;
+        if (!customerName && name) customerName = name;
+      }
+    } catch (e) {
+      console.warn("resolveShipmentNotificationTarget getDoc failed:", e);
+    }
+  }
+
+  let link = null;
+  if (collName === "orders" && docId) {
+    link = `/ordersummary?orderId=${docId}`;
+  } else if (collName === "repairs" && docId) {
+    link = `/ordersummary?repairId=${docId}`;
+  } else if (collName === "custom_orders" && docId) {
+    link = `/ordersummary?customId=${docId}`;
+  }
+
+  return { uid, link, customerName };
+}
+
 /* ------------------------------- page -------------------------------- */
 export default function Shipments() {
   const db = useMemo(() => getFirestore(auth.app), []);
@@ -122,8 +239,11 @@ export default function Shipments() {
   const [note, setNote] = useState("");
   const [advancing, setAdvancing] = useState(false);
 
-  // small note after cleaning
+  // note after cleaning orphans
   const [cleanNote, setCleanNote] = useState("");
+
+  // deleting state
+  const [deleting, setDeleting] = useState(false);
 
   async function loadShipments() {
     setErr("");
@@ -131,58 +251,183 @@ export default function Shipments() {
     try {
       let list = await provider.listShipments();
 
-      // 🔹 enrich with user email/name from the related order
-      try {
-        const needOrderInfo = list.filter((r) => !r.userEmail && r.orderId);
-        const uniqueOrderIds = [...new Set(needOrderInfo.map((r) => r.orderId))];
+      /* ───────────────── group orderIds by kind ───────────────── */
+      const idBuckets = {
+        orders: new Set(),
+        custom_orders: new Set(),
+        repairs: new Set(),
+      };
 
-        if (uniqueOrderIds.length > 0 && db) {
-          const snaps = await Promise.all(
-            uniqueOrderIds.map(async (orderId) => {
-              try {
-                const snap = await getDoc(doc(db, "orders", orderId));
-                if (!snap.exists()) return null;
-                return { id: orderId, data: snap.data() };
-              } catch {
-                return null;
-              }
-            })
-          );
+      list.forEach((r) => {
+        const kind = r.kind || "orders"; // default for legacy rows
+        const id = typeof r.orderId === "string" ? r.orderId.trim() : "";
+        if (!id) return;
+        if (!idBuckets[kind]) idBuckets[kind] = new Set();
+        idBuckets[kind].add(id);
+      });
 
-          const orderById = {};
-          snaps.forEach((s) => {
-            if (s && s.data) orderById[s.id] = s.data;
-          });
+      /* ───────────────── fetch related orders (all kinds) ───────────────── */
+      const orderById = {};
 
-          list = list.map((r) => {
-            if (r.userEmail || !r.orderId || !orderById[r.orderId]) return r;
-            const order = orderById[r.orderId];
+      async function fetchBucket(kind, collName) {
+        const ids = Array.from(idBuckets[kind] || []);
+        if (!ids.length || !db) return;
 
-            const email =
-              order?.contactEmail ||
-              order?.shippingAddress?.email ||
-              order?.customer?.email ||
-              order?.customerInfo?.email ||
-              "";
+        const snaps = await Promise.all(
+          ids.map(async (id) => {
+            try {
+              const snap = await getDoc(doc(db, collName, id));
+              if (!snap.exists()) return null;
+              return { id, data: snap.data() };
+            } catch {
+              return null;
+            }
+          })
+        );
 
-            const name =
-              order?.shippingAddress?.fullName ||
-              order?.shippingAddress?.name ||
-              order?.customer?.name ||
-              order?.customerInfo?.name ||
-              "";
-
-            // keep r.userId as-is; we only enrich name/email
-            return {
-              ...r,
-              userEmail: email || r.userEmail || "",
-              userName: name || r.userName || "",
-            };
-          });
-        }
-      } catch (e) {
-        console.warn("Failed to enrich shipment user info:", e);
+        snaps.forEach((s) => {
+          if (s && s.data) {
+            orderById[`${kind}:${s.id}`] = s.data;
+          }
+        });
       }
+
+      await Promise.all([
+        fetchBucket("orders", "orders"),
+        fetchBucket("custom_orders", "custom_orders"),
+        fetchBucket("repairs", "repairs"),
+      ]);
+
+      /* ───────────────── fetch related user docs ───────────────── */
+      const userIdSet = new Set();
+      list.forEach((r) => {
+        if (r.userId) userIdSet.add(r.userId);
+        const kind = r.kind || "orders";
+        const key =
+          r.orderId && typeof r.orderId === "string"
+            ? `${kind}:${r.orderId}`
+            : null;
+        const o = key ? orderById[key] : null;
+        if (o?.userId) userIdSet.add(o.userId);
+        if (o?.uid) userIdSet.add(o.uid);
+      });
+
+      const userById = {};
+      if (userIdSet.size && db) {
+        const uids = Array.from(userIdSet);
+        const snaps = await Promise.all(
+          uids.map(async (uid) => {
+            try {
+              const snap = await getDoc(doc(db, "users", uid));
+              if (!snap.exists()) return null;
+              return { id: uid, data: snap.data() };
+            } catch {
+              return null;
+            }
+          })
+        );
+        snaps.forEach((s) => {
+          if (s && s.data) userById[s.id] = s.data;
+        });
+      }
+
+      /* ───────────────── merge: order info + user info → shipment row ───────────────── */
+      list = list.map((r) => {
+        const kind = r.kind || "orders";
+        const orderKey =
+          r.orderId && typeof r.orderId === "string"
+            ? `${kind}:${r.orderId}`
+            : null;
+        const order = orderKey ? orderById[orderKey] : null;
+
+        // base uid
+        const uid = r.userId || order?.userId || order?.uid || null;
+        const userDoc = uid ? userById[uid] : null;
+
+        // email
+        let userEmail =
+          r.userEmail ||
+          order?.contactEmail ||
+          order?.shippingAddress?.email ||
+          order?.customer?.email ||
+          order?.customerInfo?.email ||
+          "";
+
+        if (!userEmail && userDoc) {
+          userEmail = userDoc.email || "";
+        }
+
+        // account / display name
+        let userName =
+          r.userName ||
+          order?.contactName ||
+          order?.shippingAddress?.fullName ||
+          order?.shippingAddress?.name ||
+          order?.customer?.name ||
+          order?.customerInfo?.name ||
+          "";
+
+        if (!userName && userDoc) {
+          userName =
+            userDoc.name || userDoc.displayName || userDoc.username || "";
+        }
+
+        // shipping / delivery info (address from order)
+        const shipping =
+          order?.shippingAddress ||
+          order?.deliveryAddress ||
+          order?.address ||
+          {};
+
+        const recipientName =
+          shipping?.fullName ||
+          shipping?.name ||
+          order?.contactName ||
+          userName ||
+          "";
+
+        const phone =
+          shipping?.phone ||
+          shipping?.mobile ||
+          order?.contactPhone ||
+          order?.phone ||
+          userDoc?.phone ||
+          "";
+
+        const parts = [];
+        const line1 =
+          shipping?.line1 ||
+          shipping?.street ||
+          shipping?.addressLine1 ||
+          "";
+        const line2 = shipping?.line2 || shipping?.addressLine2 || "";
+        if (line1) parts.push(line1);
+        if (line2) parts.push(line2);
+
+        const cityLine = [shipping?.barangay, shipping?.city]
+          .filter(Boolean)
+          .join(", ");
+        if (cityLine) parts.push(cityLine);
+
+        const provLine = [shipping?.province, shipping?.postalCode]
+          .filter(Boolean)
+          .join(" ");
+        if (provLine) parts.push(provLine);
+
+        if (shipping?.country) parts.push(shipping.country);
+
+        const shipToAddress = parts.join(" | ");
+
+        return {
+          ...r,
+          userId: uid || r.userId || null,
+          userEmail: userEmail || r.userEmail || "",
+          userName: userName || r.userName || "",
+          shipToName: recipientName || "",
+          shipToPhone: phone || "",
+          shipToAddress: shipToAddress || "",
+        };
+      });
 
       setRows(list);
       if (selected) {
@@ -204,7 +449,6 @@ export default function Shipments() {
       // run cleaner first (if implemented)
       if (typeof provider.cleanOrphanShipments === "function") {
         const res = await provider.cleanOrphanShipments({ fix: true });
-        // res can be a number or an object like {deleted: n}
         const n =
           typeof res === "number"
             ? res
@@ -260,45 +504,68 @@ export default function Shipments() {
       // 1) advance shipment via provider
       await provider.advanceShipment(selected.id, target, note.trim());
 
-      // 2) reload data
+      // 2) mirror shipment-driven status into the linked order/repair/custom
+      try {
+        const mappedOrderStatus = ORDER_STATUS_BY_SHIPMENT[target];
+        if (mappedOrderStatus && selected.orderId && db) {
+          const collName =
+            selected.kind === "repairs"
+              ? "repairs"
+              : selected.kind === "custom_orders"
+              ? "custom_orders"
+              : "orders";
+
+          await updateDoc(doc(db, collName, selected.orderId), {
+            status: mappedOrderStatus,
+            statusUpdatedAt: serverTimestamp(),
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to mirror shipment status to order:", e);
+      }
+
+      // 3) reload data
       await loadShipments();
       await loadEvents(selected.id);
 
-      // 3) compute next allowed step for UI
+      // 4) compute next allowed step for UI
       const allowed = ALLOWED[target] || [];
       setNextStatus(allowed[0] || "");
       setNote("");
 
-      // 4) 🔔 CREATE NOTIFICATION FOR THE USER
+      // 5) create notification for the user
       try {
-        let uid = selected.userId || null;
+        const { uid, link } = await resolveShipmentNotificationTarget(
+          db,
+          selected
+        );
 
-        // fallback: if no userId on shipment, try to get it from the order
-        if (!uid && selected.orderId && db) {
-          const snap = await getDoc(doc(db, "orders", selected.orderId));
-          if (snap.exists()) {
-            const o = snap.data();
-            uid = o.userId || o.uid || null;
-          }
-        }
-
-        if (uid && selected.orderId && db) {
+        if (uid && db) {
           const humanLabel = STATUS_LABEL[target] || target;
-          await addDoc(
-            collection(db, "users", uid, "notifications"),
-            {
-              type: "shipment_status",
-              orderId: selected.orderId,
-              shipmentId: selected.id,
-              status: target,
-              title: `Shipment update for order ${String(
-                selected.orderId
-              ).slice(0, 6)}`,
-              body: `Your shipment is now ${humanLabel}.`,
-              createdAt: serverTimestamp(),
-              read: false,
-            }
-          );
+          const collName =
+            selected.kind === "repairs"
+              ? "repairs"
+              : selected.kind === "custom_orders"
+              ? "custom_orders"
+              : "orders";
+
+          await addDoc(collection(db, "users", uid, "notifications"), {
+            type: "shipment_status",
+            orderId: collName === "orders" ? selected.orderId || null : null,
+            repairId:
+              collName === "repairs" ? selected.orderId || null : null,
+            customId:
+              collName === "custom_orders" ? selected.orderId || null : null,
+            shipmentId: selected.id,
+            status: target,
+            title: `Shipment update for order ${String(
+              selected.orderId || ""
+            ).slice(0, 6)}`,
+            body: `Your shipment is now ${humanLabel}.`,
+            link: link || null,
+            createdAt: serverTimestamp(),
+            read: false,
+          });
         }
       } catch (e) {
         console.warn("Failed to create shipment notification:", e);
@@ -311,17 +578,45 @@ export default function Shipments() {
     }
   }
 
+  // delete shipment record
+  async function onDeleteShipment() {
+    if (!selected || !db) return;
+    const ok = window.confirm(
+      "Delete this shipment record? This cannot be undone."
+    );
+    if (!ok) return;
+
+    setDeleting(true);
+    setErr("");
+    try {
+      if (typeof provider.deleteShipment === "function") {
+        await provider.deleteShipment(selected.id);
+      } else {
+        await deleteDoc(doc(db, "shipments", selected.id));
+      }
+
+      setSelected(null);
+      setEvents([]);
+      await loadShipments();
+    } catch (e) {
+      console.error(e);
+      setErr(String(e?.message || e));
+    } finally {
+      setDeleting(false);
+    }
+  }
+
   useEffect(() => {
     loadShipments();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Full-width table layout (headers aligned with cells)
+  // Full-width table layout
   const columns = useMemo(
     () => [
       { key: "id", label: "Shipment ID", width: "320px", mono: true },
       { key: "orderId", label: "Order ID", width: "320px", mono: true },
-      { key: "user", label: "User", width: "300px" },
+      { key: "user", label: "Customer", width: "300px" },
       { key: "status", label: "Status", width: "180px", center: true },
       { key: "updatedAt", label: "Updated", width: "240px" },
     ],
@@ -339,7 +634,14 @@ export default function Shipments() {
   return (
     <div style={{ padding: 24 }}>
       {/* header row above table */}
-      <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+      <div
+        style={{
+          display: "flex",
+          alignItems: "center",
+          gap: 12,
+          marginBottom: 12,
+        }}
+      >
         <h2 style={{ margin: 0 }}>Shipments</h2>
         <button
           onClick={refreshAndClean}
@@ -355,16 +657,26 @@ export default function Shipments() {
         >
           ⟳ Refresh
         </button>
-        {loading && <span style={{ fontSize: 12, color: "#6b7280" }}>Loading…</span>}
+        {loading && (
+          <span style={{ fontSize: 12, color: "#6b7280" }}>Loading…</span>
+        )}
         {cleanNote && (
-          <span style={{ fontSize: 12, color: "#047857" }}>
-            {cleanNote}
+          <span style={{ fontSize: 12, color: "#047857" }}>{cleanNote}</span>
+        )}
+        {err && (
+          <span
+            style={{
+              marginLeft: "auto",
+              color: "#ef4444",
+              fontSize: 13,
+            }}
+          >
+            {err}
           </span>
         )}
-        {err && <span style={{ marginLeft: "auto", color: "#ef4444", fontSize: 13 }}>{err}</span>}
       </div>
 
-      {/* LIST: full-width */}
+      {/* LIST */}
       <div
         style={{
           border: "1px solid #e5e7eb",
@@ -373,7 +685,7 @@ export default function Shipments() {
           background: "white",
         }}
       >
-        {/* table header aligned with grid columns */}
+        {/* table header */}
         <div
           style={{
             display: "grid",
@@ -387,7 +699,10 @@ export default function Shipments() {
           }}
         >
           {columns.map((c) => (
-            <div key={c.key} style={{ textAlign: c.center ? "center" : "left" }}>
+            <div
+              key={c.key}
+              style={{ textAlign: c.center ? "center" : "left" }}
+            >
               {c.label}
             </div>
           ))}
@@ -396,7 +711,9 @@ export default function Shipments() {
         {/* table body */}
         <div>
           {!loading && rows.length === 0 && (
-            <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>No shipments yet.</div>
+            <div style={{ padding: 16, fontSize: 13, color: "#6b7280" }}>
+              No shipments yet.
+            </div>
           )}
 
           {rows.map((r) => {
@@ -433,7 +750,7 @@ export default function Shipments() {
         </div>
       </div>
 
-      {/* DETAILS: stacked under the table (full width) */}
+      {/* DETAILS */}
       <div
         style={{
           marginTop: 16,
@@ -449,7 +766,14 @@ export default function Shipments() {
           </div>
         ) : (
           <>
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12 }}>
+            <div
+              style={{
+                display: "flex",
+                alignItems: "center",
+                gap: 12,
+                marginBottom: 12,
+              }}
+            >
               <h3 style={{ margin: 0 }}>Shipment</h3>
               <code
                 style={{
@@ -461,7 +785,12 @@ export default function Shipments() {
               >
                 {selected.id}
               </code>
-              <div style={{ marginLeft: "auto" }}>
+              <div style={{ marginLeft: "auto", display: "flex", gap: 8 }}>
+                <IconTrashBtn
+                  title={deleting ? "Deleting…" : "Delete shipment"}
+                  disabled={deleting}
+                  onClick={onDeleteShipment}
+                />
                 <StatusBadge status={selected.status} />
               </div>
             </div>
@@ -475,10 +804,14 @@ export default function Shipments() {
                 marginBottom: 16,
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+              <div
+                style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}
+              >
                 Advance Status
               </div>
-              <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}>
+              <div
+                style={{ display: "grid", gridTemplateColumns: "1fr", gap: 8 }}
+              >
                 <label style={{ fontSize: 12, color: "#374151" }}>
                   Next status
                   <select
@@ -568,7 +901,11 @@ export default function Shipments() {
                 background: "#fafafa",
               }}
             >
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>Details</div>
+              <div
+                style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}
+              >
+                Details
+              </div>
               <div
                 style={{
                   fontSize: 13,
@@ -579,14 +916,28 @@ export default function Shipments() {
               >
                 <div style={{ color: "#6b7280" }}>Order</div>
                 <div>{selected.orderId || "—"}</div>
-                <div style={{ color: "#6b7280" }}>User</div>
+
+                <div style={{ color: "#6b7280" }}>Customer</div>
                 <div>{displayUser(selected)}</div>
+
+                <div style={{ color: "#6b7280" }}>Recipient</div>
+                <div>{selected.shipToName || displayUser(selected)}</div>
+
+                <div style={{ color: "#6b7280" }}>Ship to</div>
+                <div>{selected.shipToAddress || "—"}</div>
+
+                <div style={{ color: "#6b7280" }}>Contact</div>
+                <div>{selected.shipToPhone || selected.userEmail || "—"}</div>
+
                 <div style={{ color: "#6b7280" }}>Courier</div>
                 <div>{selected.courier || "—"}</div>
+
                 <div style={{ color: "#6b7280" }}>Tracking</div>
                 <div>{selected.trackingNumber || "—"}</div>
+
                 <div style={{ color: "#6b7280" }}>Created</div>
                 <div>{fmtDT(selected.createdAt)}</div>
+
                 <div style={{ color: "#6b7280" }}>Updated</div>
                 <div>{fmtDT(selected.updatedAt)}</div>
               </div>
@@ -594,7 +945,9 @@ export default function Shipments() {
 
             {/* history */}
             <div>
-              <div style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}>
+              <div
+                style={{ fontWeight: 600, fontSize: 13, marginBottom: 8 }}
+              >
                 Event History
               </div>
               <div
@@ -606,17 +959,31 @@ export default function Shipments() {
                 }}
               >
                 {eventsLoading && (
-                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>
+                  <div
+                    style={{
+                      padding: 8,
+                      fontSize: 13,
+                      color: "#6b7280",
+                    }}
+                  >
                     Loading events…
                   </div>
                 )}
                 {!eventsLoading && events.length === 0 && (
-                  <div style={{ padding: 8, fontSize: 13, color: "#6b7280" }}>
+                  <div
+                    style={{
+                      padding: 8,
+                      fontSize: 13,
+                      color: "#6b7280",
+                    }}
+                  >
                     No events yet.
                   </div>
                 )}
                 {!eventsLoading && events.length > 0 && (
-                  <ul style={{ listStyle: "none", margin: 0, padding: 0 }}>
+                  <ul
+                    style={{ listStyle: "none", margin: 0, padding: 0 }}
+                  >
                     {events.map((ev) => (
                       <li
                         key={ev.id}
@@ -628,16 +995,25 @@ export default function Shipments() {
                           borderTop: "1px dashed #f3f4f6",
                         }}
                       >
-                        <div style={{ color: "#6b7280", fontSize: 12 }}>
+                        <div
+                          style={{ color: "#6b7280", fontSize: 12 }}
+                        >
                           {fmtDT(ev.at)}
                         </div>
                         <div style={{ fontSize: 13 }}>
                           <div style={{ marginBottom: 2 }}>
-                            <strong>{STATUS_LABEL[ev.from] || ev.from}</strong> →{" "}
-                            <strong>{STATUS_LABEL[ev.to] || ev.to}</strong>
+                            <strong>
+                              {STATUS_LABEL[ev.from] || ev.from}
+                            </strong>{" "}
+                            →{" "}
+                            <strong>
+                              {STATUS_LABEL[ev.to] || ev.to}
+                            </strong>
                           </div>
                           {ev.note && (
-                            <div style={{ color: "#374151" }}>{ev.note}</div>
+                            <div style={{ color: "#374151" }}>
+                              {ev.note}
+                            </div>
                           )}
                           <div
                             style={{

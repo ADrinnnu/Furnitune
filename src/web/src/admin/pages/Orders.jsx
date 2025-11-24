@@ -13,6 +13,7 @@ import {
   orderBy,
   addDoc,
   deleteDoc,
+  writeBatch,
   where,
   limit,
 } from "firebase/firestore";
@@ -201,7 +202,9 @@ function computeMonies(row) {
 
 /* ---------- Ensure there is a linked ORDER for repair/custom ---------- */
 async function ensureOrderForRepair(db, repairRow) {
-  // A) try to find an existing linked order by repairId
+  if (!repairRow?.id) return null;
+
+  // Look for an existing linked order by repairId
   const qy = query(
     collection(db, "orders"),
     where("repairId", "==", repairRow.id),
@@ -213,109 +216,43 @@ async function ensureOrderForRepair(db, repairRow) {
     return { id: d.id, ...d.data() };
   }
 
-  // B) create a minimal REAL order linked to this repair
-  const payload = {
-    userId: repairRow?.userId || repairRow?.uid || null,
-    contactEmail:
-      repairRow?.contactEmail ||
-      repairRow?.email ||
-      repairRow?.customer?.email ||
-      repairRow?.customerInfo?.email ||
-      null,
-    shippingAddress:
-      repairRow?.shippingAddress ||
-      repairRow?.address ||
-      repairRow?.customer?.address ||
-      repairRow?.customerInfo?.address ||
-      null,
-    createdAt: serverTimestamp(),
-    origin: "repair",
-    repairId: repairRow.id,
-    status: "to_ship",
-    statusUpdatedAt: serverTimestamp(),
-    paymentStatus: repairRow?.paymentStatus || "pending",
-    items: [],
-    subtotal: 0,
-    shippingFee: 0,
-    total: 0,
-  };
-  const ref = await addDoc(collection(db, "orders"), payload);
-  return { id: ref.id, ...payload };
+  return null;
 }
+  // B) create a minimal REAL order linked to this repair
+  
 
 async function ensureOrderForCustom(db, customRow) {
+  if (!customRow?.id) return null;
+
   // 1) Try direct link field first
-  let linked = null;
-  if (customRow?.orderId) {
+  if (customRow.orderId) {
     const s = await getDoc(doc(db, "orders", customRow.orderId));
-    if (s.exists()) linked = { id: s.id, ...s.data() };
+    if (s.exists()) return { id: s.id, ...s.data() };
   }
 
-  // 2) Look for an order created from customization
-  if (!linked) {
-    const qy = query(
-      collection(db, "orders"),
-      where("origin", "==", "customization"),
-      limit(10)
-    );
-    const snap = await getDocs(qy);
-    snap.forEach((d) => {
-      const o = { id: d.id, ...d.data() };
-      if (
-        o?.customId === customRow.id ||
-        o?.linkedCustomId === customRow.id ||
-        o?.metadata?.customId === customRow.id
-      ) {
-        linked = o;
-      }
-    });
-  }
+  // 2) Look for an order created from this customization
+  const qy = query(
+    collection(db, "orders"),
+    where("origin", "==", "customization"),
+    limit(20)
+  );
+  const snap = await getDocs(qy);
 
-  // 3) If not found, create a minimal order linked to customization
-  if (!linked) {
-    const payload = {
-      userId:
-        customRow?.userId ||
-        customRow?.uid ||
-        customRow?.customer?.uid ||
-        customRow?.customerInfo?.uid ||
-        null,
+  let linked = null;
+  snap.forEach((d) => {
+    const o = { id: d.id, ...d.data() };
+    if (
+      o.customId === customRow.id ||
+      o.linkedCustomId === customRow.id ||
+      o?.metadata?.customId === customRow.id
+    ) {
+      linked = o;
+    }
+  });
 
-      contactEmail:
-        customRow?.contactEmail ||
-        customRow?.email ||
-        customRow?.customer?.email ||
-        customRow?.customerInfo?.email ||
-        null,
-
-      shippingAddress:
-        customRow?.shippingAddress ||
-        customRow?.address ||
-        customRow?.customer?.address ||
-        customRow?.customerInfo?.address ||
-        null,
-
-      createdAt: serverTimestamp(),
-      origin: "customization",
-      customId: customRow.id,
-
-      status: "to_ship",
-      statusUpdatedAt: serverTimestamp(),
-
-      paymentStatus: customRow?.paymentStatus || "pending",
-
-      items: [],
-      subtotal: 0,
-      shippingFee: 0,
-      total: Number(customRow?.unitPrice || 0) || 0,
-    };
-
-    const ref = await addDoc(collection(db, "orders"), payload);
-    linked = { id: ref.id, ...payload };
-  }
-
+  // ❌ no creation here
   return linked;
-}
+}  
 
 /* Get the latest additional payment amount (in cents) from the row */
 function latestAdditionalCents(row) {
@@ -536,6 +473,7 @@ function CustomerBlock({ row, title = "Customer" }) {
     </div>
   );
 }
+
 function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
     row?.assessedTotalCents != null
@@ -725,7 +663,6 @@ function AssessmentPanel({ kind, row }) {
     </div>
   );
 }
-
 /* ------------------------- MAIN COMPONENT ------------------------- */
 export default function Orders() {
   const db = useMemo(() => getFirestore(auth.app), []);
@@ -868,6 +805,53 @@ export default function Orders() {
     }
   }
 
+  /* 🔄 NEW: mirror order payment patch into repairs/custom_orders */
+  async function mirrorPatchToLinkedDocsFromOrder(orderRow, patch) {
+    const db2 = getFirestore(auth.app);
+
+    // mirror to repair doc if linked
+    if (orderRow?.repairId) {
+      try {
+        await updateDoc(doc(db2, "repairs", orderRow.repairId), patch);
+        setRepairs((prev) =>
+          prev.map((r) =>
+            r.id === orderRow.repairId ? { ...r, ...patch } : r
+          )
+        );
+      } catch (e) {
+        console.warn("Mirror to repairs failed:", e?.message || e);
+      }
+    }
+
+    // mirror to custom_orders by orderId if this is a customization order
+    if (String(orderRow?.origin || "") === "customization") {
+      try {
+        const qy = query(
+          collection(db2, "custom_orders"),
+          where("orderId", "==", orderRow.id),
+          limit(5)
+        );
+        const snap = await getDocs(qy);
+        if (!snap.empty) {
+          const ids = [];
+          const ops = [];
+          snap.forEach((d) => {
+            ids.push(d.id);
+            ops.push(updateDoc(d.ref, patch));
+          });
+          await Promise.all(ops);
+          setCustoms((prev) =>
+            prev.map((c) =>
+              ids.includes(c.id) ? { ...c, ...patch } : c
+            )
+          );
+        }
+      } catch (e) {
+        console.warn("Mirror to custom_orders failed:", e?.message || e);
+      }
+    }
+  }   
+
   /* ------------------------- Request remaining balance helpers ------------------------- */
   async function requestRemainingBalanceForOrder(orderRow) {
     const db2 = getFirestore(auth.app);
@@ -889,6 +873,9 @@ export default function Orders() {
         o.id === orderRow.id ? { ...o, ...patch } : o
       )
     );
+
+    // 🔄 mirror into linked repair/custom docs
+    await mirrorPatchToLinkedDocsFromOrder(orderRow, patch);
 
     const uid = orderRow?.userId;
     if (uid) {
@@ -1028,59 +1015,51 @@ export default function Orders() {
   }
 
   async function updatePaymentForCustomization(customRow, nextStatus) {
-    const db2 = getFirestore(auth.app);
+  const db2 = getFirestore(auth.app);
 
-    // 1) Ensure there's a real order linked to this customization
-    const linkedOrder = await ensureOrderForCustom(db2, customRow);
+  // Try to find an existing linked order, but do NOT create a new one
+  const linkedOrder = await ensureOrderForCustom(db2, customRow);
 
-    // 2) Update the order's payment using the existing order updater
-    await updateOrderPayment(
-      linkedOrder.id,
-      linkedOrder,
-      nextStatus
-    );
-
-    // 3) Mirror payment fields back to the customization doc
-    let freshOrder = linkedOrder;
-    try {
-      const s = await getDoc(doc(db2, "orders", linkedOrder.id));
-      if (s.exists()) freshOrder = { id: s.id, ...s.data() };
-    } catch {}
-
-    const patch = {
-      paymentStatus: String(nextStatus || "").toLowerCase(),
-      paymentUpdatedAt: serverTimestamp(),
-      depositCents: freshOrder?.depositCents ?? null,
-      additionalPaymentsCents:
-        freshOrder?.additionalPaymentsCents ?? null,
-      refundsCents: freshOrder?.refundsCents ?? null,
-      assessedTotalCents:
-        freshOrder?.assessedTotalCents ?? null,
-      requestedAdditionalPaymentCents:
-        freshOrder?.requestedAdditionalPaymentCents ?? 0,
-      paymentProofPendingReview:
-        !!freshOrder?.paymentProofPendingReview,
-    };
-
-    await updateDoc(
-      doc(db2, "custom_orders", customRow.id),
-      patch
-    );
-
-    // 4) Update local state for UI immediately
-    setCustoms((prev) =>
-      prev.map((c) =>
-        c.id === customRow.id ? { ...c, ...patch } : c
-      )
-    );
-    setRows((prev) =>
-      prev.map((o) =>
-        o.id === freshOrder.id
-          ? { ...o, paymentStatus: patch.paymentStatus }
-          : o
-      )
-    );
+  // If there is NO linked order, just update the custom document directly
+  if (!linkedOrder) {
+    await updateCustomPayment(customRow.id, nextStatus);
+    return;
   }
+
+  // If there IS a linked order, update the order payment first
+  await updateOrderPayment(linkedOrder.id, linkedOrder, nextStatus);
+
+  // Reload latest order data
+  let freshOrder = linkedOrder;
+  try {
+    const s = await getDoc(doc(db2, "orders", linkedOrder.id));
+    if (s.exists()) freshOrder = { id: s.id, ...s.data() };
+  } catch {}
+
+  const patch = {
+    paymentStatus: String(nextStatus || "").toLowerCase(),
+    paymentUpdatedAt: serverTimestamp(),
+    depositCents: freshOrder?.depositCents ?? null,
+    additionalPaymentsCents: freshOrder?.additionalPaymentsCents ?? null,
+    refundsCents: freshOrder?.refundsCents ?? null,
+    assessedTotalCents: freshOrder?.assessedTotalCents ?? null,
+    requestedAdditionalPaymentCents:
+      freshOrder?.requestedAdditionalPaymentCents ?? 0,
+    paymentProofPendingReview: !!freshOrder?.paymentProofPendingReview,
+  };
+
+  await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
+
+  // update local state
+  setCustoms((prev) =>
+    prev.map((c) => (c.id === customRow.id ? { ...c, ...patch } : c))
+  );
+  setRows((prev) =>
+    prev.map((o) =>
+      o.id === freshOrder.id ? { ...o, paymentStatus: patch.paymentStatus } : o
+    )
+  );
+}
 
   /* ------------------------- Payment status updaters ------------------------- */
   async function updateOrderPayment(orderId, currentRow, nextStatus) {
@@ -1146,6 +1125,12 @@ export default function Orders() {
       prev.map((o) =>
         o.id === orderId ? { ...o, ...patch } : o
       )
+    );
+
+    // 🔄 mirror payment & assessment fields into linked docs
+    await mirrorPatchToLinkedDocsFromOrder(
+      { ...currentRow, id: orderId },
+      patch
     );
   }
 
@@ -1290,7 +1275,7 @@ export default function Orders() {
       )
     );
   }
-  /* ------------------------- Order status updaters ------------------------- */
+    /* ------------------------- Order status updaters ------------------------- */
   async function saveStatus(id) {
     const newStatus = draft[id];
     if (!newStatus) return;
@@ -1307,6 +1292,7 @@ export default function Orders() {
           updates.returnPolicyDays = 7;
         }
       }
+
       await updateDoc(doc(db, "orders", id), updates);
       setRows((prev) =>
         prev.map((o) =>
@@ -1322,11 +1308,14 @@ export default function Orders() {
             : o
         )
       );
+
+      // 🚚 ensure shipment for normal catalog orders when they move to "to_ship"
       if (newStatus === "to_ship" && orderRow) {
         try {
-          await ensureShipmentForOrder({ ...orderRow, id });
+          await ensureShipmentForOrder({ ...orderRow, id, kind: "orders" });
         } catch {}
       }
+
       const uid = orderRow?.userId;
       if (uid) {
         const firstItem = Array.isArray(orderRow?.items)
@@ -1351,29 +1340,75 @@ export default function Orders() {
     }
   }
 
+  // 🔧 REPAIR STATUS: must be OUTSIDE saveStatus, at component scope
   async function saveRepairStatus(id) {
     const newStatus = repairsDraft[id];
     if (!newStatus) return;
+
     setRepairsSaving((p) => ({ ...p, [id]: true }));
+
     try {
+      const db2 = getFirestore(auth.app);
+
       const updates = {
         status: newStatus,
         statusUpdatedAt: serverTimestamp(),
       };
-      await updateDoc(doc(getFirestore(auth.app), "repairs", id), updates);
+
+      // update Firestore
+      await updateDoc(doc(db2, "repairs", id), updates);
+
+      // update local state
       setRepairs((prev) =>
         prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
       );
 
-      // 🔹 if repair moved to "to_ship", ensure a shipment exists for its linked order
+      // 🔔 notify user about repair status change
+      try {
+        const rRow = repairs.find((x) => x.id === id) || {};
+
+        // 1st: userId inside repair doc
+        let uid =
+          rRow.userId ??
+          rRow.uid ??
+          rRow.customer?.uid ??
+          rRow.customerInfo?.uid ??
+          null;
+
+        // 2nd: fallback to linked order (orders.repairId === repair.id)
+        if (!uid) {
+          const linkedOrder = rows.find((o) => o?.repairId === id) || null;
+          if (linkedOrder?.userId) uid = linkedOrder.userId;
+        }
+
+        if (uid) {
+          await addDoc(collection(db2, "users", uid, "notifications"), {
+            type: "repair_status",
+            repairId: id,
+            status: newStatus,
+            title: `Repair ${String(id).slice(0, 6)} status updated`,
+            body: `Repair status is now ${
+              STATUS_LABEL[newStatus] || newStatus
+            }.`,
+            link: `/ordersummary?repairId=${id}`,
+            createdAt: serverTimestamp(),
+            read: false,
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to create repair status notification:", e);
+      }
+
+      // 🚚 if repair is now "to_ship", ensure a shipment exists
       if (newStatus === "to_ship") {
-        const db2 = getFirestore(auth.app);
         const rRow = repairs.find((x) => x.id === id) || { id };
-        const linkedOrder = await ensureOrderForRepair(db2, rRow);
-        if (linkedOrder) {
-          try {
-            await ensureShipmentForOrder(linkedOrder);
-          } catch {}
+        try {
+          await ensureShipmentForOrder({ ...rRow, id, kind: "repairs" });
+        } catch (e) {
+          console.warn(
+            "ensureShipmentForOrder (repair) failed:",
+            e?.message || e
+          );
         }
       }
     } catch (e) {
@@ -1383,63 +1418,180 @@ export default function Orders() {
     }
   }
 
-  // saveCustomStatus with shipment ensure
+      // saveCustomStatus with shipment ensure
   async function saveCustomStatus(id) {
-    const newStatus = customsDraft[id];
-    if (!newStatus) return;
-    setCustomsSaving((p) => ({ ...p, [id]: true }));
+  const newStatus = customsDraft[id];
+  if (!newStatus) return;
 
+  setCustomsSaving((p) => ({ ...p, [id]: true }));
+
+  try {
+    const db2 = getFirestore(auth.app);
+
+    const updates = {
+      status: newStatus,
+      statusUpdatedAt: serverTimestamp(),
+    };
+
+    // update Firestore
+    await updateDoc(doc(db2, "custom_orders", id), updates);
+
+    // update local state
+    setCustoms((prev) =>
+      prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
+    );
+
+    // 🔔 notify user about customization status change
     try {
-      const db2 = getFirestore(auth.app);
-      const updates = {
-        status: newStatus,
-        statusUpdatedAt: serverTimestamp(),
-      };
-      await updateDoc(doc(db2, "custom_orders", id), updates);
-      setCustoms((prev) =>
-        prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
-      );
+      const cRow = customs.find((x) => x.id === id) || {};
+      // 1st: userId inside custom doc
+      let uid =
+        cRow.userId ??
+        cRow.uid ??
+        cRow.customer?.uid ??
+        cRow.customerInfo?.uid ??
+        null;
 
-      if (newStatus === "to_ship") {
-        // 1) get the latest row for this custom
-        const cRow = customs.find((x) => x.id === id) || { id };
+      // 2nd: fallback to linked order
+      if (!uid) {
+        const linkedOrder =
+          rows.find(
+            (o) =>
+              String(o?.origin || "") === "customization" &&
+              (o?.customId === id ||
+                o?.linkedCustomId === id ||
+                o?.metadata?.customId === id ||
+                o?.id === cRow.orderId)
+          ) || null;
+        if (linkedOrder?.userId) uid = linkedOrder.userId;
+      }
 
-        // 2) ensure we have a REAL order doc linked to this customization
-        const linkedOrder = await ensureOrderForCustom(db2, cRow, "to_ship");
-
-        // 3) make sure a shipment exists for that order
-        try {
-          await ensureShipmentForOrder(linkedOrder);
-        } catch (e) {
-          console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
-        }
+      if (uid) {
+        await addDoc(collection(db2, "users", uid, "notifications"), {
+          type: "custom_status",
+          customId: id,
+          status: newStatus,
+          title: `Customization ${String(id).slice(0, 6)} status updated`,
+          body: `Customization status is now ${
+            STATUS_LABEL[newStatus] || newStatus
+          }.`,
+          link: `/ordersummary?customId=${id}`,
+          createdAt: serverTimestamp(),
+          read: false,
+        });
       }
     } catch (e) {
-      alert(e?.message || "Failed to update customization status.");
-    } finally {
-      setCustomsSaving((p) => ({ ...p, [id]: false }));
+      console.warn("Failed to create customization status notification:", e);
     }
-  }
 
-  async function deleteOrderCascade(id) {
-    try {
-      setDeleting((p) => ({ ...p, [id]: true }));
-      await deleteShipmentsForOrder(id).catch(() => {});
-      await deleteDoc(doc(getFirestore(auth.app), "orders", id));
-      setRows((prev) => prev.filter((o) => o.id !== id));
-    } catch (e) {
-      alert(e?.message || "Failed to delete order.");
-    } finally {
-      setDeleting((p) => ({ ...p, [id]: false }));
+    // 🚚 if custom is now "to_ship", create / ensure a shipment
+    if (newStatus === "to_ship") {
+      const cRow = customs.find((x) => x.id === id) || { id };
+
+      try {
+        await ensureShipmentForOrder({
+          ...cRow,
+          ...updates,
+          id,
+          kind: "custom_orders",
+        });
+      } catch (e) {
+        console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
+      }
     }
+  } catch (e) {
+    alert(e?.message || "Failed to update customization status.");
+  } finally {
+    setCustomsSaving((p) => ({ ...p, [id]: false }));
   }
+}
+  // 🗑 Delete order + its shipments + its notifications
+async function deleteOrderCascade(id) {
+  try {
+    setDeleting((p) => ({ ...p, [id]: true }));
+    const db2 = getFirestore(auth.app);
 
+    // find order in local state to get userId
+    const row = rows.find((o) => o.id === id) || {};
+    const userId =
+      row.userId ??
+      row.uid ??
+      row.customer?.uid ??
+      row.customerInfo?.uid ??
+      null;
+
+    // 1) delete shipments tied to this order
+    await deleteShipmentsForOrder(id).catch(() => {});
+
+    // 2) delete notifications for this order (if we know userId)
+    if (userId) {
+      try {
+        await deleteNotificationsForOrder(db2, {
+          userId,
+          sourceId: id,
+          kind: "orders",
+        });
+      } catch (e) {
+        console.warn("Failed to delete order notifications:", e);
+      }
+    }
+
+    // 3) delete the order doc itself
+    await deleteDoc(doc(db2, "orders", id));
+
+    // 4) update local state
+    setRows((prev) => prev.filter((o) => o.id !== id));
+  } catch (e) {
+    alert(e?.message || "Failed to delete order.");
+  } finally {
+    setDeleting((p) => ({ ...p, [id]: false }));
+  }
+}
+
+
+  // 🗑 Delete repair + any linked order + shipments + notifications
   async function deleteRepairCascade(id) {
     try {
       setRepDeleting((p) => ({ ...p, [id]: true }));
-      const linked = rows.find((o) => o?.repairId === id);
-      if (linked) await deleteOrderCascade(linked.id);
-      await deleteDoc(doc(getFirestore(auth.app), "repairs", id));
+      const db2 = getFirestore(auth.app);
+
+      // find repair row to get userId
+      const rRow = repairs.find((x) => x.id === id) || {};
+      const userId =
+        rRow.userId ??
+        rRow.uid ??
+        rRow.customer?.uid ??
+        rRow.customerInfo?.uid ??
+        null;
+
+      // find linked order (orders.repairId === repair.id)
+      const linked =
+        rows.find((o) => o?.repairId === id) || null;
+      if (linked) {
+        // this will also clear shipments + order notifications
+        await deleteOrderCascade(linked.id);
+      }
+
+      // delete shipments that used this repair as orderId
+      await deleteShipmentsForOrder(id).catch(() => {});
+
+      // delete notifications that reference this repair
+      if (userId) {
+        try {
+          await deleteNotificationsForOrder(db2, {
+            userId,
+            sourceId: id,
+            kind: "repairs",
+          });
+        } catch (e) {
+          console.warn("Failed to delete repair notifications:", e);
+        }
+      }
+
+      // delete the repair doc
+      await deleteDoc(doc(db2, "repairs", id));
+
+      // local state
       setRepairs((prev) => prev.filter((r) => r.id !== id));
     } catch (e) {
       alert(e?.message || "Failed to delete repair.");
@@ -1448,19 +1600,57 @@ export default function Orders() {
     }
   }
 
+  // 🗑 Delete customization + any linked order + shipments + notifications
   async function deleteCustomCascade(id) {
     try {
       setCustomDeleting((p) => ({ ...p, [id]: true }));
+      const db2 = getFirestore(auth.app);
+
+      // find custom row to get userId
+      const cRow = customs.find((x) => x.id === id) || {};
+      const userId =
+        cRow.userId ??
+        cRow.uid ??
+        cRow.customer?.uid ??
+        cRow.customerInfo?.uid ??
+        null;
+
+      // find linked order (catalog) for this customization
       const linked =
         rows.find(
           (o) =>
             String(o?.origin || "") === "customization" &&
             (o?.customId === id ||
               o?.linkedCustomId === id ||
-              o?.metadata?.customId === id)
+              o?.metadata?.customId === id ||
+              o?.id === cRow.orderId)
         ) || null;
-      if (linked) await deleteOrderCascade(linked.id);
-      await deleteDoc(doc(getFirestore(auth.app), "custom_orders", id));
+
+      if (linked) {
+        // this will also clear shipments + order notifications
+        await deleteOrderCascade(linked.id);
+      }
+
+      // delete shipments that used this customId as orderId
+      await deleteShipmentsForOrder(id).catch(() => {});
+
+      // delete notifications that reference this customization
+      if (userId) {
+        try {
+          await deleteNotificationsForOrder(db2, {
+            userId,
+            sourceId: id,
+            kind: "custom_orders",
+          });
+        } catch (e) {
+          console.warn("Failed to delete custom notifications:", e);
+        }
+      }
+
+      // delete the custom doc
+      await deleteDoc(doc(db2, "custom_orders", id));
+
+      // local state
       setCustoms((prev) => prev.filter((c) => c.id !== id));
     } catch (e) {
       alert(e?.message || "Failed to delete customization.");
@@ -1468,6 +1658,34 @@ export default function Orders() {
       setCustomDeleting((p) => ({ ...p, [id]: false }));
     }
   }
+
+
+
+  // 🔔 Delete notifications related to an order / repair / custom doc
+async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
+  // kind: "orders" | "repairs" | "custom_orders"
+  if (!db || !userId || !sourceId) return;
+
+  const field =
+    kind === "repairs"
+      ? "repairId"
+      : kind === "custom_orders"
+      ? "customId"
+      : "orderId";
+
+  const notifCol = collection(db, "users", userId, "notifications");
+  const qy = query(notifCol, where(field, "==", sourceId));
+
+  const snap = await getDocs(qy);
+  if (snap.empty) return;
+
+  const batch = writeBatch(db);
+  snap.forEach((docSnap) => batch.delete(docSnap.ref));
+  await batch.commit();
+}
+
+
+  
 
   /* -------- small buttons used in UI -------- */
   const TabButton = ({ id, label, count }) => (
@@ -1498,7 +1716,6 @@ export default function Orders() {
       {open ? "Hide" : "View"}
     </button>
   );
-
   /* -------------------- Render: Orders tab -------------------- */
   return (
     <div className="admin-orders">
@@ -1690,7 +1907,6 @@ export default function Orders() {
                             />
                           </td>
                         </tr>
-
                         {/* ----- expanded details row ----- */}
                         {isOpen && (
                           <tr>
@@ -1928,6 +2144,7 @@ export default function Orders() {
           )}
         </>
       )}
+
       {/* -------------------- REPAIRS TAB -------------------- */}
       {activeTab === "repairs" && (
         <>
@@ -2091,18 +2308,14 @@ export default function Orders() {
                               ))}
                             </select>
                             <button
-                              className="save-btn"
-                              onClick={() => saveRepairStatus(id)}
-                              disabled={
-                                repairsSaving[id] || draftStatus === status
-                              }
-                              type="button"
-                              title={
-                                draftStatus === status ? "No changes" : "Save"
-                              }
-                            >
-                              {repairsSaving[id] ? "Saving…" : "Save"}
-                            </button>
+  className="save-btn"
+  onClick={() => saveRepairStatus(id)}
+  disabled={repairsSaving[id] || draftStatus === status}
+  type="button"
+  title={draftStatus === status ? "No changes" : "Save"}
+>
+  {repairsSaving[id] ? "Saving…" : "Save"}
+</button>
                             <IconTrashBtn
                               color={clrRepairs}
                               disabled={!!repDeleting[id]}

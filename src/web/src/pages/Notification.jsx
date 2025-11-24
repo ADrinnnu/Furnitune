@@ -53,9 +53,10 @@ function paymentBadgeClass(ps) {
 
 /* Important notif types we always show even without a link */
 const IMPORTANT_TYPES = new Set([
-  "order_status",                 // order status/policy changes, returns, etc.
-  "repair_status",                // repair status updates
-  "additional_payment_request",   // assessment + request
+  "order_status", // order status/policy changes, returns, etc.
+  "repair_status", // repair status updates
+  "custom_status", // custom order status updates
+  "additional_payment_request", // assessment + request
 ]);
 
 /* ---------- timestamp helpers (robust ordering) ---------- */
@@ -82,6 +83,21 @@ function pickNotifMillis(n) {
     tsToMillis(n?.readAt) ||
     0
   );
+}
+
+/* ---------- helper: resolve link target from a notif ---------- */
+function resolveLinkFromNotif(n) {
+  if (!n) return null;
+  if (n.link) return n.link;
+  if (n.orderId) return `/ordersummary?orderId=${n.orderId}`;
+  if (n.customId) return `/ordersummary?customId=${n.customId}`;
+  if (n.repairId) return `/ordersummary?repairId=${n.repairId}`;
+  return null;
+}
+
+/* ---------- helper: pick best image field ---------- */
+function pickNotifImage(n) {
+  return n?.image || n?.thumbnail || n?.productImage || n?.imageUrl || null;
 }
 
 export default function Notification() {
@@ -141,7 +157,7 @@ export default function Notification() {
   -------------------------------------------- */
   const visibleItems = useMemo(() => {
     const filtered = items.filter((n) => {
-      const hasTarget = !!(n.link || n.orderId);
+      const hasTarget = !!resolveLinkFromNotif(n);
       const isImportant = n?.type && IMPORTANT_TYPES.has(String(n.type));
       return hasTarget || isImportant;
     });
@@ -174,9 +190,7 @@ export default function Notification() {
   const markRead = async (notif) => {
     if (!uid) return;
 
-    const resolvedLink =
-      notif.link ||
-      (notif.orderId ? `/ordersummary?orderId=${notif.orderId}` : null);
+    const resolvedLink = resolveLinkFromNotif(notif);
 
     try {
       await updateDoc(doc(db, "users", uid, "notifications", notif.id), {
@@ -365,12 +379,12 @@ export default function Notification() {
         <>
           <div className="notifications-list">
             {visibleItems.map((n) => {
-              const resolvedLink =
-                n.link || (n.orderId ? `/ordersummary?orderId=${n.orderId}` : null);
+              const resolvedLink = resolveLinkFromNotif(n);
               const hasLink = !!resolvedLink;
 
               const mainStatus = n.status && String(n.status).toLowerCase();
               const isPayment = PAYMENT_STATUSES.includes(mainStatus);
+              const imgSrc = pickNotifImage(n);
 
               return (
                 <div
@@ -384,7 +398,11 @@ export default function Notification() {
                   }
                   title={hasLink ? "" : "No details available"}
                 >
-                  {n.image ? <img src={n.image} alt="" /> : <div className="thumb" />}
+                  {imgSrc ? (
+                    <img src={imgSrc} alt="" />
+                  ) : (
+                    <div className="thumb" />
+                  )}
                   <div className="notification-text">
                     <h3>
                       {n.title || "Notification"}{" "}

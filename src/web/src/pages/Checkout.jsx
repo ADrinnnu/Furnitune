@@ -1,4 +1,3 @@
-// src/pages/Checkout.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -553,7 +552,7 @@ export default function Checkout() {
           showAddress={false}
           items={items}
           shippingFee={510}
-          order={{ items, subtotal,  shippingFee: 510, total }}
+          order={{ items, subtotal, shippingFee: 510, total }}
         />
       </div>
     </div>

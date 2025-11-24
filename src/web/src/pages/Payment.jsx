@@ -1,4 +1,3 @@
-// src/pages/Payment.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
@@ -8,7 +7,7 @@ import {
   collection,
   serverTimestamp,
   doc,
-  setDoc,          // ✅ NEW
+  setDoc, // still used for catalog orders
   updateDoc,
   getDoc,
   getDocs,
@@ -78,23 +77,27 @@ function validateFile(f, setErrMsg) {
   return true;
 }
 
-/** Upload to payments/{orderId}/..., else fallback to userPayments/{uid}/... */
+/** Upload to payments/{id}/..., else fallback to userPayments/{uid}/... */
 async function uploadPaymentProofWithFallback(storage, { orderId, uid, file, kind }) {
   const stamp = Date.now();
   const cleanName = file?.name ? file.name.replace(/[^\w.\-]+/g, "_") : "proof.jpg";
   const metadata = file?.type ? { contentType: file.type } : undefined;
 
   const primaryName =
-    kind === "additional" ? `additional_${stamp}_${cleanName}`
-    : kind === "ref"       ? `ref_${stamp}_${cleanName}`
-    :                        `${stamp}_${cleanName}`;
+    kind === "additional"
+      ? `additional_${stamp}_${cleanName}`
+      : kind === "ref"
+      ? `ref_${stamp}_${cleanName}`
+      : `${stamp}_${cleanName}`;
   const primaryPath = `payments/${orderId}/${primaryName}`;
 
   try {
     const pRef = ref(storage, primaryPath);
     const res = await uploadBytes(pRef, file, metadata);
     let url = null;
-    try { url = await getDownloadURL(pRef); } catch {}
+    try {
+      url = await getDownloadURL(pRef);
+    } catch {}
     return { storagePath: res.metadata.fullPath || primaryPath, url, used: "payments" };
   } catch {
     const fallbackName = `order-${orderId}_${stamp}_${cleanName}`;
@@ -102,7 +105,9 @@ async function uploadPaymentProofWithFallback(storage, { orderId, uid, file, kin
     const fRef = ref(storage, fallbackPath);
     const res = await uploadBytes(fRef, file, metadata);
     let url = null;
-    try { url = await getDownloadURL(fRef); } catch {}
+    try {
+      url = await getDownloadURL(fRef);
+    } catch {}
     return { storagePath: res.metadata.fullPath || fallbackPath, url, used: "userPayments" };
   }
 }
@@ -131,7 +136,7 @@ export default function Payment() {
   }, []);
 
   const isCustomization = useMemo(
-    () => (pending?.origin === "customization") || !!sessionStorage.getItem("custom_draft"),
+    () => pending?.origin === "customization" || !!sessionStorage.getItem("custom_draft"),
     [pending]
   );
 
@@ -164,23 +169,41 @@ export default function Payment() {
   // prevent accidental leave
   useEffect(() => {
     let armed = true;
-    const beforeUnload = (e) => { if (!armed || uploading) return; e.preventDefault(); e.returnValue = ""; };
-    const onPopState = () => { if (!armed || uploading) return; if (!window.confirm("Leave payment? Your order won’t be placed.")) history.go(1); };
+    const beforeUnload = (e) => {
+      if (!armed || uploading) return;
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    const onPopState = () => {
+      if (!armed || uploading) return;
+      if (!window.confirm("Leave payment? Your order won’t be placed.")) history.go(1);
+    };
     window.addEventListener("beforeunload", beforeUnload);
     window.addEventListener("popstate", onPopState);
-    return () => { armed = false; window.removeEventListener("beforeunload", beforeUnload); window.removeEventListener("popstate", onPopState); };
+    return () => {
+      armed = false;
+      window.removeEventListener("beforeunload", beforeUnload);
+      window.removeEventListener("popstate", onPopState);
+    };
   }, [uploading]);
 
   // load existing order for addl payment
   useEffect(() => {
     (async () => {
       if (!existingOrderId) return;
-      const snap = await getDoc(doc(db, "orders", existingOrderId));
+
+      // Try orders/{id} first, then custom_orders/{id} as fallback
+      let snap = await getDoc(doc(db, "orders", existingOrderId));
       if (!snap.exists()) {
-        alert("Order not found.");
-        navigate("/", { replace: true });
-        return;
+        const customSnap = await getDoc(doc(db, "custom_orders", existingOrderId));
+        if (!customSnap.exists()) {
+          alert("Order not found.");
+          navigate("/", { replace: true });
+          return;
+        }
+        snap = customSnap;
       }
+
       const o = { id: snap.id, ...snap.data() };
       setExistingOrder(o);
 
@@ -195,9 +218,16 @@ export default function Payment() {
       let allowed = false;
       let nowCents = 0;
 
-      if (requestedC > 0) { allowed = true; nowCents = requestedC; }
-      else if (assessedC > 0 && balance > 0 && String(o.paymentStatus || "").toLowerCase() === "awaiting_additional_payment") {
-        allowed = true; nowCents = balance;
+      if (requestedC > 0) {
+        allowed = true;
+        nowCents = requestedC;
+      } else if (
+        assessedC > 0 &&
+        balance > 0 &&
+        String(o.paymentStatus || "").toLowerCase() === "awaiting_additional_payment"
+      ) {
+        allowed = true;
+        nowCents = balance;
       }
 
       setCanPayAdditional(allowed);
@@ -222,48 +252,67 @@ export default function Payment() {
 
   const buildItemsLean = (sourceItems) =>
     (Array.isArray(sourceItems) ? sourceItems : []).map((it) => ({
-      title: typeof it.title === "string" ? it.title : (typeof it.name === "string" ? it.name : null),
+      title:
+        typeof it.title === "string"
+          ? it.title
+          : typeof it.name === "string"
+          ? it.name
+          : null,
       qty: Number(it.qty || 1) || 1,
       price: Number(it.price || 0) || 0,
       image: typeof it.image === "string" ? it.image : null,
     }));
 
   const buildSafeAddress = (addr) =>
-    addr ? {
-      fullName: addr.fullName ?? null,
-      firstName: addr.firstName ?? null,
-      lastName: addr.lastName ?? null,
-      email: addr.email ?? null,
-      phone: addr.phone ?? null,
-      line1: addr.line1 ?? null,
-      line2: addr.line2 ?? "",
-      city: addr.city ?? null,
-      province: addr.province ?? null,
-      zip: addr.zip ?? null,
-      newsletterOptIn: !!addr.newsletterOptIn,
-    } : null;
+    addr
+      ? {
+          fullName: addr.fullName ?? null,
+          firstName: addr.firstName ?? null,
+          lastName: addr.lastName ?? null,
+          email: addr.email ?? null,
+          phone: addr.phone ?? null,
+          line1: addr.line1 ?? null,
+          line2: addr.line2 ?? "",
+          city: addr.city ?? null,
+          province: addr.province ?? null,
+          zip: addr.zip ?? null,
+          newsletterOptIn: !!addr.newsletterOptIn,
+        }
+      : null;
 
   async function addAdminNotification({ orderId, userId, cents, storagePath, url, kind }) {
     try {
-      await addDoc(collection(db, "admin_notifications"), deepSanitizeForFirestore({
-        type: kind === "additional" ? "additional_payment_submitted" : "payment_proof_submitted",
-        orderId, userId,
-        amountCents: Nint(cents),
-        storagePath: storagePath || null,
-        url: url || null,
-        createdAt: serverTimestamp(),
-        read: false,
-      }));
+      await addDoc(
+        collection(db, "admin_notifications"),
+        deepSanitizeForFirestore({
+          type:
+            kind === "additional"
+              ? "additional_payment_submitted"
+              : "payment_proof_submitted",
+          orderId,
+          userId,
+          amountCents: Nint(cents),
+          storagePath: storagePath || null,
+          url: url || null,
+          createdAt: serverTimestamp(),
+          read: false,
+        })
+      );
     } catch (e) {
       console.warn("admin_notifications failed", e);
     }
   }
 
-  async function addOrderEvent(orderId, payload) {
+  // 🔁 now supports different top-level collections (orders/custom_orders)
+  async function addOrderEvent(orderId, payload, collName = "orders") {
     try {
-      await addDoc(collection(db, "orders", orderId, "events"), deepSanitizeForFirestore({
-        ...payload, createdAt: serverTimestamp(),
-      }));
+      await addDoc(
+        collection(db, collName, orderId, "events"),
+        deepSanitizeForFirestore({
+          ...payload,
+          createdAt: serverTimestamp(),
+        })
+      );
     } catch {}
   }
 
@@ -296,20 +345,34 @@ export default function Payment() {
       }
       const storage = getStorage(auth.app);
 
-      /* ───────────────── Additional payment ───────────────── */
+      /* ───────────────── Additional payment (existing order doc) ───────────────── */
       if (existingOrderId) {
-        const oRef = doc(db, "orders", existingOrderId);
-        const oSnap = await getDoc(oRef);
-        if (!oSnap.exists()) throw new Error("Order not found.");
-        const orderData = oSnap.data();
+        // Detect whether this id lives in orders or custom_orders
+        let primaryRef = doc(db, "orders", existingOrderId);
+        let primarySnap = await getDoc(primaryRef);
+        let primaryKind = "orders"; // "orders" | "custom"
+
+        if (!primarySnap.exists()) {
+          const customRef = doc(db, "custom_orders", existingOrderId);
+          const customSnap = await getDoc(customRef);
+          if (!customSnap.exists()) throw new Error("Order not found.");
+          primaryRef = customRef;
+          primarySnap = customSnap;
+          primaryKind = "custom";
+        }
+
+        const orderData = primarySnap.data() || {};
 
         const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
-          orderId: existingOrderId, uid, file, kind: "additional",
+          orderId: existingOrderId,
+          uid,
+          file,
+          kind: "additional",
         });
 
         const amountCents = Nint(Number(amountPHP)) * 100 || null;
 
-        await updateDoc(oRef, deepSanitizeForFirestore({
+        const patchBase = {
           paymentProofPendingReview: true,
           paymentProofType: "additional",
           paymentProofUpdatedAt: new Date(),
@@ -322,90 +385,374 @@ export default function Payment() {
             amountCents,
             note: null,
           }),
-        }));
+        };
 
-        // Mirror to origin doc (repair/custom)
-        try {
-          if (orderData?.repairId) {
-            await updateDoc(doc(db, "repairs", orderData.repairId), deepSanitizeForFirestore({
-              paymentProofPendingReview: true,
-              paymentProofType: "additional",
-              paymentProofUpdatedAt: new Date(),
-              lastAdditionalPaymentProofUrl: url || null,
-              lastAdditionalPaymentProofPath: storagePath || null,
-              additionalPaymentProofs: arrayUnion({
-                url: url || null,
-                uploadedAt: new Date(),
-                amountCents,
-                note: null,
-              }),
-            }));
-          } else {
-            const qy = query(collection(db, "custom_orders"), where("orderId", "==", existingOrderId));
-            const cs = await getDocs(qy);
-            const cRef = cs.docs[0]?.ref;
-            if (cRef) {
-              await updateDoc(cRef, deepSanitizeForFirestore({
-                paymentProofPendingReview: true,
-                paymentProofType: "additional",
-                paymentProofUpdatedAt: new Date(),
-                lastAdditionalPaymentProofUrl: url || null,
-                lastAdditionalPaymentProofPath: storagePath || null,
-                additionalPaymentProofs: arrayUnion({
-                  url: url || null,
-                  uploadedAt: new Date(),
-                  amountCents,
-                  note: null,
-                }),
-              }));
+        await updateDoc(primaryRef, deepSanitizeForFirestore(patchBase));
+
+        // Mirror to linked docs
+        if (primaryKind === "orders") {
+          // Mirror to origin doc (repair/custom) if any
+          try {
+            if (orderData?.repairId) {
+              await updateDoc(
+                doc(db, "repairs", orderData.repairId),
+                deepSanitizeForFirestore(patchBase)
+              );
+            } else {
+              const qy = query(
+                collection(db, "custom_orders"),
+                where("orderId", "==", existingOrderId)
+              );
+              const cs = await getDocs(qy);
+              const cRef = cs.docs[0]?.ref;
+              if (cRef) {
+                await updateDoc(cRef, deepSanitizeForFirestore(patchBase));
+              }
             }
+          } catch (e) {
+            console.warn("Origin mirror (additional) failed:", e);
           }
-        } catch (e) {
-          console.warn("Origin mirror (additional) failed:", e);
+        } else {
+          // primary is custom_orders; mirror to linked orders/{orderId} if it exists
+          try {
+            if (orderData?.orderId) {
+              await updateDoc(
+                doc(db, "orders", orderData.orderId),
+                deepSanitizeForFirestore(patchBase)
+              );
+            }
+          } catch (e) {
+            console.warn("Linked order mirror (additional) failed:", e);
+          }
         }
 
-        await addAdminNotification({ orderId: existingOrderId, userId: uid, cents: amountCents, storagePath, url, kind: "additional" });
-        await addOrderEvent(existingOrderId, { type: "additional_payment_submitted", amountCents, storagePath, url: url || null });
+        await addAdminNotification({
+          orderId: existingOrderId,
+          userId: uid,
+          cents: amountCents,
+          storagePath,
+          url,
+          kind: "additional",
+        });
+
+        // 🔁 choose the correct collection for events
+        const collNameForEvents =
+          primaryKind === "custom" ? "custom_orders" : "orders";
+
+        await addOrderEvent(
+          existingOrderId,
+          {
+            type: "additional_payment_submitted",
+            amountCents,
+            storagePath,
+            url: url || null,
+          },
+          collNameForEvents
+        );
 
         try {
-          await addDoc(collection(db, "users", uid, "notifications"), deepSanitizeForFirestore({
-            userId: uid,
-            type: "order_status",
-            orderId: existingOrderId,
-            status: "processing",
-            title: "Additional payment submitted",
-            body: "Thanks! We’re reviewing your additional payment proof.",
-            createdAt: new Date(),
-            read: false,
-          }));
+          await addDoc(
+            collection(db, "users", uid, "notifications"),
+            deepSanitizeForFirestore({
+              userId: uid,
+              type: "order_status",
+              orderId: existingOrderId,
+              status: "processing",
+              title: "Additional payment submitted",
+              body: "Thanks! We’re reviewing your additional payment proof.",
+              createdAt: new Date(),
+              read: false,
+            })
+          );
         } catch {}
 
         alert("Additional payment proof uploaded. We’ll review it shortly.");
-        navigate(`/ordersummary?orderId=${existingOrderId}`, { replace: true });
+
+        // Go back to the correct summary page depending on where this id lives
+        const qs =
+          primaryKind === "orders"
+            ? `orderId=${existingOrderId}`
+            : `customId=${existingOrderId}`;
+        navigate(`/ordersummary?${qs}`, { replace: true });
         return;
       }
 
-      /* ───────────────── First checkout (new order) ───────────────── */
+      /* ───────────────── First checkout (new “order”) ───────────────── */
 
       const itemsLean = buildItemsLean(items);
       const safeAddress = buildSafeAddress(pending?.shippingAddress);
 
-      // Build base order data (without proof yet)
+      /* ───── REPAIR CHECKOUT: write only to repairs/{repairId} ───── */
+      if (repairId) {
+        const repairRef = doc(db, "repairs", repairId);
+
+        const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
+          orderId: repairId,
+          uid,
+          file,
+          kind: "initial",
+        });
+
+        const repairPatch = deepSanitizeForFirestore({
+          userId: uid,
+          status: "processing",
+          origin: "repair",
+          shippingAddress: safeAddress || null,
+          contactEmail: safeAddress?.email || null,
+
+          // unified payment fields
+          paymentStatus: "pending",
+          assessmentStatus: "pending",
+          assessedTotalCents: null,
+          depositCents: 0,
+          depositIntendedCents: toC(total),
+          additionalPaymentsCents: 0,
+          refundsCents: 0,
+          requestedAdditionalPaymentCents: 0,
+
+          paymentProofPendingReview: true,
+          paymentProofType: "deposit",
+          paymentProofUpdatedAt: new Date(),
+          paymentProofUrl: url || null,
+          depositPaymentProofUrl: url || null,
+          depositPaymentProofs: arrayUnion({
+            url: url || null,
+            uploadedAt: new Date(),
+            amountCents: null,
+            note: null,
+          }),
+        });
+
+        await updateDoc(repairRef, repairPatch);
+
+        await addAdminNotification({
+          orderId: repairId, // we use repairId as reference id
+          userId: uid,
+          cents: toC(total),
+          storagePath,
+          url,
+          kind: "initial",
+        });
+
+        // user notification
+        try {
+          await addDoc(
+            collection(db, "users", uid, "notifications"),
+            deepSanitizeForFirestore({
+              userId: uid,
+              type: "repair_order_placed",
+              repairId,
+              status: "processing",
+              title: "Thanks! We’re reviewing your payment.",
+              body: `We received your payment proof for repair ${String(repairId).slice(
+                0,
+                6
+              )}.`,
+              image: itemsLean?.[0]?.image ?? null,
+              link: `/ordersummary?repairId=${repairId}`,
+              createdAt: new Date(),
+              read: false,
+            })
+          );
+        } catch {}
+
+        try {
+          await removeItemsFromCart(uid, items);
+        } catch {}
+        sessionStorage.removeItem(PENDING_KEY);
+        try {
+          clearCheckoutItems();
+        } catch {}
+
+        alert("Payment proof uploaded! Waiting for admin confirmation.");
+        navigate(`/ordersummary?repairId=${repairId}`, { replace: true });
+        return;
+      }
+
+      /* ───── CUSTOMIZATION CHECKOUT: write only to custom_orders ───── */
+      if (isCustomization && customDraft) {
+        // use the lean cart items we already built
+        const customItems = itemsLean;
+        const customSubtotal = customItems.reduce(
+          (s, it) => s + Number(it.price || 0) * Number(it.qty || 1),
+          0
+        );
+        const customTotal = customSubtotal + shippingFee;
+
+        // pick existing custom id if available, else create a new one
+        let customId = customDraft.id || customDraft.customId || null;
+        let customRef;
+        if (customId) {
+          customRef = doc(db, "custom_orders", customId);
+        } else {
+          customRef = doc(collection(db, "custom_orders"));
+          customId = customRef.id;
+        }
+
+        // upload main payment proof using customId namespace
+        const { storagePath, url } = await uploadPaymentProofWithFallback(storage, {
+          orderId: customId,
+          uid,
+          file,
+          kind: "initial",
+        });
+
+        // upload up to 3 reference images (data URLs) tied to same customId
+        let referenceImages = [];
+        try {
+          if (
+            Array.isArray(customDraft.referenceImagesData) &&
+            customDraft.referenceImagesData.length
+          ) {
+            const toUpload = customDraft.referenceImagesData.slice(0, 3);
+            const results = await Promise.all(
+              toUpload.map((r) =>
+                uploadPaymentProofWithFallback(storage, {
+                  orderId: customId,
+                  uid,
+                  file: dataURLtoBlob(r.dataUrl),
+                  kind: "ref",
+                })
+              )
+            );
+            referenceImages = results.map((r) => r.url || r.storagePath);
+          }
+        } catch (e) {
+          console.warn("Reference image upload failed; continuing without refs:", e);
+          referenceImages = [];
+        }
+
+        const customPayload = deepSanitizeForFirestore({
+          userId: uid,
+          createdAt: customDraft.createdAt || serverTimestamp(),
+          status: "processing",
+
+          productId: customDraft.productId ?? null,
+          productTitle: customDraft.productTitle ?? null,
+          category: customDraft.category ?? null,
+          size: customDraft.size ?? null,
+
+          cover: {
+            materialType: customDraft?.cover?.materialType ?? null,
+            color: customDraft?.cover?.color ?? null,
+          },
+          additionals: Array.isArray(customDraft.additionals)
+            ? customDraft.additionals.map(String)
+            : [],
+          notes: customDraft.notes ?? "",
+
+          descriptionFromProduct: customDraft.descriptionFromProduct ?? null,
+
+          // ✅ pricing + cart fields so OrderSummaryCard can show totals & items
+          unitPrice:
+            customItems[0]?.price ??
+            Number(customDraft.unitPrice ?? customSubtotal ?? 0),
+          items: customItems,
+          subtotal: customSubtotal,
+          shippingFee,
+          total: customTotal,
+
+          images: Array.isArray(customDraft.images)
+            ? customDraft.images.filter((u) => typeof u === "string")
+            : [],
+          referenceImages,
+
+          // customer info
+          shippingAddress: safeAddress || null,
+          contactEmail: safeAddress?.email || null,
+
+          // unified payment fields (same structure as orders)
+          paymentStatus: "pending",
+          assessmentStatus: "pending",
+          assessedTotalCents: null,
+          depositCents: 0,
+          depositIntendedCents: toC(customTotal),
+          additionalPaymentsCents: 0,
+          refundsCents: 0,
+          requestedAdditionalPaymentCents: 0,
+
+          paymentProofPendingReview: true,
+          paymentProofType: "deposit",
+          paymentProofUpdatedAt: new Date(),
+          paymentProofUrl: url || null,
+          depositPaymentProofUrl: url || null,
+          depositPaymentProofs: [
+            {
+              url: url || null,
+              uploadedAt: new Date(),
+              amountCents: null,
+              note: null,
+            },
+          ],
+        });
+
+        await setDoc(customRef, customPayload, { merge: true });
+
+        await addAdminNotification({
+          orderId: customId,
+          userId: uid,
+          cents: toC(customTotal),
+          storagePath,
+          url,
+          kind: "initial",
+        });
+
+        // user notification
+        try {
+          await addDoc(
+            collection(db, "users", uid, "notifications"),
+            deepSanitizeForFirestore({
+              userId: uid,
+              type: "order_placed",
+              customId,
+              status: "processing",
+              title: "Thanks! We’re reviewing your payment.",
+              body: `We received your payment proof for your customization ${String(
+                customId
+              ).slice(0, 6)}.`,
+              image: customItems?.[0]?.image ?? null,
+              link: `/ordersummary?customId=${customId}`,
+              createdAt: new Date(),
+              read: false,
+            })
+          );
+        } catch {}
+
+        try {
+          await removeItemsFromCart(uid, items);
+        } catch {}
+        sessionStorage.removeItem(PENDING_KEY);
+        try {
+          clearCheckoutItems();
+        } catch {}
+        try {
+          sessionStorage.removeItem("custom_draft");
+        } catch {}
+
+        alert("Payment proof uploaded! Waiting for admin confirmation.");
+        navigate(`/ordersummary?customId=${customId}`, { replace: true });
+        return;
+      }
+
+      /* ───── CATALOG CHECKOUT: normal orders/{orderId} doc ───── */
+
+      const itemsLeanCatalog = itemsLean;
+      const safeAddressCatalog = safeAddress;
+
+      // Base order data
       const orderBase = {
         userId: uid,
         createdAt: serverTimestamp(),
         status: "processing",
-        items: itemsLean,
+        items: itemsLeanCatalog,
         subtotal,
         shippingFee,
         total,
-        shippingAddress: safeAddress,
-        contactEmail: safeAddress?.email || null,
-        note: repairId
-          ? `Created from Repair ${repairId}`
-          : (isCustomization ? "Created from Customization" : "Created from Checkout"),
-        repairId,
-        origin: isCustomization ? "customization" : (repairId ? "repair" : "catalog"),
+        shippingAddress: safeAddressCatalog,
+        contactEmail: safeAddressCatalog?.email || null,
+        note: "Created from Checkout",
+        repairId: null,
+        origin: "catalog",
 
         // Payments meta (neutral)
         paymentStatus: "pending",
@@ -437,7 +784,7 @@ export default function Payment() {
       // Now create the order with proof info included
       const orderPayload = deepSanitizeForFirestore({
         ...orderBase,
-        paymentProofUrl: url || null,          // legacy for Admin Orders image
+        paymentProofUrl: url || null, // legacy for Admin Orders image
         depositPaymentProofUrl: url || null,
         depositPaymentProofs: [
           {
@@ -466,138 +813,38 @@ export default function Payment() {
         url: url || null,
       });
 
-      // Customization: create custom_orders with full customer + proof fields
-      if (isCustomization && customDraft) {
-        let referenceImages = [];
-        try {
-          if (Array.isArray(customDraft.referenceImagesData) && customDraft.referenceImagesData.length) {
-            const toUpload = customDraft.referenceImagesData.slice(0, 3);
-            const results = await Promise.all(
-              toUpload.map((r) =>
-                uploadPaymentProofWithFallback(storage, {
-                  orderId,
-                  uid,
-                  file: dataURLtoBlob(r.dataUrl),
-                  kind: "ref",
-                })
-              )
-            );
-            referenceImages = results.map((r) => r.url || r.storagePath);
-          }
-        } catch (e) {
-          console.warn("Reference image upload failed; continuing without refs:", e);
-          referenceImages = [];
-        }
-
-        const customLean = deepSanitizeForFirestore({
-          userId: uid,
-          orderId,
-          createdAt: serverTimestamp(),
-          status: "processing",
-
-          productId: customDraft.productId ?? null,
-          productTitle: customDraft.productTitle ?? null,
-          category: customDraft.category ?? null,
-          size: customDraft.size ?? null,
-
-          cover: {
-            materialType: customDraft?.cover?.materialType ?? null,
-            color: customDraft?.cover?.color ?? null,
-          },
-          additionals: Array.isArray(customDraft.additionals) ? customDraft.additionals.map(String) : [],
-          notes: customDraft.notes ?? "",
-
-          descriptionFromProduct: customDraft.descriptionFromProduct ?? null,
-          unitPrice: Number(customDraft.unitPrice ?? 0) || 0,
-
-          images: Array.isArray(customDraft.images)
-            ? customDraft.images.filter((u) => typeof u === "string")
-            : [],
-          referenceImages,
-
-          // customer info
-          shippingAddress: safeAddress || null,
-          contactEmail: safeAddress?.email || null,
-
-          // initial proof mirrored
-          paymentStatus: "pending",
-          paymentProofPendingReview: true,
-          paymentProofType: "deposit",
-          paymentProofUpdatedAt: new Date(),
-          paymentProofUrl: url || null,
-          depositPaymentProofUrl: url || null,
-          depositPaymentProofs: [
-            {
-              url: url || null,
-              uploadedAt: new Date(),
-              amountCents: null,
-              note: null,
-            },
-          ],
-        });
-
-        const cDupQ = query(
-          collection(db, "custom_orders"),
-          where("orderId", "==", orderId),
-          qLimit(1)
-        );
-        const cDupSnap = await getDocs(cDupQ);
-        if (cDupSnap.empty) {
-          await addDoc(collection(db, "custom_orders"), customLean);
-        }
-      }
-
-      // Repairs: patch repair doc with shipping + initial proof
-      if (repairId) {
-        try {
-          await updateDoc(doc(db, "repairs", repairId), deepSanitizeForFirestore({
-            orderId,
-            shippingAddress: safeAddress || null,
-            contactEmail: safeAddress?.email || null,
-            userId: uid,
-
-            paymentStatus: "pending",
-            paymentProofPendingReview: true,
-            paymentProofType: "deposit",
-            paymentProofUpdatedAt: new Date(),
-            paymentProofUrl: url || null,
-            depositPaymentProofUrl: url || null,
-            depositPaymentProofs: arrayUnion({
-              url: url || null,
-              uploadedAt: new Date(),
-              amountCents: null,
-              note: null,
-            }),
-          }));
-        } catch (e) {
-          console.warn("Repair mirror (initial) failed:", e?.message || e);
-        }
-      }
-
       // notify + cleanup
       try {
-        await addDoc(collection(db, "users", uid, "notifications"), deepSanitizeForFirestore({
-          userId: uid,
-          type: repairId ? "repair_order_placed" : "order_placed",
-          orderId,
-          ...(repairId ? { repairId } : {}),
-          status: "processing",
-          title: "Thanks! We’re reviewing your payment.",
-          body: `We received your payment proof for order ${String(orderId).slice(0, 6)}.`,
-          image: itemsLean?.[0]?.image ?? null,
-          link: `/ordersummary?orderId=${orderId}`,
-          createdAt: new Date(),
-          read: false,
-        }));
+        await addDoc(
+          collection(db, "users", uid, "notifications"),
+          deepSanitizeForFirestore({
+            userId: uid,
+            type: "order_placed",
+            orderId,
+            status: "processing",
+            title: "Thanks! We’re reviewing your payment.",
+            body: `We received your payment proof for order ${String(orderId).slice(
+              0,
+              6
+            )}.`,
+            image: itemsLeanCatalog?.[0]?.image ?? null,
+            link: `/ordersummary?orderId=${orderId}`,
+            createdAt: new Date(),
+            read: false,
+          })
+        );
       } catch {}
 
-      try { await removeItemsFromCart(uid, items); } catch {}
+      try {
+        await removeItemsFromCart(uid, items);
+      } catch {}
       sessionStorage.removeItem(PENDING_KEY);
-      try { clearCheckoutItems(); } catch {}
-      try { sessionStorage.removeItem("custom_draft"); } catch {}
+      try {
+        clearCheckoutItems();
+      } catch {}
 
       alert("Payment proof uploaded! Waiting for admin confirmation.");
-      navigate(`/ordersummary?orderId=${orderId}`, { replace: true });
+      navigate(`/ordersummary?orderId=${orderId}`);
     } catch (e) {
       console.error(e);
       alert("Failed to submit payment proof. Please try again.");
@@ -617,18 +864,27 @@ export default function Payment() {
         <h3>PAYMENT VIA QR CODE</h3>
         <hr />
         <p>Please scan the QR code below and upload your proof of payment.</p>
-        <img src={qrCodeImg} alt="Payment QR Code" style={{ maxWidth: "240px", margin: "12px 0" }} />
+        <img
+          src={qrCodeImg}
+          alt="Payment QR Code"
+          style={{ maxWidth: "240px", margin: "12px 0" }}
+        />
 
         {existingOrderId && (
           <>
             <label>Amount to pay now (₱)</label>
             <input type="number" min="0" step="1" value={amountPHP} disabled />
             {!canPayAdditional ? (
-              <div style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b7280" }}>
-                Waiting for admin to request an additional payment or finalize the assessment.
+              <div
+                style={{ margin: "6px 0 12px", fontSize: 13, color: "#6b7280" }}
+              >
+                Waiting for admin to request an additional payment or finalize the
+                assessment.
               </div>
             ) : (
-              <div style={{ margin: "6px 0 12px", fontSize: 13, color: "#374151" }}>
+              <div
+                style={{ margin: "6px 0 12px", fontSize: 13, color: "#374151" }}
+              >
                 This amount is locked based on your order’s current balance.
               </div>
             )}
@@ -642,13 +898,22 @@ export default function Payment() {
           onChange={(e) => setFile(e.target.files?.[0] || null)}
           disabled={uploading}
         />
-        {errMsg ? <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 6 }}>{errMsg}</div> : null}
+        {errMsg ? (
+          <div style={{ color: "#b91c1c", fontSize: 12, marginTop: 6 }}>
+            {errMsg}
+          </div>
+        ) : null}
 
         <div className="form-actions">
           <button
             className="back-btn"
             onClick={() => {
-              if (window.confirm("If you go back now, your order won’t be placed. Go back?")) navigate(-1);
+              if (
+                window.confirm(
+                  "If you go back now, your order won’t be placed. Go back?"
+                )
+              )
+                navigate(-1);
             }}
             disabled={uploading}
           >
@@ -662,7 +927,9 @@ export default function Payment() {
             {uploading
               ? "UPLOADING…"
               : existingOrderId
-              ? (canPayAdditional ? "SUBMIT ADDITIONAL PAYMENT" : "WAITING FOR REQUEST")
+              ? canPayAdditional
+                ? "SUBMIT ADDITIONAL PAYMENT"
+                : "WAITING FOR REQUEST"
               : "SUBMIT PAYMENT PROOF"}
           </button>
         </div>

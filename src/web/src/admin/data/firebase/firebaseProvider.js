@@ -1,11 +1,23 @@
 // src/admin/data/firebaseProvider.js
 import app, { db, auth } from "./firebaseCore";
 import {
-  collection, getDocs, addDoc, doc, updateDoc, deleteDoc,
-  serverTimestamp, query, orderBy, where, getDoc // <-- added getDoc
+  collection,
+  getDocs,
+  addDoc,
+  doc,
+  updateDoc,
+  deleteDoc,
+  serverTimestamp,
+  query,
+  orderBy,
+  where,
+  getDoc,
 } from "firebase/firestore";
 import {
-  getStorage, ref, uploadBytesResumable, getDownloadURL
+  getStorage,
+  ref,
+  uploadBytesResumable,
+  getDownloadURL,
 } from "firebase/storage";
 import { onAuthStateChanged } from "firebase/auth";
 
@@ -86,7 +98,10 @@ async function uploadMany(files, slug, sub = "base") {
     arr.map((f, i) =>
       uploadOne(
         f,
-        `products/${slug}/${sub}/${ts}-${i}-${(f.name || "image").replace(/\s+/g, "_")}`
+        `products/${slug}/${sub}/${ts}-${i}-${(f.name || "image").replace(
+          /\s+/g,
+          "_"
+        )}`
       )
     )
   );
@@ -96,7 +111,9 @@ async function uploadMany(files, slug, sub = "base") {
 
 export const firebaseProvider = {
   /* Auth-ish */
-  async getCurrentUser() { return currentUser(); },
+  async getCurrentUser() {
+    return currentUser();
+  },
   async requireRole(roles) {
     const u = await currentUser();
     if (!u || !roles.includes(u.role)) throw new Error("Forbidden");
@@ -104,7 +121,9 @@ export const firebaseProvider = {
 
   /* Designs */
   async listDesigns() {
-    const snap = await getDocs(query(col("designs"), orderBy("createdAt", "desc")));
+    const snap = await getDocs(
+      query(col("designs"), orderBy("createdAt", "desc"))
+    );
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
   async createDesign(d) {
@@ -131,7 +150,9 @@ export const firebaseProvider = {
 
   /* Products (simple SKU model + your richer schema support) */
   async listProducts() {
-    const snap = await getDocs(query(col("products"), orderBy("createdAt", "desc")));
+    const snap = await getDocs(
+      query(col("products"), orderBy("createdAt", "desc"))
+    );
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
@@ -167,7 +188,8 @@ export const firebaseProvider = {
       priceCents: typeof p.priceCents === "number" ? p.priceCents : undefined,
       currency: p.currency || "USD",
       stock: typeof p.stock === "number" ? p.stock : 0,
-      isActive: typeof p.isActive === "boolean" ? p.isActive : (p.active ?? true),
+      isActive:
+        typeof p.isActive === "boolean" ? p.isActive : p.active ?? true,
 
       // richer product schema (all optional)
       active: p.active ?? (typeof p.isActive === "boolean" ? p.isActive : true),
@@ -178,15 +200,23 @@ export const firebaseProvider = {
       departmentSlug: p.departmentSlug || undefined,
       dimensionDefaults: p.dimensionDefaults || undefined,
       images: images.length ? images : p.images || [],
-      leadTimeDays: p.leadTimeDays != null ? Number(p.leadTimeDays) : undefined,
+      leadTimeDays:
+        p.leadTimeDays != null ? Number(p.leadTimeDays) : undefined,
       madeToOrder: !!(p.madeToOrder ?? true),
-      materialOptions: Array.isArray(p.materialOptions) ? p.materialOptions : [],
+      materialOptions: Array.isArray(p.materialOptions)
+        ? p.materialOptions
+        : [],
       priceStrategy: p.priceStrategy || "lookup",
       ratingAvg: p.ratingAvg != null ? Number(p.ratingAvg) : undefined,
-      reviewsCount: p.reviewsCount != null ? Number(p.reviewsCount) : undefined,
+      reviewsCount:
+        p.reviewsCount != null ? Number(p.reviewsCount) : undefined,
       slug,
       style: p.style || undefined,
-      tags: Array.isArray(p.tags) ? p.tags : (typeof p.tags === "string" && p.tags ? p.tags.split(",").map(s => s.trim()) : []),
+      tags: Array.isArray(p.tags)
+        ? p.tags
+        : typeof p.tags === "string" && p.tags
+        ? p.tags.split(",").map((s) => s.trim())
+        : [],
       thumbnail: p.thumbnail || firstHttps || "",
 
       createdAt: serverTimestamp(),
@@ -194,12 +224,20 @@ export const firebaseProvider = {
     };
 
     const refDoc = await addDoc(col("products"), docData);
-    return { id: refDoc.id, ...docData, createdAt: Date.now(), updatedAt: Date.now() };
+    return {
+      id: refDoc.id,
+      ...docData,
+      createdAt: Date.now(),
+      updatedAt: Date.now(),
+    };
   },
 
   async updateProduct(id, p) {
     await requireAdmin();
-    await updateDoc(doc(db, "products", id), { ...p, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "products", id), {
+      ...p,
+      updatedAt: serverTimestamp(),
+    });
     return { id, ...p };
   },
 
@@ -210,7 +248,9 @@ export const firebaseProvider = {
 
   /* Orders (read-only list for the dashboard) */
   async listOrders() {
-    const snap = await getDocs(query(col("orders"), orderBy("createdAt", "desc")));
+    const snap = await getDocs(
+      query(col("orders"), orderBy("createdAt", "desc"))
+    );
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
@@ -222,14 +262,21 @@ export const firebaseProvider = {
 
   async listShipmentEvents(shipmentId) {
     const snap = await getDocs(
-      query(col("shipment_events"), where("shipmentId", "==", shipmentId), orderBy("at", "desc"))
+      query(
+        col("shipment_events"),
+        where("shipmentId", "==", shipmentId),
+        orderBy("at", "desc")
+      )
     );
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   },
 
   async advanceShipment(id, to, note = "") {
     await requireAdmin();
-    await updateDoc(doc(db, "shipments", id), { status: to, updatedAt: serverTimestamp() });
+    await updateDoc(doc(db, "shipments", id), {
+      status: to,
+      updatedAt: serverTimestamp(),
+    });
     await addDoc(col("shipment_events"), {
       shipmentId: id,
       to,
@@ -240,24 +287,96 @@ export const firebaseProvider = {
   },
 };
 
-export async function ensureShipmentForOrder(order) {
+/* ------------------------------------------------------------------
+   Shipments helpers: support catalog, custom, and repair orders
+   ------------------------------------------------------------------ */
+
+/**
+ * ensureShipmentForOrder(orderLike, options?)
+ *
+ * orderLike: order object OR just an id string.
+ * options.kind: "orders" | "custom_orders" | "repairs"  (default "orders")
+ * options.userId, options.shippingAddress, options.items: override data if needed.
+ */
+export async function ensureShipmentForOrder(orderLike, options = {}) {
   await requireAdmin();
 
-  const qy = query(collection(db, "shipments"), where("orderId", "==", order.id));
+  // ---------- figure out id & kind ----------
+  let orderId = null;
+
+  if (typeof orderLike === "string") {
+    orderId = orderLike;
+  } else if (orderLike && typeof orderLike === "object") {
+    orderId = orderLike.id || orderLike.orderId || null;
+  }
+
+  if (!orderId) {
+    throw new Error("ensureShipmentForOrder: missing order id");
+  }
+
+  // where the source doc lives: "orders" | "custom_orders" | "repairs"
+  const kind =
+    options.kind ||
+    orderLike?.kind ||
+    orderLike?._kind ||
+    "orders"; // default for legacy calls
+
+  // ---------- load base doc for extra info (user, address, items) ----------
+  let base = null;
+  try {
+    const snap = await getDoc(doc(db, kind, orderId));
+    if (snap.exists()) base = snap.data();
+  } catch (_) {
+    // ignore; we'll just rely on what was passed in
+  }
+
+  const userId =
+    options.userId ||
+    orderLike?.userId ||
+    base?.userId ||
+    base?.uid ||
+    null;
+
+  const shippingAddress =
+    options.shippingAddress ||
+    orderLike?.shippingAddress ||
+    base?.shippingAddress ||
+    null;
+
+  const items =
+    options.items || orderLike?.items || base?.items || [];
+
+  // ---------- upsert shipment row ----------
+  const qy = query(
+    collection(db, "shipments"),
+    where("orderId", "==", orderId)
+  );
   const snap = await getDocs(qy);
-  if (!snap.empty) return snap.docs[0].id;
+
+  if (!snap.empty) {
+    const existingRef = snap.docs[0].ref;
+    await updateDoc(existingRef, {
+      kind,
+      userId: userId || null,
+      address: shippingAddress || null,
+      items,
+      updatedAt: serverTimestamp(),
+    });
+    return existingRef.id;
+  }
 
   const ref = await addDoc(collection(db, "shipments"), {
-    orderId: order.id,
-    userId: order.userId || null,
+    orderId,
+    kind, // <── tells Shipments.jsx which collection to look at
+    userId: userId || null,
     status: "processing",
-    address: order.shippingAddress || null,
-    items: order.items || [],
+    address: shippingAddress || null,
+    items,
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
   });
 
-  // optional first event
+  // optional first event (stored as subcollection)
   try {
     await addDoc(collection(db, "shipments", ref.id, "events"), {
       at: serverTimestamp(),
@@ -278,7 +397,7 @@ export async function deleteShipmentsForOrder(orderId) {
   const snap = await getDocs(qy);
 
   for (const s of snap.docs) {
-    // delete  events
+    // delete subcollection events
     try {
       const evSnap = await getDocs(collection(db, "shipments", s.id, "events"));
       await Promise.all(evSnap.docs.map((ev) => deleteDoc(ev.ref)));
@@ -287,7 +406,7 @@ export async function deleteShipmentsForOrder(orderId) {
     // delete legacy flat events if you had them
     try {
       const legacy = await getDocs(
-        query(collection(db, "shipment_events"), where("shipmentId", "==", s.id))
+        query(col("shipment_events"), where("shipmentId", "==", s.id))
       );
       await Promise.all(legacy.docs.map((ev) => deleteDoc(ev.ref)));
     } catch (_) {}
