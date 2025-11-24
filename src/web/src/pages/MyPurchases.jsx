@@ -259,121 +259,169 @@ export default function MyPurchases() {
   const [resolvedImages, setResolvedImages] = useState({});
 
   const recomputeMerged = React.useCallback(() => {
-    const list = [];
-    const usedRepairIds = new Set();
+  const list = [];
+  const usedRepairIds = new Set();
 
-    // 1) Base orders with overlays from custom_orders/repairs
-    ordersMapRef.current.forEach((o) => {
-      let row = { ...o, _source: "order" };
-      const custom = customsByOrderIdRef.current.get(o.id);
-      if (custom) row = mergeOverlay(row, custom);
-      if (o.repairId) {
-        const rep = repairsByIdRef.current.get(o.repairId);
-        if (rep) {
-          row = mergeOverlay(row, rep);
-          usedRepairIds.add(o.repairId);
-        }
+  // 1) Base orders with overlays from custom_orders/repairs
+  ordersMapRef.current.forEach((o) => {
+    let row = { ...o, _source: "order" };
+    const custom = customsByOrderIdRef.current.get(o.id);
+    if (custom) row = mergeOverlay(row, custom);
+    if (o.repairId) {
+      const rep = repairsByIdRef.current.get(o.repairId);
+      if (rep) {
+        row = mergeOverlay(row, rep);
+        usedRepairIds.add(o.repairId);
       }
-      list.push(row);
-    });
+    }
+    list.push(row);
+  });
 
-    // 2) Standalone custom_orders (no orderId)
-    standaloneCustomsRef.current.forEach((c) => {
-      const firstImage =
-        (Array.isArray(c.images) && c.images[0]) ||
-        (Array.isArray(c.referenceImages) && c.referenceImages[0]) ||
-        null;
+  // 2) Standalone custom_orders (no orderId)
+  standaloneCustomsRef.current.forEach((c) => {
+    const firstImage =
+      (Array.isArray(c.images) && c.images[0]) ||
+      (Array.isArray(c.referenceImages) && c.referenceImages[0]) ||
+      null;
 
-      const syntheticItem = {
-        productId: c.productId || null,
-        id: c.productId || c.id || null,
-        title: c.productTitle || "Custom Order",
-        name: c.productTitle || "Custom Order",
-        qty: 1,
-        price: Number(c.unitPrice || 0) || 0,
-        image: firstImage,
-        size: c.size || null,
-        meta: { source: "customization", custom: true },
-      };
+    const syntheticItem = {
+      productId: c.productId || null,
+      id: c.productId || c.id || null,
+      title: c.productTitle || "Custom Order",
+      name: c.productTitle || "Custom Order",
+      qty: 1,
+      price: Number(c.unitPrice || 0) || 0,
+      image: firstImage,
+      size: c.size || null,
+      meta: { source: "customization", custom: true },
+    };
 
-      const totalGuess =
-        c.total ||
-        c.unitPrice ||
-        (typeof c.depositIntendedCents === "number"
-          ? c.depositIntendedCents / 100
-          : 0);
+    const totalGuess =
+      c.total ||
+      c.unitPrice ||
+      (typeof c.depositIntendedCents === "number"
+        ? c.depositIntendedCents / 100
+        : 0);
 
-      const row = {
-        id: c.id,
-        customId: c.id,
-        _source: "custom",
-        origin: "customization",
-        status: c.status || "processing",
-        items: [syntheticItem],
-        total: totalGuess,
-        createdAt: c.createdAt || c.updatedAt || null,
-        shippingAddress: c.shippingAddress || null,
-        contactEmail: c.contactEmail || null,
-        paymentStatus: c.paymentStatus || "pending",
-        paymentProofPendingReview: !!c.paymentProofPendingReview,
-      };
+    const row = {
+      id: c.id,
+      customId: c.id,
+      _source: "custom",
+      origin: "customization",
+      status: c.status || "processing",
+      items: [syntheticItem],
+      total: totalGuess,
+      createdAt: c.createdAt || c.updatedAt || null,
+      shippingAddress: c.shippingAddress || null,
+      contactEmail: c.contactEmail || c.shippingAddress?.email || null,
+      paymentStatus: c.paymentStatus || "pending",
+      paymentProofPendingReview: !!c.paymentProofPendingReview,
+    };
 
-      list.push(row);
-    });
+    list.push(row);
+  });
 
-    // 3) Standalone repairs (no orders/{orderId} row)
-    repairsByIdRef.current.forEach((r, rid) => {
-      if (usedRepairIds.has(rid)) return; // already overlaid on an order
+  // 3) 🔴 NEW: custom_orders that HAVE orderId but NO base orders/{orderId} row
+  customsByOrderIdRef.current.forEach((c, orderId) => {
+    // If there *is* an orders row, it's already handled as an overlay above
+    if (ordersMapRef.current.has(orderId)) return;
 
-      const firstImage =
-        (Array.isArray(r.images) && r.images[0]) ||
-        (Array.isArray(r.referenceImages) && r.referenceImages[0]) ||
-        null;
+    const firstImage =
+      (Array.isArray(c.images) && c.images[0]) ||
+      (Array.isArray(c.referenceImages) && c.referenceImages[0]) ||
+      null;
 
-      const syntheticItem = {
-        productId: null,
-        id: r.id,
-        title: r.furnitureType || r.productTitle || "Repair Order",
-        name: r.furnitureType || r.productTitle || "Repair Order",
-        qty: 1,
-        price:
-          typeof r.assessedTotalCents === "number"
-            ? r.assessedTotalCents / 100
-            : Number(r.estimatedCost || r.total || 0) || 0,
-        image: firstImage,
-        meta: { source: "repair", repair: true },
-      };
+    const syntheticItem = {
+      productId: c.productId || null,
+      id: c.productId || c.id || null,
+      title: c.productTitle || "Custom Order",
+      name: c.productTitle || "Custom Order",
+      qty: 1,
+      price: Number(c.unitPrice || 0) || 0,
+      image: firstImage,
+      size: c.size || null,
+      meta: { source: "customization", custom: true },
+    };
 
-      const totalGuess =
-        r.total ||
-        (typeof r.assessedTotalCents === "number"
+    const totalGuess =
+      c.total ||
+      c.unitPrice ||
+      (typeof c.depositIntendedCents === "number"
+        ? c.depositIntendedCents / 100
+        : 0);
+
+    const row = {
+      id: c.id,          // use custom doc id as the row id
+      customId: c.id,
+      _source: "custom",
+      origin: "customization",
+      status: c.status || "processing",
+      items: [syntheticItem],
+      total: totalGuess,
+      createdAt: c.createdAt || c.updatedAt || null,
+      shippingAddress: c.shippingAddress || null,
+      contactEmail: c.contactEmail || c.shippingAddress?.email || null,
+      paymentStatus: c.paymentStatus || "pending",
+      paymentProofPendingReview: !!c.paymentProofPendingReview,
+    };
+
+    list.push(row);
+  });
+
+  // 4) Standalone repairs (no orders/{orderId} row)
+  repairsByIdRef.current.forEach((r, rid) => {
+    if (usedRepairIds.has(rid)) return; // already overlaid on an order
+
+    const firstImage =
+      (Array.isArray(r.images) && r.images[0]) ||
+      (Array.isArray(r.referenceImages) && r.referenceImages[0]) ||
+      null;
+
+    const syntheticItem = {
+      productId: null,
+      id: r.id,
+      title: r.furnitureType || r.productTitle || "Repair Order",
+      name: r.furnitureType || r.productTitle || "Repair Order",
+      qty: 1,
+      price:
+        typeof r.assessedTotalCents === "number"
           ? r.assessedTotalCents / 100
-          : 0) ||
-        (typeof r.depositIntendedCents === "number"
-          ? r.depositIntendedCents / 100
-          : 0);
+          : Number(r.estimatedCost || r.total || 0) || 0,
+      image: firstImage,
+      meta: { source: "repair", repair: true },
+    };
 
-      const row = {
-        id: r.id,
-        repairId: r.id,
-        _source: "repair",
-        origin: "repair",
-        status: r.status || "processing",
-        items: [syntheticItem],
-        total: totalGuess,
-        createdAt: r.createdAt || r.updatedAt || null,
-        shippingAddress: r.shippingAddress || null,
-        contactEmail: r.contactEmail || null,
-        paymentStatus: r.paymentStatus || "pending",
-        paymentProofPendingReview: !!r.paymentProofPendingReview,
-      };
+    const totalGuess =
+      r.total ||
+      (typeof r.assessedTotalCents === "number"
+        ? r.assessedTotalCents / 100
+        : 0) ||
+      (typeof r.depositIntendedCents === "number"
+        ? r.depositIntendedCents / 100
+        : 0);
 
-      list.push(row);
-    });
+    const row = {
+      id: r.id,
+      repairId: r.id,
+      _source: "repair",
+      origin: "repair",
+      status: r.status || "processing",
+      items: [syntheticItem],
+      total: totalGuess,
+      createdAt: r.createdAt || r.updatedAt || null,
+      shippingAddress: r.shippingAddress || null,
+      contactEmail: r.contactEmail || null,
+      paymentStatus: r.paymentStatus || "pending",
+      paymentProofPendingReview: !!r.paymentProofPendingReview,
+    };
 
-    list.sort((a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt));
-    setOrders(list);
-  }, []);
+    list.push(row);
+  });
+
+  list.sort((a, b) => tsToMillis(b?.createdAt) - tsToMillis(a?.createdAt));
+  setOrders(list);
+}, []);
+
 
   useEffect(() => {
     const stop = onAuthStateChanged(auth, (u) => {
@@ -434,21 +482,22 @@ export default function MyPurchases() {
     const unsubs = [];
 
     const handleCustomSnap = (snap) => {
-      snap.docChanges().forEach((ch) => {
-        const d = { id: ch.doc.id, ...ch.doc.data() };
-        const key = d.orderId;
-        const hasOrderId = !!key;
+  snap.docChanges().forEach((ch) => {
+    const d = { id: ch.doc.id, ...ch.doc.data() };
+    const key = d.orderId;
+    const hasOrderId = !!key;
 
-        if (hasOrderId) {
-          if (ch.type === "removed") customsByOrderIdRef.current.delete(key);
-          else customsByOrderIdRef.current.set(key, d);
-        } else {
-          if (ch.type === "removed") standaloneCustomsRef.current.delete(d.id);
-          else standaloneCustomsRef.current.set(d.id, d);
-        }
-      });
-      recomputeMerged();
-    };
+    if (hasOrderId) {
+      if (ch.type === "removed") customsByOrderIdRef.current.delete(key);
+      else customsByOrderIdRef.current.set(key, d);
+    } else {
+      if (ch.type === "removed") standaloneCustomsRef.current.delete(d.id);
+      else standaloneCustomsRef.current.set(d.id, d);
+    }
+  });
+  recomputeMerged();
+};
+
 
     if (uid) {
       const q1 = query(
