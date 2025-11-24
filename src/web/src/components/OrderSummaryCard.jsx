@@ -300,15 +300,52 @@ export default function OrderSummaryCard({
     return stop;
   }, [order]);
 
-  /* ---------- resolve item images from order ---------- */
+  /* ---------- resolve item images from order (handles custom_orders shape) ---------- */
   useEffect(() => {
     if (passedItems) return;
     (async () => {
-      const src = order?.items || [];
+      if (!order) return;
+
+      // start with normal items[]
+      let src = Array.isArray(order.items) ? order.items : [];
+
+      // if no items (like mobile custom_orders), synthesize one from the doc
+      if (!src.length) {
+        const img =
+          (Array.isArray(order.images) && order.images[0]) ||
+          (Array.isArray(order.referenceImages) && order.referenceImages[0]) ||
+          "";
+
+        const title =
+          order.productTitle ||
+          order.title ||
+          "Custom Order";
+
+        const price =
+          order.unitPrice ??
+          order?.priceBreakdown?.basePHP ??
+          order?.priceBreakdown?.totalPHP ??
+          0;
+
+        src = [
+          {
+            id: order.productId || order.id || "custom",
+            productId: order.productId || null,
+            name: title,
+            title,
+            qty: 1,
+            price,
+            image: img,
+          },
+        ];
+      }
+
       const withUrls = await Promise.all(
         src.map(async (it) => ({
           ...it,
-          imageResolved: await resolveStorageUrl(it.image || it.imageUrl || it.photo || ""),
+          imageResolved: await resolveStorageUrl(
+            it.image || it.imageUrl || it.photo || ""
+          ),
         }))
       );
       setItems(withUrls);
@@ -393,22 +430,46 @@ export default function OrderSummaryCard({
     })();
   }, [merged]);
 
-  /* ---------- money sections ---------- */
+  /* ---------- money sections (now aware of priceBreakdown for customs) ---------- */
   const subtotal = useMemo(() => {
     if (subtotalOverride != null) return Number(subtotalOverride);
     if (merged?.subtotal != null && !passedItems) return Number(merged.subtotal);
+
     const src = passedItems || merged?.items || [];
-    return src.reduce(
-      (s, it) => s + Number(it.price || 0) * Number(it.qty || 1),
-      0
-    );
+    if (src.length > 0) {
+      return src.reduce(
+        (s, it) => s + Number(it.price || 0) * Number(it.qty || 1),
+        0
+      );
+    }
+
+    // mobile custom_orders fallback
+    const pb = merged?.priceBreakdown;
+    if (pb?.basePHP != null) return Number(pb.basePHP);
+    if (merged?.unitPrice != null) return Number(merged.unitPrice);
+    return 0;
   }, [merged, passedItems, subtotalOverride]);
 
-  const ship = Number(shippingFee || merged?.shippingFee || merged?.shipping || 0);
+  const ship = useMemo(() => {
+    if (shippingFee != null) return Number(shippingFee);
+    if (merged?.shippingFee != null) return Number(merged.shippingFee);
+    if (merged?.shipping != null) return Number(merged.shipping);
+
+    // derive from priceBreakdown if available
+    const pb = merged?.priceBreakdown;
+    if (pb?.totalPHP != null && pb?.basePHP != null) {
+      return Number(pb.totalPHP) - Number(pb.basePHP);
+    }
+    return 0;
+  }, [merged, shippingFee]);
 
   const total = useMemo(() => {
     if (totalOverride != null) return Number(totalOverride);
     if (merged?.total != null && !passedItems) return Number(merged.total);
+
+    const pb = merged?.priceBreakdown;
+    if (pb?.totalPHP != null && !passedItems) return Number(pb.totalPHP);
+
     return Math.max(0, subtotal + ship);
   }, [merged, passedItems, subtotal, ship, totalOverride]);
 
