@@ -267,14 +267,22 @@ export default function FloatingRobot() {
         picks.forEach(p => {
           addRecoMsg({ role: "bot", product: p });
         });
+
+        // 🔹 NEW: ask if they want additional custom furniture / changes
+        addRecoMsg({
+          role: "bot",
+          text: "Do you want additional custom furniture or changes based on this recommendation?",
+          chips: ["Yes, go to custom order", "No, that's all for now"],
+        });
       } else {
         addRecoMsg({
           role: "bot",
           text: `I couldn’t find a perfect ${type.toLowerCase()} for that selection.`,
         });
-      }
 
-      addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
+        // if nothing found, still allow user to adjust
+        addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
+      }
     } catch (e) {
       setRecoError(e.message || "Recommender failed");
       addRecoMsg({ role:"bot", text:"Sorry — I couldn’t fetch a recommendation right now." });
@@ -286,7 +294,26 @@ export default function FloatingRobot() {
 
   // chips flow (multi-select)
   function onRecoChipClick(label){
-    if (label === "Change type"){ setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); addRecoMsg({role:"bot", text:"Okay—what type would you like?"}); recoAskType(); return; }
+    // 🔹 NEW: handle additional yes/no
+    if (label === "Yes, go to custom order") {
+      // change this path if your customization route is different
+      window.location.href = "/customization";
+      return;
+    }
+    if (label === "No, that's all for now") {
+      addRecoMsg({
+        role: "bot",
+        text: "Okay! If you’d like to tweak the recommendation, you can change the type or start over.",
+        chips: ["Change type", "Start over"],
+      });
+      return;
+    }
+
+    if (label === "Change type"){
+      setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
+      addRecoMsg({role:"bot", text:"Okay—what type would you like?"});
+      recoAskType(); return;
+    }
     if (label === "Start over"){
       setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); setRecoImage(null);
       setRecoMessages([
