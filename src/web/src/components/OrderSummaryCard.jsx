@@ -1,3 +1,4 @@
+// src/components/OrderSummaryCard.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import {
   auth,
@@ -67,13 +68,22 @@ function safeImageSrc(primaryResolvedUrl, original) {
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 const toCents = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
 
-/* 🔹 NEW: unified way to pick an item image (also checks product.*) */
+/* 🔹 unified way to pick an item image (also checks nested product.*) */
 function getItemImageCandidate(it = {}) {
   return (
     it.image ||
     it.imageUrl ||
     it.photo ||
     (it.product && (it.product.imageUrl || it.product.image)) ||
+    ""
+  );
+}
+
+/* 🔹 NEW: order-level image candidate (handles mobile shape with root "product") */
+function getOrderImageCandidate(order = {}) {
+  return (
+    order.imageUrl ||
+    (order.product && (order.product.imageUrl || order.product.image)) ||
     ""
   );
 }
@@ -163,9 +173,13 @@ export default function OrderSummaryCard({
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
+
+      const parentOrder = orderFromParent || {}; // 🔹 may hold product.imageUrl from mobile
+      const orderImg = getOrderImageCandidate(parentOrder);
+
       const withUrls = await Promise.all(
         passedItems.map(async (it) => {
-          const rawImg = getItemImageCandidate(it); // 🔹 updated
+          const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 fallback to order-level image
           return {
             ...it,
             imageResolved: await resolveStorageUrl(rawImg),
@@ -243,9 +257,9 @@ export default function OrderSummaryCard({
       order?.customId || order?.linkedCustomId || order?.metadata?.customId || null;
 
     if (customDocId) {
-      const ref = doc(firestore, "custom_orders", customDocId);
+      const refDoc = doc(firestore, "custom_orders", customDocId);
       const stop = onSnapshot(
-        ref,
+        refDoc,
         (snap) => setLinkedCustom(snap.exists() ? { id: snap.id, ...snap.data() } : null),
         () => setLinkedCustom(null)
       );
@@ -277,7 +291,7 @@ export default function OrderSummaryCard({
     }
 
     const origin = String(order?.origin || "");
-       const hasRepairLink =
+    const hasRepairLink =
       origin === "repair" || order?.repairId || order?.metadata?.repairId;
 
     if (!hasRepairLink) {
@@ -288,9 +302,9 @@ export default function OrderSummaryCard({
     const repairDocId = order?.repairId || order?.metadata?.repairId || null;
 
     if (repairDocId) {
-      const ref = doc(firestore, "repairs", repairDocId);
+      const refDoc = doc(firestore, "repairs", repairDocId);
       const stop = onSnapshot(
-        ref,
+        refDoc,
         (snap) => setLinkedRepair(snap.exists() ? { id: snap.id, ...snap.data() } : null),
         () => setLinkedRepair(null)
       );
@@ -319,6 +333,8 @@ export default function OrderSummaryCard({
     if (passedItems) return;
     (async () => {
       if (!order) return;
+
+      const orderImg = getOrderImageCandidate(order); // 🔹 from root order/product
 
       // start with normal items[]
       let src = Array.isArray(order.items) ? order.items : [];
@@ -356,7 +372,7 @@ export default function OrderSummaryCard({
 
       const withUrls = await Promise.all(
         src.map(async (it) => {
-          const rawImg = getItemImageCandidate(it); // 🔹 updated
+          const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 item → order fallback
           return {
             ...it,
             imageResolved: await resolveStorageUrl(rawImg),
@@ -624,6 +640,8 @@ export default function OrderSummaryCard({
 
   const paymentText = String(srcOrder?.paymentStatus || "pending").toUpperCase();
 
+  const orderImg = getOrderImageCandidate(srcOrder); // 🔹 order-level image for render
+
   return (
     <div className={`checkout-summary ${className}`}>
       <h3>{title}</h3>
@@ -690,7 +708,8 @@ export default function OrderSummaryCard({
         const name = it.name || it.title || `Item #${i + 1}`;
         const qty = Number(it.qty || 1);
         const price = Number(it.price || 0);
-        const rawImg = getItemImageCandidate(it); // 🔹 updated
+
+        const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 item → order fallback
         const src = safeImageSrc(
           it.imageResolved,
           rawImg
