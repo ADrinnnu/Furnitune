@@ -67,6 +67,17 @@ function safeImageSrc(primaryResolvedUrl, original) {
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 const toCents = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
 
+/* 🔹 NEW: unified way to pick an item image (also checks product.*) */
+function getItemImageCandidate(it = {}) {
+  return (
+    it.image ||
+    it.imageUrl ||
+    it.photo ||
+    (it.product && (it.product.imageUrl || it.product.image)) ||
+    ""
+  );
+}
+
 /* ---------- status helpers (keep in sync with OrderSummary.jsx) ---------- */
 const STATUS_RANK = {
   processing: 1,
@@ -153,10 +164,13 @@ export default function OrderSummaryCard({
     (async () => {
       if (!passedItems) return;
       const withUrls = await Promise.all(
-        passedItems.map(async (it) => ({
-          ...it,
-          imageResolved: await resolveStorageUrl(it.image || it.imageUrl || ""),
-        }))
+        passedItems.map(async (it) => {
+          const rawImg = getItemImageCandidate(it); // 🔹 updated
+          return {
+            ...it,
+            imageResolved: await resolveStorageUrl(rawImg),
+          };
+        })
       );
       setItems(withUrls);
       if (!orderFromParent) setOrder({ items: withUrls });
@@ -263,7 +277,7 @@ export default function OrderSummaryCard({
     }
 
     const origin = String(order?.origin || "");
-    const hasRepairLink =
+       const hasRepairLink =
       origin === "repair" || order?.repairId || order?.metadata?.repairId;
 
     if (!hasRepairLink) {
@@ -341,12 +355,13 @@ export default function OrderSummaryCard({
       }
 
       const withUrls = await Promise.all(
-        src.map(async (it) => ({
-          ...it,
-          imageResolved: await resolveStorageUrl(
-            it.image || it.imageUrl || it.photo || ""
-          ),
-        }))
+        src.map(async (it) => {
+          const rawImg = getItemImageCandidate(it); // 🔹 updated
+          return {
+            ...it,
+            imageResolved: await resolveStorageUrl(rawImg),
+          };
+        })
       );
       setItems(withUrls);
     })();
@@ -405,7 +420,7 @@ export default function OrderSummaryCard({
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
-    /* ---------- resolve proof images (deposit + additional) ---------- */
+  /* ---------- resolve proof images (deposit + additional) ---------- */
   useEffect(() => {
     (async () => {
       const m = merged || {};
@@ -437,7 +452,7 @@ export default function OrderSummaryCard({
   }, [merged]);
 
   /* ---------- money sections (now aware of priceBreakdown for customs) ---------- */
-    const subtotal = useMemo(() => {
+  const subtotal = useMemo(() => {
     if (subtotalOverride != null) return Number(subtotalOverride);
     if (merged?.subtotal != null && !passedItems) return Number(merged.subtotal);
 
@@ -675,9 +690,10 @@ export default function OrderSummaryCard({
         const name = it.name || it.title || `Item #${i + 1}`;
         const qty = Number(it.qty || 1);
         const price = Number(it.price || 0);
+        const rawImg = getItemImageCandidate(it); // 🔹 updated
         const src = safeImageSrc(
           it.imageResolved,
-          it.image || it.imageUrl || it.photo
+          rawImg
         );
 
         return (
@@ -700,9 +716,10 @@ export default function OrderSummaryCard({
                 </span>
               )}
             </div>
-{merged?.origin === "repair" ? null : (
-  <span className="price">{peso(price)}</span>
-)}          </div>
+            {merged?.origin === "repair" ? null : (
+              <span className="price">{peso(price)}</span>
+            )}
+          </div>
         );
       })}
 
