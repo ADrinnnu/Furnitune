@@ -18,6 +18,7 @@ const isValidPHZip = (digits = "") => /^\d{4}$/.test(digits);
 const isValidMobilePH = (digits = "") => /^\d{10,11}$/.test(digits);
 
 // keep payload small: drop big props we don't need on /Payment
+// keep payload small, but DO NOT drop size/color/material
 const slimItems = (items = []) =>
   items.map((it) => ({
     id: it.id,
@@ -30,7 +31,23 @@ const slimItems = (items = []) =>
       typeof it.image === "string" && it.image.startsWith("http")
         ? it.image
         : null,
+
+    // 🔹 keep variant info so Payment can store it in orders
+    size: it.size || it.selectedSize || null,
+    selectedSize: it.selectedSize ?? it.size ?? null,
+
+    // ProductDetail uses colorName/colorHex, so keep those too
+    color: it.color || it.selectedColor || it.colorName || null,
+    selectedColor: it.selectedColor ?? it.color ?? it.colorName ?? null,
+    colorName: it.colorName ?? it.selectedColor ?? null,
+    colorHex: it.colorHex ?? null,
+
+    // future-proof – if you ever add materials/additionals on catalog
+    material: it.material || null,
+    selectedMaterial: it.selectedMaterial ?? null,
+    additionals: Array.isArray(it.additionals) ? it.additionals : [],
   }));
+
 
 export default function Checkout() {
   const navigate = useNavigate();
