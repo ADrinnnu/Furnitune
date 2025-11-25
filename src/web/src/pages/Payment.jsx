@@ -548,34 +548,39 @@ export default function Payment() {
         });
 
         const repairPatch = deepSanitizeForFirestore({
-          userId: uid,
-          status: "processing",
-          origin: "repair",
-          shippingAddress: safeAddress || null,
-          contactEmail: safeAddress?.email || null,
+    userId: uid,
+    status: "processing",
+    origin: "repair",
+    shippingAddress: safeAddress || null,
+    contactEmail: safeAddress?.email || null,
 
-          // unified payment fields
-          paymentStatus: "pending",
-          assessmentStatus: "pending",
-          assessedTotalCents: null,
-          depositCents: 0,
-          depositIntendedCents: toC(total),
-          additionalPaymentsCents: 0,
-          refundsCents: 0,
-          requestedAdditionalPaymentCents: 0,
+    // 🔹 store order money fields so OrderSummaryCard can read them
+    subtotal,
+    shippingFee,
+    total,
 
-          paymentProofPendingReview: true,
-          paymentProofType: "deposit",
-          paymentProofUpdatedAt: new Date(),
-          paymentProofUrl: url || null,
-          depositPaymentProofUrl: url || null,
-          depositPaymentProofs: arrayUnion({
-            url: url || null,
-            uploadedAt: new Date(),
-            amountCents: null,
-            note: null,
-          }),
-        });
+    // unified payment fields
+    paymentStatus: "pending",
+    assessmentStatus: "pending",
+    assessedTotalCents: null,
+    depositCents: 0,
+    depositIntendedCents: toC(total),
+    additionalPaymentsCents: 0,
+    refundsCents: 0,
+    requestedAdditionalPaymentCents: 0,
+
+    paymentProofPendingReview: true,
+    paymentProofType: "deposit",
+    paymentProofUpdatedAt: new Date(),
+    paymentProofUrl: url || null,
+    depositPaymentProofUrl: url || null,
+    depositPaymentProofs: arrayUnion({
+      url: url || null,
+      uploadedAt: new Date(),
+      amountCents: null,
+      note: null,
+    }),
+  });
 
         await updateDoc(repairRef, repairPatch);
 

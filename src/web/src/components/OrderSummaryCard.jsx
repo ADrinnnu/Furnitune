@@ -125,7 +125,7 @@ export default function OrderSummaryCard({
   title = "ORDER SUMMARY",
   className = "",
   subtotalOverride,
-  shippingFee = 0,
+  shippingFee = null,
   totalOverride,
 
   showAddress = false,
@@ -319,7 +319,7 @@ export default function OrderSummaryCard({
         const title =
           order.productTitle ||
           order.title ||
-          "Custom Order";
+          "Repair Order";
 
         const price =
           order.unitPrice ??
@@ -405,10 +405,11 @@ export default function OrderSummaryCard({
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
-  /* ---------- resolve proof images (deposit + additional) ---------- */
+    /* ---------- resolve proof images (deposit + additional) ---------- */
   useEffect(() => {
     (async () => {
       const m = merged || {};
+
       const depositSingles = [
         m.depositPaymentProofUrl,
         m.paymentProofUrl,
@@ -417,6 +418,7 @@ export default function OrderSummaryCard({
       const depositList = Array.isArray(m.depositPaymentProofs)
         ? m.depositPaymentProofs.map((p) => p?.url || p).filter(Boolean)
         : [];
+
       const addSingles = [
         m.lastAdditionalPaymentProofUrl,
         m.lastAdditionalPaymentProofPath,
@@ -425,13 +427,17 @@ export default function OrderSummaryCard({
         ? m.additionalPaymentProofs.map((p) => p?.url || p).filter(Boolean)
         : [];
 
-      setDepositProofUrls(await resolveMany([...depositSingles, ...depositList]));
-      setAdditionalProofUrls(await resolveMany([...addSingles, ...addList]));
+      // 👉 If we have an array, treat it as source of truth; otherwise use singles
+      const depositSources = depositList.length > 0 ? depositList : depositSingles;
+      const additionalSources = addList.length > 0 ? addList : addSingles;
+
+      setDepositProofUrls(await resolveMany(depositSources));
+      setAdditionalProofUrls(await resolveMany(additionalSources));
     })();
   }, [merged]);
 
   /* ---------- money sections (now aware of priceBreakdown for customs) ---------- */
-  const subtotal = useMemo(() => {
+    const subtotal = useMemo(() => {
     if (subtotalOverride != null) return Number(subtotalOverride);
     if (merged?.subtotal != null && !passedItems) return Number(merged.subtotal);
 
@@ -443,10 +449,28 @@ export default function OrderSummaryCard({
       );
     }
 
-    // mobile custom_orders fallback
+    // mobile custom_orders / custom_orders fallback
     const pb = merged?.priceBreakdown;
     if (pb?.basePHP != null) return Number(pb.basePHP);
     if (merged?.unitPrice != null) return Number(merged.unitPrice);
+
+    // 🔁 REPAIR fallback: use total/assessed/intended
+    if (merged?.origin === "repair") {
+      if (typeof merged.total === "number") return Number(merged.total);
+      if (
+        typeof merged.assessedTotalCents === "number" &&
+        merged.assessedTotalCents > 0
+      ) {
+        return merged.assessedTotalCents / 100;
+      }
+      if (
+        typeof merged.depositIntendedCents === "number" &&
+        merged.depositIntendedCents > 0
+      ) {
+        return merged.depositIntendedCents / 100;
+      }
+    }
+
     return 0;
   }, [merged, passedItems, subtotalOverride]);
 
@@ -676,8 +700,9 @@ export default function OrderSummaryCard({
                 </span>
               )}
             </div>
-            <span className="price">{peso(price)}</span>
-          </div>
+{merged?.origin === "repair" ? null : (
+  <span className="price">{peso(price)}</span>
+)}          </div>
         );
       })}
 
