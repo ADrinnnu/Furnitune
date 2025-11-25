@@ -263,7 +263,26 @@ export default function Payment() {
   }
 
   const buildItemsLean = (sourceItems) =>
-    (Array.isArray(sourceItems) ? sourceItems : []).map((it) => ({
+  (Array.isArray(sourceItems) ? sourceItems : []).map((it) => {
+    const size =
+      it.size ||
+      it.selectedSize ||
+      it.sizeLabel ||
+      it.selectedSizeLabel ||
+      null;
+    const color =
+      it.color ||
+      it.selectedColor ||
+      it.colorLabel ||
+      null;
+    const material =
+      it.material ||
+      it.selectedMaterial ||
+      it.materialLabel ||
+      null;
+
+    return {
+      // basic item info
       title:
         typeof it.title === "string"
           ? it.title
@@ -273,7 +292,25 @@ export default function Payment() {
       qty: Number(it.qty || 1) || 1,
       price: Number(it.price || 0) || 0,
       image: typeof it.image === "string" ? it.image : null,
-    }));
+
+      // keep product identity + choices
+      productId: it.productId || it.id || null,
+      type: it.type || it.origin || "catalog",
+
+      size,
+      color,
+      material,
+
+      // keep raw “selected*” fields too (helps if you change UI later)
+      selectedSize: it.selectedSize ?? null,
+      selectedColor: it.selectedColor ?? null,
+      selectedMaterial: it.selectedMaterial ?? null,
+
+      // any additionals attached to the cart item
+      additionals: Array.isArray(it.additionals) ? it.additionals : [],
+    };
+  });
+
 
   const buildSafeAddress = (addr) =>
     addr

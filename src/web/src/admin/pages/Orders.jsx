@@ -2022,31 +2022,67 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                 />
 
                                 <div className="span-2">
-                                  <h4>Items</h4>
-                                  <ul className="items">
-                                    {(o?.items || []).map((it, i) => (
-                                      <li
-                                        key={i}
-                                        className="item"
-                                      >
-                                        <div className="item-title">
-                                          {it?.title ||
-                                            it?.name ||
-                                            "Item"}
-                                        </div>
-                                        <div className="muted">
-                                          {it?.size
-                                            ? `${it.size} `
-                                            : ""}
-                                          Qty: {it?.qty ?? 1}
-                                        </div>
-                                        <div className="mono">
-                                          {fmtPHP(it?.price)}
-                                        </div>
-                                      </li>
-                                    ))}
-                                  </ul>
-                                </div>
+  <h4>Items</h4>
+  <ul className="items">
+    {(o?.items || []).map((it, i) => {
+      const size =
+        it?.size ||
+        it?.selectedSize ||
+        it?.sizeLabel ||
+        it?.selectedSizeLabel ||
+        null;
+      const color =
+        it?.color ||
+        it?.selectedColor ||
+        it?.colorLabel ||
+        null;
+      const material =
+        it?.material ||
+        it?.selectedMaterial ||
+        it?.materialLabel ||
+        null;
+
+      const variantParts = [
+        size,
+        color,
+        material,
+      ].filter(Boolean);
+
+      // mobile items may store additionals on the item too
+      const additionalsText =
+        fmtAdditionals(it?.additionals) || "";
+
+      return (
+        <li key={i} className="item">
+          <div className="item-title">
+            {it?.title || it?.name || "Item"}
+          </div>
+
+          <div className="muted">
+            {variantParts.length > 0 && (
+              <>
+                {variantParts.join(" • ")}
+                {" · "}
+              </>
+            )}
+            Qty: {it?.qty ?? 1}
+          </div>
+
+          {additionalsText && (
+            <div className="muted">
+              Additionals: {additionalsText}
+            </div>
+          )}
+
+          <div className="mono">
+            {fmtPHP(it?.price)}
+          </div>
+        </li>
+      );
+    })}
+  </ul>
+</div>
+
 
                                 {o?.note && (
                                   <div className="span-2">
