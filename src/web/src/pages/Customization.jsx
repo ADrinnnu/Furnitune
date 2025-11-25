@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "../Customization.css";
 import "../AllFurnitures.css";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom"; // 🔹 added useLocation
 
 // Your app's firebase wrapper must export these:
 import {
@@ -93,6 +93,25 @@ const COMMON_ADDITIONALS = {
   Others: [],
 };
 
+// 🔹 NEW: map recommender type → this page’s category labels
+const RECO_TYPE_TO_CATEGORY = {
+  bed: "Beds",
+  sofa: "Sofas",
+  table: "Tables",
+  chair: "Chairs",
+  sectional: "Sectionals",
+  ottoman: "Ottomans",
+  bench: "Others",
+};
+
+// 🔹 NEW: map recommender color names → hex colors to pre-fill
+const RECO_COLOR_HEX = {
+  red: "#FF0000",
+  white: "#FFFFFF",
+  black: "#000000",
+  brown: "#8B4513",
+};
+
 // money helpers
 const toCents = (v) => {
   if (v == null) return 0;
@@ -138,7 +157,14 @@ function computePriceCents({
   const multiplied = Math.round(pre * sizeMult * materialMult);
   const total = multiplied + additionsCents;
 
-  return { base: basePriceCents, sizeAdd, sizeMult, materialMult, additions: additionsCents, total };
+  return {
+    base: basePriceCents,
+    sizeAdd,
+    sizeMult,
+    materialMult,
+    additions: additionsCents,
+    total,
+  };
 }
 
 /* storage URL helpers */
@@ -192,9 +218,16 @@ const pickCardImage = (item) =>
 
 /* read pricing rules */
 async function loadPricingFromSizeRules(category) {
-  let snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", category)));
+  let snap = await getDocs(
+    query(collection(firestore, "sizePriceRules"), where("type", "==", category))
+  );
   if (snap.empty) {
-    snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", titleCase(category))));
+    snap = await getDocs(
+      query(
+        collection(firestore, "sizePriceRules"),
+        where("type", "==", titleCase(category))
+      )
+    );
   }
   if (snap.empty) return null;
 
@@ -211,8 +244,10 @@ async function loadPricingFromSizeRules(category) {
     const sizeKey = lc(canonicalSize(category, r.size));
     const mode = lc(r.mode);
     const value = Number(r.value || 0);
-    if (["delta", "add", "plus"].includes(mode)) p.sizeAdds[sizeKey] = Math.round(value * 100);
-    else if (["multiplier", "x", "mul"].includes(mode)) p.sizeMultipliers[sizeKey] = value || 1;
+    if (["delta", "add", "plus"].includes(mode))
+      p.sizeAdds[sizeKey] = Math.round(value * 100);
+    else if (["multiplier", "x", "mul"].includes(mode))
+      p.sizeMultipliers[sizeKey] = value || 1;
   });
 
   return p;
@@ -230,40 +265,108 @@ const chipStyle = (active) => ({
 });
 function Chip({ active, onClick, children }) {
   return (
-    <button type="button" aria-pressed={!!active} onClick={onClick} style={chipStyle(active)}>
+    <button
+      type="button"
+      aria-pressed={!!active}
+      onClick={onClick}
+      style={chipStyle(active)}
+    >
       {children}
     </button>
   );
 }
 
 /* Catalog Drawer */
-function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setActiveCategory, onPick }) {
+function CatalogDrawer({
+  open,
+  onClose,
+  productsByCategory,
+  activeCategory,
+  setActiveCategory,
+  onPick,
+}) {
   if (!open) return null;
-  const backdropStyle = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 9998 };
+  const backdropStyle = {
+    position: "fixed",
+    inset: 0,
+    background: "rgba(0,0,0,0.35)",
+    zIndex: 9998,
+  };
   const panelStyle = {
     position: "fixed",
-    top: 0, right: 0, width: "560px", maxWidth: "92vw", height: "100vh",
-    background: "#fff", overflow: "auto", zIndex: 9999, boxShadow: "0 0 20px rgba(0,0,0,0.2)", boxSizing: "border-box", paddingRight: 10,
+    top: 0,
+    right: 0,
+    width: "560px",
+    maxWidth: "92vw",
+    height: "100vh",
+    background: "#fff",
+    overflow: "auto",
+    zIndex: 9999,
+    boxShadow: "0 0 20px rgba(0,0,0,0.2)",
+    boxSizing: "border-box",
+    paddingRight: 10,
   };
-  const headerStyle = { position: "sticky", top: 0, background: "#fff", zIndex: 1, padding: "12px 16px", borderBottom: "1px solid #eee" };
-  const gridStyle = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", padding: "12px 16px 20px 16px" };
-  const rail = { display: "flex", gap: 8, padding: "8px 16px", flexWrap: "wrap" };
-  const pill = (active) => ({ padding: "6px 10px", borderRadius: 999, border: "1px solid #ddd", background: active ? "#111" : "#fff", color: active ? "#fff" : "#111", cursor: "pointer", fontSize: 12 });
+  const headerStyle = {
+    position: "sticky",
+    top: 0,
+    background: "#fff",
+    zIndex: 1,
+    padding: "12px 16px",
+    borderBottom: "1px solid #eee",
+  };
+  const gridStyle = {
+    display: "grid",
+    gridTemplateColumns: "1fr 1fr",
+    gap: "12px",
+    padding: "12px 16px 20px 16px",
+  };
+  const rail = {
+    display: "flex",
+    gap: 8,
+    padding: "8px 16px",
+    flexWrap: "wrap",
+  };
+  const pill = (active) => ({
+    padding: "6px 10px",
+    borderRadius: 999,
+    border: "1px solid #ddd",
+    background: active ? "#111" : "#fff",
+    color: active ? "#fff" : "#111",
+    cursor: "pointer",
+    fontSize: 12,
+  });
 
   return (
     <>
       <div role="presentation" onClick={onClose} style={backdropStyle} />
-      <aside role="dialog" aria-label="Catalog" style={panelStyle} onClick={(e) => e.stopPropagation()}>
+      <aside
+        role="dialog"
+        aria-label="Catalog"
+        style={panelStyle}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div style={headerStyle}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
+          <div
+            style={{
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "space-between",
+            }}
+          >
             <strong>Catalog</strong>
-            <button className="btn btn-text" onClick={onClose} aria-label="Close">✕</button>
+            <button className="btn btn-text" onClick={onClose} aria-label="Close">
+              ✕
+            </button>
           </div>
           <div style={rail}>
             {Object.keys(productsByCategory).map((cat) => {
               const count = productsByCategory[cat]?.length ?? 0;
               return (
-                <button key={cat} style={pill(activeCategory === cat)} onClick={() => setActiveCategory(cat)}>
+                <button
+                  key={cat}
+                  style={pill(activeCategory === cat)}
+                  onClick={() => setActiveCategory(cat)}
+                >
                   {cat} {count ? `(${count})` : ""}
                 </button>
               );
@@ -281,7 +384,9 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
               <div
                 key={p.id}
                 className="product-card"
-                onClick={() => { onPick(p); }}
+                onClick={() => {
+                  onPick(p);
+                }}
                 title="Pick this product"
                 style={{ cursor: "pointer" }}
               >
@@ -295,7 +400,9 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
                 )}
                 <div className="product-info">
                   <div className="product-title">{title}</div>
-                  {price != null && <div className="product-price">{formatPHP(price)}</div>}
+                  {price != null && (
+                    <div className="product-price">{formatPHP(price)}</div>
+                  )}
                 </div>
               </div>
             );
@@ -309,6 +416,7 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
 /* ───────── page ───────── */
 export default function Customization() {
   const navigate = useNavigate();
+  const location = useLocation(); // 🔹 NEW
 
   // catalog state
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -324,6 +432,9 @@ export default function Customization() {
   const [coverMaterialType, setCoverMaterialType] = useState("Fabric");
   const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
+
+  // 🔹 NEW: ensure prefill is applied only once
+  const [recoPrefillApplied, setRecoPrefillApplied] = useState(false);
 
   // pricing state
   const [pricing, setPricing] = useState(null);
@@ -352,19 +463,58 @@ export default function Customization() {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
-    return () => { document.body.style.overflow = prev; };
+    return () => {
+      document.body.style.overflow = prev;
+    };
   }, [catalogOpen]);
 
   const productTitle =
-    selectedProduct?.title ||
-    selectedProduct?.name ||
-    selectedProduct?.id ||
-    "";
+    selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
 
   const descriptionText = useMemo(() => {
     if (selectedProduct?.description) return selectedProduct.description;
     return "No description available for this product.";
   }, [selectedProduct]);
+
+  // 🔹 NEW: pre-fill from recommender query params
+  useEffect(() => {
+    if (recoPrefillApplied) return;
+
+    const params = new URLSearchParams(location.search || "");
+    const recoType = params.get("recoType"); // e.g. "Sofa"
+    const recoSize = params.get("recoSize"); // e.g. "3 seater"
+    const recoColor = params.get("recoColor"); // e.g. "Red" or "None"
+
+    if (!recoType && !recoSize && !recoColor) return;
+
+    // type → category
+    if (recoType) {
+      const key = lc(recoType);
+      const cat = RECO_TYPE_TO_CATEGORY[key];
+      if (cat) {
+        setSelectedCategory(cat);
+        setActiveCategory((prev) => prev || cat);
+      }
+    }
+
+    // size
+    if (recoSize) {
+      setSizeOptions((prev) =>
+        prev.includes(recoSize) ? prev : [recoSize, ...prev]
+      );
+      setSize(recoSize);
+    }
+
+    // color (ignore when "None")
+    if (recoColor && lc(recoColor) !== "none") {
+      const hex = RECO_COLOR_HEX[lc(recoColor)];
+      if (hex) {
+        setCoverColor(hex);
+      }
+    }
+
+    setRecoPrefillApplied(true);
+  }, [location.search, recoPrefillApplied]);
 
   // load products
   useEffect(() => {
@@ -377,16 +527,31 @@ export default function Customization() {
         const list = await hydrateProductImages(raw);
 
         const grouped = list.reduce((acc, p) => {
-          const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
+          const cat = normalizeCategory(
+            p.category || p.baseType || p.type || p.kind || p.categorySlug
+          );
           if (!acc[cat]) acc[cat] = [];
           acc[cat].push(p);
           return acc;
         }, {});
 
-        const order = ["Beds","Dining Tables","Chairs","Sofas","Sectionals","Ottomans","Tables","Others"];
+        const order = [
+          "Beds",
+          "Dining Tables",
+          "Chairs",
+          "Sofas",
+          "Sectionals",
+          "Ottomans",
+          "Tables",
+          "Others",
+        ];
         const ordered = {};
-        order.forEach((k) => { if (grouped[k]?.length) ordered[k] = grouped[k]; });
-        Object.keys(grouped).forEach((k) => { if (!(k in ordered)) ordered[k] = grouped[k]; });
+        order.forEach((k) => {
+          if (grouped[k]?.length) ordered[k] = grouped[k];
+        });
+        Object.keys(grouped).forEach((k) => {
+          if (!(k in ordered)) ordered[k] = grouped[k];
+        });
 
         setProductsByCategory(ordered);
         if (!ordered[activeCategory]) {
@@ -397,8 +562,10 @@ export default function Customization() {
         console.error("Load products failed:", e);
       }
     })();
-    return () => { alive = false; };
-  }, []);
+    return () => {
+      alive = false;
+    };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // load pricing tables
   useEffect(() => {
@@ -408,7 +575,10 @@ export default function Customization() {
       try {
         let p = null;
         let snap = await getDoc(doc(firestore, "pricing", selectedCategory));
-        if (!snap.exists()) snap = await getDoc(doc(firestore, "pricing", slugify(selectedCategory)));
+        if (!snap.exists())
+          snap = await getDoc(
+            doc(firestore, "pricing", slugify(selectedCategory))
+          );
         if (snap.exists()) p = snap.data();
         if (!p) p = await loadPricingFromSizeRules(selectedCategory);
         if (!p) {
@@ -421,7 +591,9 @@ export default function Customization() {
         if (!cancelled) setPricing(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedCategory]);
 
   // load additionals pricing
@@ -430,8 +602,13 @@ export default function Customization() {
     (async () => {
       if (!selectedCategory) return;
       try {
-        let snap = await getDoc(doc(firestore, "additionals_pricing", selectedCategory));
-        if (!snap.exists()) snap = await getDoc(doc(firestore, "additionals_pricing", slugify(selectedCategory)));
+        let snap = await getDoc(
+          doc(firestore, "additionals_pricing", selectedCategory)
+        );
+        if (!snap.exists())
+          snap = await getDoc(
+            doc(firestore, "additionals_pricing", slugify(selectedCategory))
+          );
         const data = snap.exists() ? snap.data() : null;
         if (!cancelled) setAdditionalsPricing(data);
       } catch (e) {
@@ -439,20 +616,44 @@ export default function Customization() {
         if (!cancelled) setAdditionalsPricing(null);
       }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [selectedCategory]);
 
   // merge choices (preserve DB order first, then add others without duplicates)
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
-    const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
-    const legacyPriced = (pricing?.additions || []).map((a) => a.label || a.key);
+    const pricedItems = (additionalsPricing?.items || []).map(
+      (a) => a.label || a.key
+    );
+    const legacyPriced = (pricing?.additions || []).map(
+      (a) => a.label || a.key
+    );
 
     const seen = new Set();
     const merged = [];
-    pricedItems.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
-    baseAdds.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
-    legacyPriced.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+    pricedItems.forEach((l) => {
+      const k = String(l);
+      if (!seen.has(lc(k))) {
+        seen.add(lc(k));
+        merged.push(k);
+      }
+    });
+    baseAdds.forEach((l) => {
+      const k = String(l);
+      if (!seen.has(lc(k))) {
+        seen.add(lc(k));
+        merged.push(k);
+      }
+    });
+    legacyPriced.forEach((l) => {
+      const k = String(l);
+      if (!seen.has(lc(k))) {
+        seen.add(lc(k));
+        merged.push(k);
+      }
+    });
 
     setAdditionalChoices(merged);
     setAdditionalPicked((prev) => {
@@ -501,7 +702,9 @@ export default function Customization() {
 
   // pick product (⚠️ exact name — used by Drawer)
   function handlePickProduct(p) {
-    const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
+    const cat = normalizeCategory(
+      p.category || p.baseType || p.type || p.kind || p.categorySlug
+    );
     setSelectedProduct(p);
     setSelectedCategory(cat);
 
@@ -514,9 +717,13 @@ export default function Customization() {
 
     const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
     const palette = raw
-      .map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" }))
+      .map((c) => ({
+        hex: String(c?.hex || c?.color || "").trim(),
+        name: c?.name || "",
+      }))
       .filter((c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex));
-    const enabled = p?.hasCover === false ? false : palette.length > 0 || p?.hasCover === true;
+    const enabled =
+      p?.hasCover === false ? false : palette.length > 0 || p?.hasCover === true;
     setCoverEnabled(enabled);
     setCoverPalette(palette);
     if (enabled) setCoverColor(palette[0]?.hex || "#D3C6B3");
@@ -537,7 +744,8 @@ export default function Customization() {
         (f) =>
           new Promise((res, rej) => {
             const r = new FileReader();
-            r.onload = () => res({ name: f.name, dataUrl: String(r.result || "") });
+            r.onload = () =>
+              res({ name: f.name, dataUrl: String(r.result || "") });
             r.onerror = rej;
             r.readAsDataURL(f);
           })
@@ -557,7 +765,6 @@ export default function Customization() {
   });
 
   const handlePlaceOrder = async () => {
-    // 🔴 SIMPLE VALIDATION (NEW)
     setPlaceOrderError("");
     const missing = [];
     if (!selectedProduct) missing.push("product");
@@ -567,26 +774,27 @@ export default function Customization() {
 
     if (missing.length) {
       setPlaceOrderError(
-        `Please fill out the following before placing your order: ${missing.join(", ")}.`
+        `Please fill out the following before placing your order: ${missing.join(
+          ", "
+        )}.`
       );
       return;
     }
 
     try {
-      // Build draft first so it survives redirect to Login
       const draft = {
         type: "customization",
         productId: selectedProduct?.id || null,
-        productTitle: selectedProduct?.title || selectedProduct?.name || null,
+        productTitle:
+          selectedProduct?.title || selectedProduct?.name || null,
         category: selectedCategory,
         size: size || null,
         cover: { materialType: coverMaterialType, color: coverColor },
         additionals: pickedAdditionals,
         notes: notes || "",
-        // ⬇️ include the temporary ref images (data URLs) — uploaded in Payment.jsx
         referenceImagesData: referenceImages, // [{name, dataUrl}]
         descriptionFromProduct: selectedProduct?.description || null,
-        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null, // PHP
+        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null,
         priceBreakdown: priceBreakdown
           ? {
               basePHP: fromCents(priceBreakdown.base),
@@ -598,27 +806,23 @@ export default function Customization() {
               currency,
             }
           : null,
-        images:
-          Array.isArray(selectedProduct?.images)
-            ? selectedProduct.images
-            : Array.isArray(selectedProduct?.imageUrls)
-            ? selectedProduct.imageUrls
-            : [],
+        images: Array.isArray(selectedProduct?.images)
+          ? selectedProduct.images
+          : Array.isArray(selectedProduct?.imageUrls)
+          ? selectedProduct.imageUrls
+          : [],
       };
 
       sessionStorage.setItem("custom_draft", JSON.stringify(draft));
 
-      // NEW: require real login before checkout; block anonymous users too
       const nextPath = "/Checkout?custom=1";
       const user = auth.currentUser;
       if (!user || user.isAnonymous) {
-        // So we can continue to checkout right after logging in
         sessionStorage.setItem("post_login_redirect", nextPath);
         navigate(`/login?next=${encodeURIComponent(nextPath)}`);
         return;
       }
 
-      // Already logged in (non-anonymous) → proceed
       navigate(nextPath);
     } catch (e) {
       console.error("Prepare custom draft failed:", e);
@@ -640,24 +844,48 @@ export default function Customization() {
           <div
             className="preview-box"
             onClick={() => setCatalogOpen(true)}
-            title={selectedProduct ? "Click to change product" : "Open Catalog"}
-            style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
+            title={
+              selectedProduct ? "Click to change product" : "Open Catalog"
+            }
+            style={{
+              cursor: "pointer",
+              position: "relative",
+              overflow: "hidden",
+            }}
           >
             {(() => {
-              const previewImg = selectedProduct ? pickCardImage(selectedProduct) : "";
+              const previewImg = selectedProduct
+                ? pickCardImage(selectedProduct)
+                : "";
               if (previewImg) {
                 return (
                   <img
                     src={previewImg}
-                    alt={selectedProduct?.title || selectedProduct?.name || "Selected product"}
-                    style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
+                    alt={
+                      selectedProduct?.title ||
+                      selectedProduct?.name ||
+                      "Selected product"
+                    }
+                    style={{
+                      width: "100%",
+                      height: "100%",
+                      objectFit: "contain",
+                      display: "block",
+                    }}
                   />
                 );
               }
               return (
                 <div
                   data-fallback
-                  style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555" }}
+                  style={{
+                    width: "100%",
+                    height: "100%",
+                    display: "flex",
+                    alignItems: "center",
+                    justifyContent: "center",
+                    color: "#555",
+                  }}
                 >
                   Click here to choose a product
                 </div>
@@ -665,7 +893,11 @@ export default function Customization() {
             })()}
 
             {selectedProduct && (
-              <div className="preview-title" title={productTitle} aria-label="Selected product">
+              <div
+                className="preview-title"
+                title={productTitle}
+                aria-label="Selected product"
+              >
                 {productTitle}
               </div>
             )}
@@ -682,7 +914,9 @@ export default function Customization() {
 
           <div className="section">
             <h2 className="section-title">DESCRIPTION</h2>
-            <p className="text" style={{ whiteSpace: "pre-wrap" }}>{descriptionText}</p>
+            <p className="text" style={{ whiteSpace: "pre-wrap" }}>
+              {descriptionText}
+            </p>
           </div>
 
           <div className="section">
@@ -691,8 +925,12 @@ export default function Customization() {
               <li>The first step is to choose type of furniture.</li>
               <li>The second step is to select size.</li>
               <li>The third step is to choose the desired color.</li>
-              <li>The fourth step is to pick material depending on preference.</li>
-              <li>The last step is to provide additional notes if necessary.</li>
+              <li>
+                The fourth step is to pick material depending on preference.
+              </li>
+              <li>
+                The last step is to provide additional notes if necessary.
+              </li>
             </ul>
           </div>
         </div>
@@ -702,7 +940,10 @@ export default function Customization() {
           {/* 1 SIZE */}
           <div className="option">
             <h3 className="option-title">1 CHOOSE SIZE</h3>
-            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div
+              className="buttons-row"
+              style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+            >
               {sizeOptions.map((s) => (
                 <Chip key={s} active={size === s} onClick={() => setSize(s)}>
                   {s}
@@ -718,8 +959,17 @@ export default function Customization() {
               <div className="option">
                 <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
                 <div className="colors">
-                  {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79"]).map((c) => (
-                    <div key={c} className="color-box" style={colorBoxStyle(c)} onClick={() => setCoverColor(c)} title={c} />
+                  {(coverPalette.length
+                    ? coverPalette.map((c) => c.hex)
+                    : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79"]
+                  ).map((c) => (
+                    <div
+                      key={c}
+                      className="color-box"
+                      style={colorBoxStyle(c)}
+                      onClick={() => setCoverColor(c)}
+                      title={c}
+                    />
                   ))}
                 </div>
               </div>
@@ -730,9 +980,16 @@ export default function Customization() {
           {/* 3 MATERIAL */}
           <div className="option">
             <h3 className="option-title">3 CHOOSE COVER MATERIAL</h3>
-            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <div
+              className="buttons-row"
+              style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+            >
               {["Fabric", "Leather"].map((m) => (
-                <Chip key={m} active={coverMaterialType === m} onClick={() => setCoverMaterialType(m)}>
+                <Chip
+                  key={m}
+                  active={coverMaterialType === m}
+                  onClick={() => setCoverMaterialType(m)}
+                >
                   {m}
                 </Chip>
               ))}
@@ -745,14 +1002,34 @@ export default function Customization() {
             <h3 className="option-title">4 ADDITIONALS</h3>
 
             {additionalChoices.length > 0 && (
-              <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 8 }}>
+              <div
+                className="buttons-row"
+                style={{
+                  display: "flex",
+                  gap: 8,
+                  flexWrap: "wrap",
+                  marginBottom: 8,
+                }}
+              >
                 {additionalChoices.map((label) => {
                   const row = findAdditionCI(additionsTable, label);
-                  // Display exactly what is stored in DB (no /100)
-                  const priceTxt = typeof row?.cents === "number" ? ` (+${formatPHP(row.cents)})` : "";
+                  const priceTxt =
+                    typeof row?.cents === "number"
+                      ? ` (+${formatPHP(row.cents)})`
+                      : "";
                   return (
-                    <Chip key={label} active={!!additionalPicked[label]} onClick={() => setAdditionalPicked((p)=>({...p, [label]: !p[label]}))}>
-                      {label}{priceTxt}
+                    <Chip
+                      key={label}
+                      active={!!additionalPicked[label]}
+                      onClick={() =>
+                        setAdditionalPicked((p) => ({
+                          ...p,
+                          [label]: !p[label],
+                        }))
+                      }
+                    >
+                      {label}
+                      {priceTxt}
                     </Chip>
                   );
                 })}
@@ -766,9 +1043,11 @@ export default function Customization() {
               style={{ marginBottom: 8 }}
             />
 
-            {/* Reference images (no upload button; saved + uploaded later) */}
+            {/* Reference images */}
             <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontSize: 13, color: "#555" }}>Reference images (up to 3)</label>
+              <label style={{ fontSize: 13, color: "#555" }}>
+                Reference images (up to 3)
+              </label>
               <input
                 type="file"
                 accept="image/*"
@@ -776,21 +1055,37 @@ export default function Customization() {
                 onChange={onPickReferenceFiles}
               />
               {referenceImages.length > 0 && (
-                <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                <div
+                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
+                >
                   {referenceImages.map((r, i) => (
                     <div key={i} style={{ position: "relative" }}>
                       <img
                         src={r.dataUrl}
                         alt={`ref-${i}`}
-                        style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
+                        style={{
+                          width: 100,
+                          height: 100,
+                          objectFit: "cover",
+                          borderRadius: 8,
+                          border: "1px solid #e5e5e5",
+                        }}
                       />
                       <button
                         type="button"
                         onClick={() => removeRefImage(i)}
                         title="Remove"
                         style={{
-                          position: "absolute", top: -6, right: -6, width: 22, height: 22,
-                          borderRadius: 999, border: "none", background: "#111", color: "#fff", cursor: "pointer"
+                          position: "absolute",
+                          top: -6,
+                          right: -6,
+                          width: 22,
+                          height: 22,
+                          borderRadius: 999,
+                          border: "none",
+                          background: "#111",
+                          color: "#fff",
+                          cursor: "pointer",
                         }}
                       >
                         ×
@@ -809,23 +1104,42 @@ export default function Customization() {
             {priceBreakdown ? (
               <div className="text">
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Base</span><span>{formatPHP(fromCents(priceBreakdown.base))}</span>
+                  <span>Base</span>
+                  <span>{formatPHP(fromCents(priceBreakdown.base))}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>Size adj.</span>
                   <span>
                     {formatPHP(fromCents(priceBreakdown.sizeAdd))}
-                    {priceBreakdown.sizeMult !== 1 ? ` ×${priceBreakdown.sizeMult}` : ""}
+                    {priceBreakdown.sizeMult !== 1
+                      ? ` ×${priceBreakdown.sizeMult}`
+                      : ""}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Material multiplier</span><span>{priceBreakdown.materialMult}×</span>
+                  <span>Material multiplier</span>
+                  <span>{priceBreakdown.materialMult}×</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Additions</span><span>{formatPHP(fromCents(priceBreakdown.additions))}</span>
+                  <span>Additions</span>
+                  <span>
+                    {formatPHP(fromCents(priceBreakdown.additions))}
+                  </span>
                 </div>
-                <div style={{ borderTop: "1px solid #e5e5e5", marginTop: 8, paddingTop: 8, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
-                  <span>Total</span><span>{formatPHP(fromCents(priceBreakdown.total))} {currency}</span>
+                <div
+                  style={{
+                    borderTop: "1px solid #e5e5e5",
+                    marginTop: 8,
+                    paddingTop: 8,
+                    fontWeight: 700,
+                    display: "flex",
+                    justifyContent: "space-between",
+                  }}
+                >
+                  <span>Total</span>
+                  <span>
+                    {formatPHP(fromCents(priceBreakdown.total))} {currency}
+                  </span>
                 </div>
               </div>
             ) : (
@@ -834,7 +1148,11 @@ export default function Customization() {
           </div>
 
           <hr />
-          <button className="place-order" onClick={handlePlaceOrder} type="button">
+          <button
+            className="place-order"
+            onClick={handlePlaceOrder}
+            type="button"
+          >
             PLACE ORDER
           </button>
 
