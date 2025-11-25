@@ -49,7 +49,7 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-// ---- PDF-based questions per type (now with "None" in all color options) ----
+// ---- Questions per type (color options include "None") ----
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 
 const TYPE_QUESTIONS = {
@@ -117,15 +117,12 @@ export default function FloatingRobot() {
   const [offset, setOffset] = useState(0);
   const wrapRef = useRef(null);
   const loc = useLocation();
-
   useEffect(() => {
     const onScroll = () => setOffset(window.scrollY % 10);
     window.addEventListener("scroll", onScroll, { passive: true });
     return () => window.removeEventListener("scroll", onScroll);
   }, []);
-
   useEffect(() => setOpen(false), [loc.pathname]);
-
   useEffect(() => {
     if (!open) return;
     const onDocClick = (e) => {
@@ -145,10 +142,7 @@ export default function FloatingRobot() {
   const [meName, setMeName] = useState("Guest");
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) {
-        setMeName("Guest");
-        return;
-      }
+      if (!u) { setMeName("Guest"); return; }
       const fallback = u.email ? u.email.split("@")[0] : "Guest";
       setMeName((u.displayName && u.displayName.trim()) || fallback || "Guest");
     });
@@ -182,42 +176,30 @@ export default function FloatingRobot() {
     window.FurnituneFAQ = {
       open: () => setFaqOpen(true),
       close: () => setFaqOpen(false),
-      toggle: () => setFaqOpen((v) => !v),
+      toggle: () => setFaqOpen(v => !v),
     };
-    return () => {
-      delete window.FurnituneFAQ;
-    };
+    return () => { delete window.FurnituneFAQ; };
   }, []);
-
   useEffect(() => {
     window.FurnituneReco = {
       open: () => {
         setRecoOpen(true);
         setRecoInitialized(false);
-        setRecoType("");
-        setRecoAnswers({});
-        setRecoQIndex(0);
-        setRecoImage(null);
-        setRecoMessages([]);
+        setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
+        setRecoImage(null); setRecoMessages([]);
       },
       close: () => setRecoOpen(false),
-      toggle: () => setRecoOpen((v) => !v),
+      toggle: () => setRecoOpen(v => !v)
     };
-    return () => {
-      delete window.FurnituneReco;
-    };
+    return () => { delete window.FurnituneReco; };
   }, []);
 
   // health
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
-      try {
-        const r = await fetch(`${API_BASE}/health`);
-        setRecoHealth(r.ok ? "ok" : `HTTP ${r.status}`);
-      } catch {
-        setRecoHealth("offline");
-      }
+      try { const r = await fetch(`${API_BASE}/health`); setRecoHealth(r.ok ? "ok" : `HTTP ${r.status}`); }
+      catch { setRecoHealth("offline"); }
     })();
   }, [recoOpen, recoHealth]);
 
@@ -226,84 +208,42 @@ export default function FloatingRobot() {
     if (!recoOpen || recoInitialized) return;
     setRecoInitialized(true);
     setRecoMessages([
-      { role: "bot", text: "Hello! I’m your furniture recommender 💡" },
-      {
-        role: "bot",
-        text: "Would you like to upload a photo of your room? I can tailor suggestions from it.",
-        chips: ["📷 Upload photo", "Skip for now"],
-      },
+      { role:"bot", text:"Hello! I’m your furniture recommender 💡" },
+      { role:"bot", text:"Would you like to upload a photo of your room? I can tailor suggestions from it.", chips:["📷 Upload photo","Skip for now"] },
     ]);
   }, [recoOpen, recoInitialized]);
 
   // autoscroll
-  useEffect(() => {
-    if (recoScrollRef.current) {
-      recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight;
-    }
-  }, [recoMessages, recoError, recoBusy]);
+  useEffect(() => { if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight; }, [recoMessages, recoError, recoBusy]);
+  useEffect(() => { if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight; }, [faqMessages, faqBusy, faqError]);
 
-  useEffect(() => {
-    if (faqScrollRef.current) {
-      faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight;
-    }
-  }, [faqMessages, faqBusy, faqError]);
-
-  const addRecoMsg = (m) => setRecoMessages((prev) => [...prev, m]);
-  const recoAskType = () =>
-    addRecoMsg({
-      role: "bot",
-      text: "What type of furniture do you want?",
-      chips: TYPES,
-    });
+  const addRecoMsg = (m) => setRecoMessages(prev => [...prev, m]);
+  const recoAskType = () => addRecoMsg({ role:"bot", text:"What type of furniture do you want?", chips:TYPES });
 
   const recoAskNext = (type, idx) => {
-    const q = (TYPE_QUESTIONS[type] || [])[idx];
-    if (!q) return;
+    const q=(TYPE_QUESTIONS[type]||[])[idx];
+    if(!q) return;
     const chips = q.multi ? [...q.options, "Done"] : q.options;
-    addRecoMsg({
-      role: "bot",
-      text: q.prompt,
-      chips,
-      qKey: q.key,
-      multi: !!q.multi,
-    });
+    addRecoMsg({ role:"bot", text:q.prompt, chips, qKey:q.key, multi:!!q.multi });
   };
 
   const recoBuildQuery = (type, a) => {
     const parts = [type];
     if (a.size) parts.push(String(a.size));
     if (a.color) parts.push(String(a.color));
-    if (Array.isArray(a.additionals) && a.additionals.length) {
-      parts.push(a.additionals.join(" "));
-    }
+    if (Array.isArray(a.additionals) && a.additionals.length) parts.push(a.additionals.join(" "));
     return parts.join(", ");
   };
 
-  const toBase64 = (file) =>
-    new Promise((res, rej) => {
-      const r = new FileReader();
-      r.onload = () => {
-        const s = String(r.result || "");
-        res(s.includes(",") ? s.split(",")[1] : s);
-      };
-      r.onerror = rej;
-      r.readAsDataURL(file);
-    });
+  const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
   async function recommendBest(type, allAnswers) {
     if (recoHealth && recoHealth !== "ok") {
-      addRecoMsg({
-        role: "bot",
-        text: "Hmm, the recommender service looks offline right now. Please try again later.",
-      });
+      addRecoMsg({ role:"bot", text:"Hmm, the recommender service looks offline right now. Please try again later." });
       return;
     }
-    setRecoError("");
-    setRecoBusy(true);
-    addRecoMsg({
-      role: "bot",
-      text: "Got it! Let me find the best match for you…",
-    });
+    setRecoError(""); setRecoBusy(true);
+    addRecoMsg({ role:"bot", text:"Got it! Let me find the best match for you…" });
 
     try {
       const body = {
@@ -312,337 +252,219 @@ export default function FloatingRobot() {
         type,
         size: allAnswers.size || "",
         color: allAnswers.color || "",
-        additionals: Array.isArray(allAnswers.additionals)
-          ? allAnswers.additionals
-          : [],
+        additionals: Array.isArray(allAnswers.additionals) ? allAnswers.additionals : [],
         strict: !Array.isArray(allAnswers.additionals)
           ? false
-          : allAnswers.additionals.length > 0 &&
-            !allAnswers.additionals.includes("None"),
+          : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
         w_image: 0.6,
         w_text: 0.4,
         color_weight: 0.35,
         color_mode: "match",
       };
-      if (recoImage?.file) {
-        body.image_b64 = await toBase64(recoImage.file);
-      }
+      if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
 
-      const res = await fetch(`${API_BASE}/recommend`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-      });
+      const res = await fetch(`${API_BASE}/recommend`, { method:"POST", headers:{ "Content-Type":"application/json" }, body: JSON.stringify(body) });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
 
       let items = [];
       if (Array.isArray(data.items) && data.items.length) items = data.items;
-      else if (Array.isArray(data.related) && data.related.length)
-        items = data.related;
+      else if (Array.isArray(data.related) && data.related.length) items = data.related;
 
-      const sameType = items.filter((it) => itemLooksLikeType(it, type));
+      const sameType = items.filter(it => itemLooksLikeType(it, type));
       const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
 
       if (picks.length) {
         addRecoMsg({
           role: "bot",
-          text:
-            RECO_K === 1
-              ? "Here’s the best match from our catalog:"
-              : "Here are some great matches from our catalog:",
+          text: RECO_K === 1
+            ? "Here’s the best match from our catalog:"
+            : "Here are some great matches from our catalog:",
         });
 
-        picks.forEach((p) => {
+        picks.forEach(p => {
           addRecoMsg({ role: "bot", product: p });
         });
 
         // ask about additional custom furniture / changes
         addRecoMsg({
-          role: "bot",
-          text: "Do you want additional custom furniture or changes based on this recommendation?",
-          chips: ["Yes, go to custom order", "No, that's all for now"],
+          role:"bot",
+          text:"Do you want additional custom furniture or changes based on this recommendation?",
+          chips:["Yes, go to custom order","No, that's all for now"],
         });
       } else {
         addRecoMsg({
           role: "bot",
           text: `I couldn’t find a perfect ${type.toLowerCase()} for that selection.`,
         });
-        addRecoMsg({
-          role: "bot",
-          text: "Want to adjust anything?",
-          chips: ["Change type", "Start over"],
-        });
+        addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
       }
     } catch (e) {
       setRecoError(e.message || "Recommender failed");
-      addRecoMsg({
-        role: "bot",
-        text: "Sorry — I couldn’t fetch a recommendation right now.",
-      });
-      addRecoMsg({ role: "bot", text: e.message || "HTTP error" });
+      addRecoMsg({ role:"bot", text:"Sorry — I couldn’t fetch a recommendation right now." });
+      addRecoMsg({ role:"bot", text: e.message || "HTTP error" });
     } finally {
       setRecoBusy(false);
     }
   }
 
-  // chips flow (multi-select + new YES/NO flow)
-  function onRecoChipClick(label) {
-    // New: YES → go to customization with query params
+  // chips flow (multi-select + YES/NO flow)
+  function onRecoChipClick(label){
+    // YES → just go to customization, no prefill
     if (label === "Yes, go to custom order") {
-      const params = new URLSearchParams();
-      if (recoType) params.set("recoType", recoType);
-      if (recoAnswers.size) params.set("recoSize", recoAnswers.size);
-      if (recoAnswers.color) params.set("recoColor", recoAnswers.color);
-
-      const qs = params.toString();
-      const url = qs ? `/customization?${qs}` : "/customization";
-      window.location.href = url;
+      window.location.href = "/customization";
       return;
     }
 
     if (label === "No, that's all for now") {
       addRecoMsg({
-        role: "bot",
-        text:
-          "Okay! If you’d like to tweak the recommendation, you can change the type or start over.",
-        chips: ["Change type", "Start over"],
+        role:"bot",
+        text:"Okay! If you’d like to tweak the recommendation, you can change the type or start over.",
+        chips:["Change type","Start over"],
       });
       return;
     }
 
-    if (label === "Change type") {
-      setRecoType("");
-      setRecoAnswers({});
-      setRecoQIndex(0);
-      addRecoMsg({ role: "bot", text: "Okay—what type would you like?" });
-      recoAskType();
-      return;
+    if (label === "Change type"){ 
+      setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
+      addRecoMsg({role:"bot", text:"Okay—what type would you like?"}); 
+      recoAskType(); 
+      return; 
     }
 
-    if (label === "Start over") {
-      setRecoType("");
-      setRecoAnswers({});
-      setRecoQIndex(0);
-      setRecoImage(null);
+    if (label === "Start over"){
+      setRecoType(""); setRecoAnswers({}); setRecoQIndex(0); setRecoImage(null);
       setRecoMessages([
-        { role: "bot", text: "Okay, starting fresh." },
-        {
-          role: "bot",
-          text: "Would you like to upload a photo of your room? I can tailor suggestions from it.",
-          chips: ["📷 Upload photo", "Skip for now"],
-        },
+        { role:"bot", text:"Okay, starting fresh." },
+        { role:"bot", text:"Would you like to upload a photo of your room? I can tailor suggestions from it.", chips:["📷 Upload photo","Skip for now"] },
       ]);
       return;
     }
 
-    if (label === "📷 Upload photo") {
-      addRecoMsg({ role: "user", text: "Upload photo" });
-      addRecoMsg({
-        role: "bot",
-        text: "Choose a photo from your device, or tap Skip for now.",
-        chips: ["📷 Upload photo", "Skip for now"],
-      });
+    if (label === "📷 Upload photo"){
+      addRecoMsg({ role:"user", text:"Upload photo" });
+      addRecoMsg({ role:"bot", text:"Choose a photo from your device, or tap Skip for now.", chips:["📷 Upload photo","Skip for now"] });
       if (recoFileRef.current) recoFileRef.current.value = "";
       recoFileRef.current?.click();
       return;
     }
+    if (label === "Skip for now"){ addRecoMsg({ role:"user", text:"Skip photo" }); recoAskType(); return; }
 
-    if (label === "Skip for now") {
-      addRecoMsg({ role: "user", text: "Skip photo" });
-      recoAskType();
-      return;
+    if (TYPES.includes(label)){ 
+      setRecoType(label); 
+      addRecoMsg({ role:"user", text:label }); 
+      setRecoAnswers({}); setRecoQIndex(0); 
+      recoAskNext(label,0); 
+      return; 
     }
 
-    if (TYPES.includes(label)) {
-      setRecoType(label);
-      addRecoMsg({ role: "user", text: label });
-      setRecoAnswers({});
-      setRecoQIndex(0);
-      recoAskNext(label, 0);
-      return;
-    }
-
-    if (recoType) {
+    if (recoType){
       const qs = TYPE_QUESTIONS[recoType] || [];
       const q = qs[recoQIndex];
-      if (!q) {
-        recommendBest(recoType, { ...recoAnswers });
-        return;
-      }
+      if (!q) { recommendBest(recoType, { ...recoAnswers }); return; }
 
-      if (q.multi) {
-        if (label === "Done") {
-          addRecoMsg({
-            role: "user",
-            text: recoAnswers.additionals?.length
-              ? recoAnswers.additionals.join(", ")
-              : "None",
-          });
+      if (q.multi){
+        if (label === "Done"){
+          addRecoMsg({ role:"user", text: (recoAnswers.additionals?.length ? recoAnswers.additionals.join(", ") : "None") });
           const next = recoQIndex + 1;
-          if (next < qs.length) {
-            setRecoQIndex(next);
-            recoAskNext(recoType, next);
-          } else {
-            recommendBest(recoType, { ...recoAnswers });
-          }
+          if (next < qs.length){ setRecoQIndex(next); recoAskNext(recoType,next); }
+          else { recommendBest(recoType, { ...recoAnswers }); }
           return;
         }
-        setRecoAnswers((a) => {
-          const cur = Array.isArray(a.additionals)
-            ? a.additionals.slice()
-            : [];
+        // toggle selection
+        setRecoAnswers(a=>{
+          const cur = Array.isArray(a.additionals) ? a.additionals.slice() : [];
           const i = cur.indexOf(label);
-          if (i >= 0) cur.splice(i, 1);
-          else cur.push(label);
+          if (i>=0) cur.splice(i,1); else cur.push(label);
           return { ...a, additionals: cur };
         });
         return;
       } else {
-        setRecoAnswers((a) => ({ ...a, [q.key]: label }));
-        addRecoMsg({ role: "user", text: label });
+        setRecoAnswers(a=>({ ...a, [q.key]: label }));
+        addRecoMsg({ role:"user", text:label });
         const next = recoQIndex + 1;
-        if (next < qs.length) {
-          setRecoQIndex(next);
-          recoAskNext(recoType, next);
-        } else {
-          recommendBest(recoType, { ...recoAnswers, [q.key]: label });
-        }
+        if (next < qs.length){ setRecoQIndex(next); recoAskNext(recoType,next); }
+        else { recommendBest(recoType, { ...recoAnswers, [q.key]: label }); }
       }
     }
   }
 
-  function onRecoFilePicked(e) {
+  function onRecoFilePicked(e){
     const f = e.target.files?.[0];
     if (!f) return;
     const url = URL.createObjectURL(f);
-    setRecoImage({ file: f, url });
-    addRecoMsg({
-      role: "bot",
-      text: "Nice! I’ll use your photo to refine the recommendation.",
-      imageUrl: url,
-    });
+    setRecoImage({ file:f, url });
+    addRecoMsg({ role:"bot", text:"Nice! I’ll use your photo to refine the recommendation.", imageUrl:url });
     recoAskType();
   }
 
   // FAQ quick answers
-  const CONTACT = {
-    phone: "09650934957",
-    email: "furnitunecp@gmail.com",
-    live: "Offline now",
-  };
+  const CONTACT = { phone:"09650934957", email:"furnitunecp@gmail.com", live:"Offline now" };
   const FAQS = [
-    {
-      q: "What is Furnitune?",
-      a: "Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.",
-      tags: ["general"],
-    },
-    {
-      q: "How does the recommender system work?",
-      a: "It analyzes your room photo and preferences, encodes them, then finds the closest matches in our catalog.",
-      tags: ["recommender", "ai"],
-    },
-    {
-      q: "What can I customize?",
-      a: "Request custom furniture (dimensions, materials, colors) and add reference images.",
-      tags: ["customization"],
-    },
-    {
-      q: "Do you accept furniture repair requests?",
-      a: "Yes—even for items not purchased from us. Submit photos and details for assessment.",
-      tags: ["repairs"],
-    },
+    { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
+    { q:"How does the recommender system work?", a:"It analyzes your room photo and preferences, encodes them, then finds the closest matches in our catalog.", tags:["recommender","ai"] },
+    { q:"What can I customize?", a:"Request custom furniture (dimensions, materials, colors) and add reference images.", tags:["customization"] },
+    { q:"Do you accept furniture repair requests?", a:"Yes—even for items not purchased from us. Submit photos and details for assessment.", tags:["repairs"] },
   ];
-
-  function faqBoot() {
+  function faqBoot(){
     const hi = meName ? `Hi ${meName}!` : "Hi Guest!";
     setFaqMessages([
-      {
-        role: "bot",
-        text: `${hi} I’m your Furnitune assistant. How can I help you today?`,
-      },
-      {
-        role: "bot",
-        text: "Pick a quick question below, or type your own:",
-        chips: FAQS.map((x) => x.q),
-      },
+      { role:"bot", text:`${hi} I’m your Furnitune assistant. How can I help you today?` },
+      { role:"bot", text:"Pick a quick question below, or type your own:", chips:FAQS.map(x=>x.q) }
     ]);
   }
+  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen, meName, faqMessages.length]);
 
-  useEffect(() => {
-    if (faqOpen && faqMessages.length === 0) faqBoot();
-  }, [faqOpen, meName, faqMessages.length]);
-
-  function answerFor(s0) {
-    const s = s0.trim().toLowerCase();
-    if (/call|phone|number|contact/.test(s))
-      return `You can call us at ${CONTACT.phone}.`;
-    if (/email|mail/.test(s))
-      return `You can email us at ${CONTACT.email}.`;
-    if (/chat|live/.test(s)) return `Live Chat is ${CONTACT.live}.`;
-    const d = FAQS.find((f) => f.q.toLowerCase() === s);
-    if (d) return d.a;
-    const c = FAQS.find((f) =>
-      (f.q + " " + (f.tags || []).join(" ")).toLowerCase().includes(s)
-    );
-    return c
-      ? c.a
-      : `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`;
+  function answerFor(s0){
+    const s=s0.trim().toLowerCase();
+    if(/call|phone|number|contact/.test(s)) return `You can call us at ${CONTACT.phone}.`;
+    if(/email|mail/.test(s)) return `You can email us at ${CONTACT.email}.`;
+    if(/chat|live/.test(s)) return `Live Chat is ${CONTACT.live}.`;
+    const d=FAQS.find(f=>f.q.toLowerCase()===s); if(d) return d.a;
+    const c=FAQS.find(f=> (f.q+" "+(f.tags||[]).join(" ")).toLowerCase().includes(s));
+    return c?c.a:`I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`;
   }
 
-  async function askBiz(question) {
+  async function askBiz(question){
     setFaqBusy(true);
     setFaqError("");
-    try {
-      const payload = {
-        question,
-        sessionId: "guest",
-        user: { id: "guest", name: meName, email: "" },
-      };
+    try{
+      const payload = { question, sessionId: "guest", user: { id: "guest", name: meName, email: "" } };
       const res = await fetch(`${BIZCHAT_BASE}/ask`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
+        method:"POST",
+        headers:{ "Content-Type":"application/json" },
+        body: JSON.stringify(payload)
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
       const data = await res.json();
       const raw = (data.answer || "").trim();
-      const stripped = raw.replace(/[.\s]/g, "");
-      const safeAnswer =
-        stripped.length < 3
-          ? `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`
-          : raw;
-      setFaqMessages((p) => [...p, { role: "bot", text: safeAnswer }]);
-    } catch (e) {
-      setFaqMessages((p) => [
-        ...p,
-        { role: "bot", text: answerFor(question) },
-      ]);
+      const stripped = raw.replace(/[.\s]/g,"");
+      const safeAnswer = stripped.length < 3
+        ? `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`
+        : raw;
+      setFaqMessages(p => [...p, { role:"bot", text: safeAnswer }]);
+    } catch(e){
+      setFaqMessages(p => [...p, { role:"bot", text: answerFor(question) }]);
       setFaqError(e.message || "BizChat failed");
-    } finally {
+    } finally{
       setFaqBusy(false);
     }
   }
 
-  function onFaqChip(q) {
-    if (q === "Open Recommender") {
-      if (window.FurnituneReco?.open) {
-        window.FurnituneReco.open();
-        setFaqOpen(false);
-      } else {
-        window.location.href = RECO_URL;
-      }
+  function onFaqChip(q){
+    if (q === "Open Recommender"){
+      if (window.FurnituneReco?.open) { window.FurnituneReco.open(); setFaqOpen(false); }
+      else { window.location.href = RECO_URL; }
       return;
     }
-    setFaqMessages((p) => [...p, { role: "user", text: q }]);
+    setFaqMessages(p=>[...p,{role:"user",text:q}]);
     askBiz(q);
   }
 
-  function onSendFaq() {
-    const msg = faqInput.trim();
-    if (!msg) return;
+  function onSendFaq(){
+    const msg=faqInput.trim(); if(!msg) return;
     setFaqInput("");
-    setFaqMessages((p) => [...p, { role: "user", text: msg }]);
+    setFaqMessages(p=>[...p,{role:"user",text:msg}]);
     askBiz(msg);
   }
 
@@ -651,47 +473,14 @@ export default function FloatingRobot() {
       <style>{PANEL_CSS}</style>
 
       {/* Floating FAB */}
-      <div
-        ref={wrapRef}
-        className="fab-wrap"
-        style={{ transform: `translateY(${offset * 0.2}px)` }}
-      >
-        <button
-          type="button"
-          className="fab-robot"
-          onClick={() => setOpen((v) => !v)}
-          aria-expanded={open}
-          aria-controls="fab-menu"
-          aria-label="Assistant"
-        >
+      <div ref={wrapRef} className="fab-wrap" style={{ transform:`translateY(${offset*0.2}px)` }}>
+        <button type="button" className="fab-robot" onClick={() => setOpen(v => !v)} aria-expanded={open} aria-controls="fab-menu" aria-label="Assistant">
           <img src={botImg} alt="" />
         </button>
         {open && (
           <div id="fab-menu" className="fab-menu" role="menu">
-            <button
-              type="button"
-              className="fab-item"
-              role="menuitem"
-              title="FAQ Chatbot"
-              onClick={() => {
-                setFaqOpen(true);
-                setOpen(false);
-              }}
-            >
-              💬
-            </button>
-            <button
-              type="button"
-              className="fab-item"
-              role="menuitem"
-              title="Recommender"
-              onClick={() => {
-                if (window.FurnituneReco?.open) window.FurnituneReco.open();
-                setOpen(false);
-              }}
-            >
-              ✨
-            </button>
+            <button type="button" className="fab-item" role="menuitem" title="FAQ Chatbot" onClick={()=>{setFaqOpen(true);setOpen(false);}}>💬</button>
+            <button type="button" className="fab-item" role="menuitem" title="Recommender" onClick={()=>{ if (window.FurnituneReco?.open) window.FurnituneReco.open(); setOpen(false); }}>✨</button>
           </div>
         )}
       </div>
@@ -699,127 +488,52 @@ export default function FloatingRobot() {
       {/* FAQ Panel */}
       <div className={`mini-panel ${faqOpen ? "open" : ""}`} aria-hidden={!faqOpen}>
         <div className="topbar">
-          <div className="brand">
-            <div className="big">FURNITUNE</div>
-            <div className="small">FAQ Chatbot</div>
-          </div>
-          <button className="close" onClick={() => setFaqOpen(false)}>
-            Close
-          </button>
+          <div className="brand"><div className="big">FURNITUNE</div><div className="small">FAQ Chatbot</div></div>
+          <button className="close" onClick={()=>setFaqOpen(false)}>Close</button>
         </div>
         <div className="scroll" ref={faqScrollRef}>
-          {faqMessages.map((m, i) =>
-            m.role === "user" ? (
-              <UserBubble key={i}>{m.text}</UserBubble>
-            ) : (
-              <BotBubble key={i}>
+          {faqMessages.map((m,i)=> m.role==="user"
+            ? <UserBubble key={i}>{m.text}</UserBubble>
+            : <BotBubble key={i}>
                 <div>{m.text}</div>
-                {m.chips?.length ? (
-                  <div className="chips">
-                    {m.chips.map((c) => (
-                      <button
-                        key={c}
-                        className="chip"
-                        onClick={() => onFaqChip(c)}
-                      >
-                        {c}
-                      </button>
-                    ))}
-                  </div>
-                ) : null}
+                {m.chips?.length ? <div className="chips">{m.chips.map(c=><button key={c} className="chip" onClick={()=>onFaqChip(c)}>{c}</button>)}</div> : null}
               </BotBubble>
-            )
           )}
-          {faqBusy && (
-            <BotBubble>
-              <span className="muted">Thinking…</span>
-            </BotBubble>
-          )}
-          {faqError && (
-            <BotBubble>
-              <span style={{ color: "crimson" }}>{faqError}</span>
-            </BotBubble>
-          )}
+          {faqBusy && <BotBubble><span className="muted">Thinking…</span></BotBubble>}
+          {faqError && <BotBubble><span style={{color:"crimson"}}>{faqError}</span></BotBubble>}
         </div>
         <div className="compose">
-          <input
-            className="input"
-            value={faqInput}
-            placeholder="Ask a question…"
-            onChange={(e) => setFaqInput(e.target.value)}
-            onKeyDown={(e) => e.key === "Enter" && onSendFaq()}
-          />
-          <button className="send" onClick={onSendFaq}>
-            Send
-          </button>
+          <input className="input" value={faqInput} placeholder="Ask a question…" onChange={(e)=>setFaqInput(e.target.value)} onKeyDown={(e)=>e.key==="Enter"&&onSendFaq()}/>
+          <button className="send" onClick={onSendFaq}>Send</button>
         </div>
       </div>
 
       {/* Recommender Panel */}
       <div className={`mini-panel ${recoOpen ? "open" : ""}`} aria-hidden={!recoOpen}>
         <div className="topbar">
-          <div className="brand">
-            <div className="big">FURNITUNE</div>
-            <div className="small">Recommender</div>
-          </div>
-          <div className={`health ${recoHealth === "ok" ? "" : "off"}`}>
-            • {recoHealth || "…"}
-          </div>
-          <button className="close" onClick={() => setRecoOpen(false)}>
-            Close
-          </button>
+          <div className="brand"><div className="big">FURNITUNE</div><div className="small">Recommender</div></div>
+          <div className={`health ${recoHealth==="ok"?"":"off"}`}>• {recoHealth || "…"}</div>
+          <button className="close" onClick={()=>setRecoOpen(false)}>Close</button>
         </div>
 
         <div className="scroll" ref={recoScrollRef}>
-          {recoMessages.map((m, i) =>
-            m.role === "user" ? (
+          {recoMessages.map((m,i)=>
+            m.role==="user" ? (
               <UserBubble key={i}>{m.text}</UserBubble>
             ) : (
               <BotBubble key={i}>
                 <div>{m.text}</div>
-                {m.imageUrl && (
-                  <div className="thumb" style={{ marginTop: 8 }}>
-                    <img src={m.imageUrl} alt="uploaded room" />
-                  </div>
-                )}
+                {m.imageUrl && <div className="thumb" style={{marginTop:8}}><img src={m.imageUrl} alt="uploaded room"/></div>}
 
                 {/* Product card(s) */}
                 {m.product && (
                   <div className="card">
-                    {(() => {
-                      const p = m.product;
-                      const img = getPrimaryImage(p);
-                      return img ? (
-                        <img
-                          src={img}
-                          alt={p.title || p.name || "Product"}
-                        />
-                      ) : null;
-                    })()}
+                    {(() => { const p=m.product; const img=getPrimaryImage(p); return img ? <img src={img} alt={p.title||p.name||"Product"} /> : null; })()}
                     <div className="body">
-                      {!!(m.product.type || m.product.baseType) && (
-                        <div className="type">
-                          {m.product.type || m.product.baseType}
-                        </div>
-                      )}
-                      <div className="title">
-                        {m.product.title ||
-                          m.product.name ||
-                          m.product.slug ||
-                          "Product"}
-                      </div>
-                      {(m.product.price != null ||
-                        m.product.basePrice != null) && (
-                        <div className="price">
-                          ₱
-                          {Number(
-                            m.product.price ?? m.product.basePrice ?? 0
-                          ).toFixed(2)}
-                        </div>
-                      )}
-                      <a className="btn" href={`/product/${m.product.id}`}>
-                        View
-                      </a>
+                      {!!(m.product.type||m.product.baseType) && <div className="type">{m.product.type||m.product.baseType}</div>}
+                      <div className="title">{m.product.title||m.product.name||m.product.slug||"Product"}</div>
+                      {(m.product.price!=null || m.product.basePrice!=null) && <div className="price">₱{Number(m.product.price ?? m.product.basePrice ?? 0).toFixed(2)}</div>}
+                      <a className="btn" href={`/product/${m.product.id}`}>View</a>
                     </div>
                   </div>
                 )}
@@ -827,79 +541,30 @@ export default function FloatingRobot() {
                 {/* chips */}
                 {m.chips?.length ? (
                   <div className="chips">
-                    {m.chips.map((c) => {
-                      const isMulti = m.multi && m.qKey === "additionals";
-                      const selected =
-                        isMulti &&
-                        Array.isArray(recoAnswers.additionals) &&
-                        recoAnswers.additionals.includes(c);
-                      return (
-                        <button
-                          key={c}
-                          className={`chip ${selected ? "on" : ""}`}
-                          onClick={() => onRecoChipClick(c)}
-                        >
-                          {c}
-                        </button>
-                      );
+                    {m.chips.map(c=>{
+                      const isMulti = m.multi && (m.qKey==="additionals");
+                      const selected = isMulti && Array.isArray(recoAnswers.additionals) && recoAnswers.additionals.includes(c);
+                      return <button key={c} className={`chip ${selected?"on":""}`} onClick={()=>onRecoChipClick(c)}>{c}</button>;
                     })}
                   </div>
                 ) : null}
               </BotBubble>
             )
           )}
-          {recoBusy && (
-            <BotBubble>
-              <span className="muted">Searching…</span>
-            </BotBubble>
-          )}
-          {recoError && (
-            <BotBubble>
-              <span style={{ color: "crimson" }}>{recoError}</span>
-            </BotBubble>
-          )}
+          {recoBusy && <BotBubble><span className="muted">Searching…</span></BotBubble>}
+          {recoError && <BotBubble><span style={{color:"crimson"}}>{recoError}</span></BotBubble>}
         </div>
 
         <div className="compose">
-          <button
-            className="icon"
-            onClick={() => {
-              if (recoFileRef.current) recoFileRef.current.value = "";
-              recoFileRef.current?.click();
-            }}
-            title="Upload a room/photo"
-          >
-            📷
-          </button>
-          <input
-            ref={recoFileRef}
-            type="file"
-            accept="image/*"
-            hidden
-            onChange={onRecoFilePicked}
-          />
-          <input
-            className="input"
-            value=""
-            placeholder="Use the buttons above to answer…"
-            disabled
-          />
-          <button className="send" disabled>
-            Send
-          </button>
+          <button className="icon" onClick={()=>{if(recoFileRef.current) recoFileRef.current.value=""; recoFileRef.current?.click();}} title="Upload a room/photo">📷</button>
+          <input ref={recoFileRef} type="file" accept="image/*" hidden onChange={onRecoFilePicked}/>
+          <input className="input" value="" placeholder="Use the buttons above to answer…" disabled/>
+          <button className="send" disabled>Send</button>
         </div>
       </div>
     </>
   );
 }
 
-const BotBubble = ({ children }) => (
-  <div className="msg bot">
-    <div className="bubble bot">{children}</div>
-  </div>
-);
-const UserBubble = ({ children }) => (
-  <div className="msg user">
-    <div className="bubble user">{children}</div>
-  </div>
-);
+const BotBubble = ({ children }) => <div className="msg bot"><div className="bubble bot">{children}</div></div>;
+const UserBubble = ({ children }) => <div className="msg user"><div className="bubble user">{children}</div></div>;

@@ -2,7 +2,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import "../Customization.css";
 import "../AllFurnitures.css";
-import { useNavigate, useLocation } from "react-router-dom"; // 🔹 added useLocation
+import { useNavigate } from "react-router-dom";
 
 // Your app's firebase wrapper must export these:
 import {
@@ -91,25 +91,6 @@ const COMMON_ADDITIONALS = {
   Sectionals: ["Throw Pillow", "Footrest"],
   Ottomans: ["Decorative Tray", "With storage"],
   Others: [],
-};
-
-// 🔹 NEW: map recommender type → this page’s category labels
-const RECO_TYPE_TO_CATEGORY = {
-  bed: "Beds",
-  sofa: "Sofas",
-  table: "Tables",
-  chair: "Chairs",
-  sectional: "Sectionals",
-  ottoman: "Ottomans",
-  bench: "Others",
-};
-
-// 🔹 NEW: map recommender color names → hex colors to pre-fill
-const RECO_COLOR_HEX = {
-  red: "#FF0000",
-  white: "#FFFFFF",
-  black: "#000000",
-  brown: "#8B4513",
 };
 
 // money helpers
@@ -416,7 +397,6 @@ function CatalogDrawer({
 /* ───────── page ───────── */
 export default function Customization() {
   const navigate = useNavigate();
-  const location = useLocation(); // 🔹 NEW
 
   // catalog state
   const [catalogOpen, setCatalogOpen] = useState(false);
@@ -433,9 +413,6 @@ export default function Customization() {
   const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
 
-  // 🔹 NEW: ensure prefill is applied only once
-  const [recoPrefillApplied, setRecoPrefillApplied] = useState(false);
-
   // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
@@ -451,7 +428,7 @@ export default function Customization() {
   // reference images (up to 3) → store data URLs until checkout
   const [referenceImages, setReferenceImages] = useState([]); // [{name, dataUrl}]
 
-  // 🔴 VALIDATION ERROR STATE (NEW)
+  // 🔴 VALIDATION ERROR STATE
   const [placeOrderError, setPlaceOrderError] = useState("");
 
   // esc + scroll lock when drawer open
@@ -475,46 +452,6 @@ export default function Customization() {
     if (selectedProduct?.description) return selectedProduct.description;
     return "No description available for this product.";
   }, [selectedProduct]);
-
-  // 🔹 NEW: pre-fill from recommender query params
-  useEffect(() => {
-    if (recoPrefillApplied) return;
-
-    const params = new URLSearchParams(location.search || "");
-    const recoType = params.get("recoType"); // e.g. "Sofa"
-    const recoSize = params.get("recoSize"); // e.g. "3 seater"
-    const recoColor = params.get("recoColor"); // e.g. "Red" or "None"
-
-    if (!recoType && !recoSize && !recoColor) return;
-
-    // type → category
-    if (recoType) {
-      const key = lc(recoType);
-      const cat = RECO_TYPE_TO_CATEGORY[key];
-      if (cat) {
-        setSelectedCategory(cat);
-        setActiveCategory((prev) => prev || cat);
-      }
-    }
-
-    // size
-    if (recoSize) {
-      setSizeOptions((prev) =>
-        prev.includes(recoSize) ? prev : [recoSize, ...prev]
-      );
-      setSize(recoSize);
-    }
-
-    // color (ignore when "None")
-    if (recoColor && lc(recoColor) !== "none") {
-      const hex = RECO_COLOR_HEX[lc(recoColor)];
-      if (hex) {
-        setCoverColor(hex);
-      }
-    }
-
-    setRecoPrefillApplied(true);
-  }, [location.search, recoPrefillApplied]);
 
   // load products
   useEffect(() => {
@@ -734,7 +671,7 @@ export default function Customization() {
   // choose up to 3 reference images → keep as data URLs
   async function onPickReferenceFiles(e) {
     const files = Array.from(e.target.files || []);
-    if (!files.length) return;
+       if (!files.length) return;
 
     const remain = Math.max(0, 3 - referenceImages.length);
     const take = files.slice(0, remain);
@@ -792,9 +729,10 @@ export default function Customization() {
         cover: { materialType: coverMaterialType, color: coverColor },
         additionals: pickedAdditionals,
         notes: notes || "",
+        // include the temporary ref images (data URLs) — uploaded in Payment.jsx
         referenceImagesData: referenceImages, // [{name, dataUrl}]
         descriptionFromProduct: selectedProduct?.description || null,
-        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null,
+        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null, // PHP
         priceBreakdown: priceBreakdown
           ? {
               basePHP: fromCents(priceBreakdown.base),
@@ -1013,6 +951,7 @@ export default function Customization() {
               >
                 {additionalChoices.map((label) => {
                   const row = findAdditionCI(additionsTable, label);
+                  // Display exactly what is stored in DB (no /100)
                   const priceTxt =
                     typeof row?.cents === "number"
                       ? ` (+${formatPHP(row.cents)})`
@@ -1043,7 +982,7 @@ export default function Customization() {
               style={{ marginBottom: 8 }}
             />
 
-            {/* Reference images */}
+            {/* Reference images (no upload button; saved + uploaded later) */}
             <div style={{ display: "grid", gap: 8 }}>
               <label style={{ fontSize: 13, color: "#555" }}>
                 Reference images (up to 3)
