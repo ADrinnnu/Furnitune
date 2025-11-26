@@ -432,7 +432,6 @@ export default function Navbar() {
           {/* DOWNLOAD pill button that jumps position on hover */}
           <NavLink
             to="/downloads"
-            onMouseEnter={handleDownloadHover}
             style={{
               marginLeft: 16,
               backgroundColor: "#1f5a3b",
@@ -448,7 +447,6 @@ export default function Navbar() {
               display: "inline-flex",
               alignItems: "center",
               justifyContent: "center",
-              transform: `translateX(${DOWNLOAD_POSITIONS[downloadPosIndex]}px)`,
             }}
           >
             Download
