@@ -441,7 +441,7 @@ export default function MyPurchases() {
     }
 
     const q = query(
-      collection(db, "return_requests"),
+      collection(db, "returns"), // CHANGED to 'returns' based on your previous request
       where("userId", "==", uid)
     );
 
@@ -738,14 +738,24 @@ export default function MyPurchases() {
     };
 
     try {
+      // -----------------------------------------------------
+      // FIXED LOGIC: Handle custom orders specifically so we
+      // don't try to update the "orders" collection with a 
+      // custom_orders ID.
+      // -----------------------------------------------------
       if (order._source === "repair" || order.repairId) {
+        // 1. REPAIR
         const rid = order.repairId || order.id;
         await updateDoc(doc(db, "repairs", rid), completionPatch);
+      } else if (order._source === "custom") {
+        // 2. STANDALONE CUSTOM ORDER
+        // We must update the "custom_orders" collection, NOT "orders"
+        await updateDoc(doc(db, "custom_orders", order.id), completionPatch);
       } else {
-        // main order doc
+        // 3. REGULAR ORDER
         await updateDoc(doc(db, "orders", order.id), completionPatch);
 
-        // mirror to overlays
+        // mirror to linked overlays if any
         try {
           if (order?.repairId) {
             await updateDoc(doc(db, "repairs", order.repairId), completionPatch);
@@ -788,7 +798,22 @@ export default function MyPurchases() {
             createdAt: serverTimestamp(),
             read: false,
           });
+        } else if (order._source === "custom") {
+          // Custom Order Notification
+          await addDoc(collection(db, "users", uid, "notifications"), {
+            userId: uid,
+            type: "custom_status",
+            customId: order.id,
+            status: "completed",
+            title: "Custom order received ✔",
+            body: `Your custom order ${String(order.id).slice(0, 6)} is now completed.`,
+            image: notifImage,
+            link: `/ordersummary?customId=${order.id}`,
+            createdAt: serverTimestamp(),
+            read: false,
+          });
         } else {
+          // Standard Order Notification
           await addDoc(collection(db, "users", uid, "notifications"), {
             userId: uid,
             type: "order_status",
@@ -805,7 +830,7 @@ export default function MyPurchases() {
       }
     } catch (e) {
       console.error(e);
-      alert("Failed to update order status.");
+      alert("Failed to update order status. " + e.message);
     }
   };
 
