@@ -88,3 +88,121 @@
   font-size: 0.9rem;
   color: #555;
 }
+
+/* ============================================================
+   📱 MOBILE RESPONSIVE — AllFurnitures
+   ============================================================ */
+
+/* Tablet + Mobile */
+@media (max-width: 1024px) {
+  .all-furnitures {
+    flex-direction: column;
+    padding: 16px;
+  }
+
+  /* Make filter take full width */
+  .filter {
+    width: 100%;
+    margin-bottom: 20px;
+    padding: 14px;
+  }
+
+  /* Product grid adjusts */
+  .product-grid {
+    width: 100% !important;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 18px;
+  }
+
+  .product-card {
+    width: 100%;
+    height: auto;
+  }
+
+  .product-image {
+    height: 180px;
+    object-fit: cover;
+  }
+}
+
+
+/* Mobile (phones) */
+@media (max-width: 768px) {
+  .all-furnitures {
+    gap: 14px;
+    padding: 12px;
+  }
+
+  .filter h2 {
+    font-size: 1.2rem;
+  }
+
+  .filter h3 {
+    font-size: 1rem;
+  }
+
+  .filter label {
+    font-size: 0.85rem;
+  }
+
+  .product-grid {
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+  }
+
+  .product-card {
+    height: auto;
+    border-radius: 10px;
+  }
+
+  .product-title {
+    font-size: 1rem;
+    margin: 6px 0 0 8px;
+  }
+
+  .product-price {
+    font-size: 0.85rem;
+    margin-left: 8px;
+  }
+
+  .rating {
+    margin-left: 8px;
+    font-size: 0.85rem;
+  }
+}
+
+
+/* Extra Small (small phones) */
+@media (max-width: 480px) {
+  .product-grid {
+    grid-template-columns: 1fr; /* single column on tiny phones */
+  }
+
+  .product-image {
+    height: 160px;
+  }
+}
+
+/* ============================================================
+   📱 FIX PRODUCT CARD WIDTH ON MOBILE
+   ============================================================ */
+@media (max-width: 768px) {
+
+  .product-grid {
+    grid-template-columns: 1fr !important; /* full width cards */
+    gap: 16px;
+  }
+
+  .product-card {
+    width: 100% !important;      /* <-- FIX */
+    max-width: 100% !important;  /* <-- FIX */
+    height: auto !important;     /* auto-adjust height */
+  }
+
+  .product-image {
+    width: 100%;
+    height: 200px;
+    object-fit: cover;
+  }
+}
+

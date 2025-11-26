@@ -170,3 +170,68 @@
   from { opacity: 0; transform: translateY(-2px); }
   to   { opacity: 1; transform: translateY(0); }
 }
+
+
+/* ============================================================
+   📱 MOBILE RESPONSIVE — CHECKOUT PAGE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .checkout-container {
+    flex-direction: column;
+    gap: 20px;
+    padding: 16px;
+  }
+
+  .checkout-form,
+  .checkout-summary {
+    width: 100%;
+  }
+
+  .checkout-summary {
+    padding: 16px;
+    order: 2; /* ensure summary goes BELOW form */
+  }
+}
+
+@media (max-width: 600px) {
+  .form-grid {
+    grid-template-columns: 1fr; /* stack name / city / province / zip */
+    gap: 10px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    width: 100%;
+  }
+
+  .cancel-btn,
+  .pay-btn {
+    width: 100%;
+  }
+
+  .checkout-summary {
+    padding: 14px;
+  }
+
+  .cart-item img {
+    width: 70px;
+    height: 55px;
+  }
+}
+
+@media (max-width: 430px) {
+  .checkout-container {
+    padding: 12px;
+  }
+  
+  .checkout-summary h3,
+  .checkout-form h3 {
+    font-size: 14px;
+  }
+
+  input {
+    font-size: 14px;
+  }
+}
+

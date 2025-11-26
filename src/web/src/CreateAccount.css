@@ -115,13 +115,29 @@
 
 /* Responsive */
 @media (max-width: 980px){
-  .signup-page{ grid-template-columns: 1fr; }
-  .signup-right{ display:none; }
-  .signup-left{ padding:32px 20px; }
-  .signup-head span{ font-size:32px; }
+  .signup-page{
+    grid-template-columns: 1fr;
+    min-height: 100vh;
+  }
+
+  /* 🔥 hide the right image panel on mobile */
+  .signin-right{
+    display: none;
+  }
+
+  .signup-left{
+    padding: 32px 20px;
+  }
+
+  .signup-left-inner{
+    max-width: 480px;
+    margin: 0 auto;
+  }
+
+  .signup-head span{
+    font-size: 28px;
+  }
 }
-input{
-  padding: 12px;
-  border-radius: 10px;
-  border: 1px solid #8f8f8f;
-}
+
+
+

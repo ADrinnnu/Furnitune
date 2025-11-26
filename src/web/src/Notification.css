@@ -148,3 +148,133 @@
   width: 60%;
 }
 .notification-item.skeleton .line.wide { width: 90%; margin-top: 6px; }
+
+/* ============================================================
+   📱 NOTIFICATIONS — TABLET RESPONSIVE
+   ============================================================ */
+@media (max-width: 900px) {
+  .notifications-container {
+    padding: 16px;
+  }
+
+  .notifications-header {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .notifications-tabs {
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .notifications-list {
+    gap: 10px;
+  }
+
+  .notification-item {
+    padding: 10px;
+  }
+
+  .notification-item img,
+  .notification-item .thumb {
+    width: 70px;
+    height: 52px;
+  }
+}
+
+/* ============================================================
+   📱 NOTIFICATIONS — MOBILE STACK LAYOUT
+   ============================================================ */
+@media (max-width: 600px) {
+
+  .notifications-container {
+    max-width: 100%;
+    padding: 14px;
+    margin: 10px;
+  }
+
+  .notifications-header h2 {
+    font-size: 18px;
+  }
+
+  .notifications-tabs {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    gap: 6px;
+  }
+
+  .notifications-tabs button,
+  .mark-all-btn {
+    flex: 1;
+    font-size: 12px;
+    padding: 8px;
+    white-space: nowrap;
+  }
+
+  .notification-item {
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .notification-item img,
+  .notification-item .thumb {
+    width: 64px;
+    height: 48px;
+  }
+
+  .notification-text h3 {
+    font-size: 14px;
+  }
+
+  .notification-text p {
+    font-size: 13px;
+  }
+
+  .notifications-footer button {
+    width: 100%;
+    min-width: 0;
+    padding: 10px;
+    font-size: 14px;
+  }
+}
+
+/* ============================================================
+   📱 SMALL PHONE ADJUSTMENTS
+   ============================================================ */
+@media (max-width: 430px) {
+
+  .notifications-header {
+    align-items: center;
+  }
+
+  .notifications-tabs {
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .notifications-tabs button,
+  .mark-all-btn {
+    width: 100%;
+    text-align: center;
+  }
+
+  .notification-item {
+    flex-direction: column;
+    text-align: left;
+  }
+
+  .notification-item img,
+  .notification-item .thumb {
+    width: 100%;
+    max-width: 300px;
+    height: 150px;
+    object-fit: cover;
+  }
+
+  .notifications-footer button {
+    font-size: 13px;
+    padding: 12px;
+  }
+}

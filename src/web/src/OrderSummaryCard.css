@@ -139,3 +139,70 @@
   color: inherit;
   text-decoration: underline;
 }
+
+/* ============================================================
+   📱 RESPONSIVE LAYOUT – ORDER SUMMARY CARD
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .checkout-summary {
+    padding: 14px;
+  }
+
+  .checkout-summary .cart-item img {
+    width: 64px;
+    height: 64px;
+  }
+}
+
+@media (max-width: 600px) {
+  .checkout-summary {
+    padding: 12px;
+  }
+
+  .checkout-summary h3 {
+    font-size: 13px;
+    margin-bottom: 8px;
+  }
+
+  .checkout-summary .cart-item {
+    gap: 10px;
+  }
+
+  .checkout-summary .cart-info p {
+    font-size: 13px;
+  }
+
+  .checkout-summary .cart-info span {
+    font-size: 11px;
+  }
+
+  .checkout-summary .price {
+    font-size: 13px;
+  }
+
+  .checkout-summary .summary-totals > div,
+  .checkout-summary .summary-total {
+    font-size: 13px;
+  }
+
+  .checkout-summary .support-box {
+    font-size: 12px;
+  }
+}
+
+@media (max-width: 400px) {
+  .checkout-summary .cart-item {
+    align-items: flex-start;
+  }
+
+  .checkout-summary .cart-item img {
+    width: 58px;
+    height: 58px;
+  }
+
+  .checkout-summary .price {
+    font-size: 12px;
+  }
+}
+

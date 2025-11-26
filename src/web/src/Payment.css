@@ -159,3 +159,77 @@
   border-radius: 6px;
   font-size: 13px;
 }
+
+/* ============================================================
+   📱 MOBILE RESPONSIVE — PAYMENT PAGE
+   ============================================================ */
+
+@media (max-width: 900px) {
+  .payment-container {
+    flex-direction: column;
+    padding: 16px;
+    gap: 24px;
+  }
+
+  .payment-form,
+  .order-summary {
+    width: 100%;
+  }
+
+  .payment-form {
+    padding: 20px;
+    text-align: center;
+  }
+
+  .order-summary {
+    padding: 20px;
+  }
+
+  .form-actions {
+    flex-direction: column;
+    gap: 12px;
+  }
+
+  .back-btn,
+  .order-btn {
+    width: 100%;
+  }
+}
+
+@media (max-width: 600px) {
+  .payment-form img {
+    max-width: 180px;
+  }
+
+  .payment-form p {
+    font-size: 14px;
+  }
+
+  .payment-form label {
+    font-size: 13px;
+  }
+
+  .order-summary h3 {
+    font-size: 14px;
+  }
+}
+
+@media (max-width: 430px) {
+  .payment-container {
+    padding: 12px;
+  }
+
+  .payment-form {
+    padding: 16px;
+  }
+
+  input[type="file"] {
+    font-size: 14px;
+  }
+
+  .back-btn,
+  .order-btn {
+    padding: 12px;
+    font-size: 14px;
+  }
+}

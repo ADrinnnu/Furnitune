@@ -167,5 +167,157 @@
   }
 }
 
+/* ============================================================
+   📱 FULL MOBILE RESPONSIVE — COLLECTIONS PAGE
+   ============================================================ */
+
+/* Tablet Wrapping */
+@media (max-width: 1024px) {
+  .collection {
+    padding: 20px;
+  }
+
+  .product-grids {
+    grid-template-columns: repeat(3, 1fr);
+    gap: 14px;
+  }
+
+  .collection-title {
+    font-size: 1.8rem;
+    letter-spacing: 8px;
+  }
+
+  .product-cards {
+    padding: 12px;
+  }
+}
+
+/* Mobile */
+@media (max-width: 768px) {
+  .collection {
+    padding: 16px;
+  }
+
+  .collection-title {
+    font-size: 1.4rem;
+    letter-spacing: 4px; /* reduce wide spacing */
+    margin-bottom: 18px;
+  }
+
+  .collection-descriptions {
+    font-size: 0.9rem;
+  }
+
+  /* Product grid: 2 columns */
+  .product-grids {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 12px;
+  }
+
+  .product-cards {
+    padding: 10px;
+    border-radius: 6px;
+  }
+
+  .product-imgs {
+    aspect-ratio: 1 / 1;
+  }
+
+  .product-titles {
+    font-size: 1rem;
+  }
+
+  .product-prices {
+    font-size: 0.85rem;
+  }
+}
+
+/* Small Phones */
+@media (max-width: 480px) {
+  .collection {
+    padding: 12px;
+  }
+
+  .collection-title {
+    font-size: 1.2rem;
+    letter-spacing: 2px;
+  }
+
+  /* Product grid turns into 1 column on very small phones */
+  .product-grids {
+    grid-template-columns: 1fr !important;
+    gap: 14px;
+  }
+
+  .product-cards {
+    padding: 10px;
+  }
+
+  .collection-hero img,
+  .collection-banners {
+    height: 180px !important;
+  }
+
+  .section-heading {
+    font-size: 1.1rem;
+  }
+
+  .collection-descriptions {
+    font-size: 0.85rem;
+  }
+}
+
+/* ============================================================
+   📱 CART — MOBILE STACK LAYOUT
+   ============================================================ */
+@media (max-width: 680px) {
+  .cart-card {
+    grid-template-columns: 24px 1fr;  /* remove the side columns */
+    grid-template-rows: auto auto;
+    row-gap: 10px;
+  }
+
+  /* SIDE INFO (price + trash) moves below */
+  .cart-side {
+    grid-column: 2 / 3;
+    flex-direction: row;
+    justify-content: space-between;
+    width: 100%;
+    min-width: 0;
+  }
+
+  .cart-price {
+    font-size: 14px;
+  }
+
+  .icon-btn.danger {
+    font-size: 16px;
+  }
+
+  /* Thumbnail smaller */
+  .cart-thumb {
+    width: 68px;
+    height: 52px;
+  }
+
+  /* CHECKOUT SINGLE button becomes full-width */
+  .cart-action {
+    grid-column: 1 / 3;
+    width: 100%;
+  }
+
+  .cart-action .checkout-btn {
+    width: 100%;
+    padding: 10px 0;
+  }
+
+  /* Quantity row spacing */
+  .qty-row {
+    gap: 6px;
+  }
+}
+
+
+
 
 

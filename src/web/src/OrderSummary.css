@@ -272,3 +272,114 @@
 .os-pay-btn:active {
   transform: translateY(1px);
 }
+
+/* ============================================================
+   📱 RESPONSIVE LAYOUT – ORDER SUMMARY PAGE
+   ============================================================ */
+
+/* Tablet & small laptop */
+@media (max-width: 900px) {
+  .os-page {
+    grid-template-columns: 1fr;
+    gap: 18px;
+    padding: 20px 14px;
+  }
+
+  .os-left,
+  .os-right {
+    width: 100%;
+  }
+
+  .os-card {
+    padding: 14px;
+  }
+
+  .os-help-card {
+    padding: 14px;
+  }
+
+  .os-stepper {
+    gap: 18px;
+  }
+}
+
+/* Phones */
+@media (max-width: 600px) {
+  .os-page {
+    padding: 16px 10px;
+    gap: 14px;
+  }
+
+  .os-card {
+    padding: 12px;
+  }
+
+  .os-status h4 {
+    font-size: 14px;
+  }
+
+  /* Make the stepper vertical so it doesn’t overflow sideways */
+  .os-stepper {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 10px;
+  }
+
+  .os-step {
+    flex-direction: row;
+    align-items: center;
+    justify-content: flex-start;
+    min-width: 100%;
+    gap: 8px;
+  }
+
+  .os-step .os-step-icon {
+    width: 32px;
+    height: 32px;
+    line-height: 32px;
+  }
+
+  .os-step .os-step-label {
+    white-space: normal;
+    text-align: left;
+    font-size: 11px;
+  }
+
+  .os-note {
+    font-size: 11px;
+  }
+
+  .os-help-card {
+    padding: 12px;
+  }
+
+  .os-help-card ul {
+    padding-left: 18px;
+    font-size: 13px;
+  }
+
+  /* Pay button full width on small screens */
+  .os-pay-btn {
+    width: 100%;
+    text-align: center;
+  }
+}
+
+/* Extra-small phones */
+@media (max-width: 400px) {
+  .os-page {
+    padding: 12px 8px;
+  }
+
+  .os-step .os-step-icon {
+    width: 28px;
+    height: 28px;
+    line-height: 28px;
+    font-size: 16px;
+  }
+
+  .os-step .os-step-label {
+    font-size: 10px;
+  }
+}
+

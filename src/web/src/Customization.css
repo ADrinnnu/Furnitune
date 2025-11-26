@@ -157,3 +157,99 @@ textarea {
   text-overflow: ellipsis;
   pointer-events: none;
 }
+
+/* ============================================================
+   📱 MOBILE RESPONSIVE — CUSTOMIZATION PAGE
+   ============================================================ */
+
+@media (max-width: 1024px) {
+  .customization-container {
+    padding: 1.2rem;
+  }
+
+  .customization-grid {
+    grid-template-columns: 1fr; /* stack left + right */
+    gap: 1.5rem;
+  }
+
+  .preview-box {
+    height: 220px;
+  }
+
+  .buttons-grid {
+    grid-template-columns: repeat(2, 1fr); /* instead of 4 */
+  }
+}
+
+@media (max-width: 768px) {
+  .customization-container {
+    padding: 1rem;
+  }
+
+  .title {
+    font-size: 14px !important;
+  }
+
+  .preview-box {
+    height: 200px;
+  }
+
+  .buttons-row {
+    flex-wrap: wrap;
+    gap: 6px !important;
+  }
+
+  .colors {
+    gap: 0.5rem;
+  }
+
+  .color-box {
+    width: 30px;
+    height: 30px;
+  }
+
+  textarea {
+    height: 60px;
+  }
+
+  .right-side {
+    padding: 1rem;
+  }
+
+  .option-title {
+    font-size: 14px;
+  }
+
+  .section-title {
+    font-size: 14px;
+  }
+
+  /* drawer fixes */
+  aside[role="dialog"] {
+    width: 100vw !important;
+    max-width: 100vw !important;
+  }
+
+  .product-card {
+    width: 100% !important;
+  }
+}
+
+@media (max-width: 480px) {
+  .preview-box {
+    height: 160px;
+  }
+
+  .buttons-grid {
+    grid-template-columns: 1fr; /* one button per row on tiny screens */
+  }
+
+  .color-box {
+    width: 26px;
+    height: 26px;
+  }
+
+  .steps {
+    margin-left: 0.6rem;
+  }
+}
