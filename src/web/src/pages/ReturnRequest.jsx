@@ -14,6 +14,8 @@ import {
   query,
   where,
   getDocs,
+  orderBy,
+  limit
 } from "firebase/firestore";
 import { getStorage, ref, uploadBytes, getDownloadURL } from "firebase/storage";
 
@@ -37,7 +39,21 @@ function fmtPHP(n) {
     return `₱${(Number(n) || 0).toFixed(2)}`;
   }
 }
-function getOriginKey(o) {
+
+// Helper to identify the document type and ID from URL params
+function resolveTarget(params) {
+  const orderId = params.get("orderId");
+  const repairId = params.get("repairId");
+  const customId = params.get("customId");
+
+  if (repairId) return { id: repairId, collection: "repairs", key: "REPAIR" };
+  if (customId) return { id: customId, collection: "custom_orders", key: "CUSTOMIZATION" };
+  if (orderId) return { id: orderId, collection: "orders", key: "CATALOG" };
+  return null;
+}
+
+function getOriginKey(o, forcedKey) {
+  if (forcedKey) return forcedKey;
   if (o?.repairId) return "REPAIR";
   if (
     o?.origin === "customization" ||
@@ -56,26 +72,36 @@ function getOriginKey(o) {
   }
   return "CATALOG";
 }
+
 function computedDeadline(o) {
+  const days = Number(o?.returnPolicyDays ?? 3);  // default 3 days
+  const msPerDay = 24 * 60 * 60 * 1000;
+
+  // Prefer deliveredAt; if not yet delivered, fall back to createdAt (placed date)
   const delivered = tsToMillis(o?.deliveredAt);
-  if (!delivered) return 0;
-  const days = Number(o?.returnPolicyDays ?? 7);
-  return delivered + days * 24 * 60 * 60 * 1000;
+  const placed = tsToMillis(o?.createdAt);
+
+  const base = delivered || placed;
+  if (!base) return 0;
+
+  return base + days * msPerDay;
 }
+
 function canReturn(order) {
   if (!order) return false;
-  if (getOriginKey(order) !== "CATALOG") return false;
   const explicit = tsToMillis(order?.returnDeadlineAt);
   const deadline = explicit || computedDeadline(order);
   if (!deadline) return false;
   return Date.now() <= deadline;
 }
+
 function daysLeft(order) {
   const explicit = tsToMillis(order?.returnDeadlineAt);
   const deadline = explicit || computedDeadline(order);
   if (!deadline) return 0;
   return Math.max(0, Math.ceil((deadline - Date.now()) / 86400000));
 }
+
 // GCash helpers
 function onlyDigits(s) {
   return String(s || "").replace(/[^\d]/g, "");
@@ -94,13 +120,13 @@ const REASONS = [
   { value: "other", label: "Other" },
 ];
 
-// Only ONE refund method now — locked to original (GCash)
 const REFUND_METHOD = { value: "original", label: "Refund to original payment method (GCash)" };
 
 export default function ReturnRequest() {
   const navigate = useNavigate();
   const [params] = useSearchParams();
-  const orderId = params.get("orderId");
+  
+  const target = useMemo(() => resolveTarget(params), [params]);
 
   const db = useMemo(() => getFirestore(auth.app), []);
   const storage = useMemo(() => getStorage(auth.app), []);
@@ -108,43 +134,94 @@ export default function ReturnRequest() {
   const [order, setOrder] = useState(null);
   const [loadingOrder, setLoadingOrder] = useState(true);
   const [err, setErr] = useState("");
+  
+  // New state to track if a request already exists
+  const [existingRequest, setExistingRequest] = useState(null);
 
-  const items = Array.isArray(order?.items) ? order.items : [];
+  const items = useMemo(() => {
+    if (!order) return [];
+    if (Array.isArray(order.items) && order.items.length > 0) return order.items;
+    
+    if (target?.key === "REPAIR") {
+        return [{
+            id: order.id,
+            title: order.typeLabel || order.typeId || "Repair Service",
+            price: order.total || 0,
+            qty: 1,
+            image: (order.images && order.images[0]) || null
+        }];
+    }
+    if (target?.key === "CUSTOMIZATION") {
+        return [{
+            id: order.id,
+            title: order.productTitle || order.title || "Custom Order",
+            price: order.total || order.unitPrice || 0,
+            qty: 1,
+            image: (order.images && order.images[0]) || null
+        }];
+    }
+    return [];
+  }, [order, target]);
+
   const [qtyMap, setQtyMap] = useState({});
   const [reason, setReason] = useState(REASONS[0].value);
   const [desc, setDesc] = useState("");
 
-  // Multiple images state (up to 6)
   const [files, setFiles] = useState([]);
   const [submitting, setSubmitting] = useState(false);
 
-  // GCash fields
   const [gcashName, setGcashName] = useState("");
   const [gcashNumber, setGcashNumber] = useState("");
 
   const eligible = canReturn(order);
   const daysRemaining = daysLeft(order);
-  const originKey = getOriginKey(order || {});
+  const originKey = getOriginKey(order || {}, target?.key);
 
+  // Load Order Data + Check for Existing Request
   useEffect(() => {
     let active = true;
     async function load() {
       setErr("");
       setLoadingOrder(true);
       try {
-        if (!orderId) { setErr("Missing orderId."); setLoadingOrder(false); return; }
-        const snap = await getDoc(doc(db, "orders", orderId));
+        if (!target) { 
+            setErr("Missing orderId, repairId, or customId."); 
+            setLoadingOrder(false); 
+            return; 
+        }
+
+        // 1. Load the Order/Repair/Custom Doc
+        const snap = await getDoc(doc(db, target.collection, target.id));
         if (!active) return;
+        
         if (!snap.exists()) {
           setErr("Order not found.");
           setOrder(null);
         } else {
           const o = { id: snap.id, ...snap.data() };
           setOrder(o);
+          
+          const loadedItems = Array.isArray(o.items) && o.items.length > 0 
+            ? o.items 
+            : (target.key === "REPAIR" || target.key === "CUSTOMIZATION" ? [1] : []);
+
           const init = {};
-          (Array.isArray(o.items) ? o.items : []).forEach((_it, idx) => { init[idx] = 0; });
+          loadedItems.forEach((_it, idx) => { init[idx] = 0; });
           setQtyMap(init);
         }
+
+        // 2. Check if a return request ALREADY exists for this ID
+        const reqQ = query(
+            collection(db, "returns"), 
+            where("orderId", "==", target.id),
+            limit(1)
+        );
+        const reqSnap = await getDocs(reqQ);
+        if (!reqSnap.empty) {
+            const data = reqSnap.docs[0].data();
+            setExistingRequest(data);
+        }
+
       } catch (e) {
         console.error(e);
         setErr(e?.message || "Failed to load order.");
@@ -155,7 +232,7 @@ export default function ReturnRequest() {
     }
     load();
     return () => { active = false; };
-  }, [db, orderId]);
+  }, [db, target]);
 
   function sumSelected() {
     return Object.values(qtyMap || {}).reduce((s, n) => s + (Number(n) || 0), 0);
@@ -171,17 +248,19 @@ export default function ReturnRequest() {
   async function submit(e) {
     e?.preventDefault?.();
 
-    if (!orderId) { alert("Missing order."); return; }
+    if (!target) { alert("Missing ID."); return; }
     const uid = auth.currentUser?.uid;
     if (!uid) { alert("Please sign in."); return; }
     if (!order) { alert("Order not loaded."); return; }
 
+    // Strict check before submitting
+    if (existingRequest) {
+        alert("A return request already exists for this order.");
+        return;
+    }
+
     if (!eligible) {
-      alert(
-        originKey !== "CATALOG"
-          ? "This order type is not eligible for returns."
-          : "Return window has ended."
-      );
+      alert("Return window has ended.");
       return;
     }
 
@@ -191,7 +270,6 @@ export default function ReturnRequest() {
       return;
     }
 
-    // GCash validation (tolerant)
     const gcashDigits = onlyDigits(gcashNumber);
     if (gcashName.trim().length < 2 || gcashDigits.length !== 11) {
       alert("Enter a valid GCash Account Name and 11-digit Account Number.");
@@ -202,26 +280,13 @@ export default function ReturnRequest() {
     setErr("");
 
     try {
-      // prevent duplicate open requests (treat only rejected/refund_issued as closed)
-      const dupQ = query(collection(db, "return_requests"), where("orderId", "==", orderId));
-      const dupSnap = await getDocs(dupQ);
-      const open = dupSnap.docs.find(d => {
-        const s = String(d.data()?.status || "requested").toLowerCase();
-        return s !== "rejected" && s !== "refund_issued";
-      });
-      if (open) {
-        alert("You already have a return in progress for this order.");
-        setSubmitting(false);
-        return;
-      }
-
-      // upload images (up to 6)
+      // Upload images
       let imageUrls = [];
       if (files && files.length > 0) {
         const slice = Array.from(files).slice(0, 6);
         imageUrls = await Promise.all(
           slice.map(async (f) => {
-            const p = `return_requests/${uid}/${orderId}/${Date.now()}_${f.name}`;
+            const p = `returns/${uid}/${target.id}/${Date.now()}_${f.name}`;
             const r = ref(storage, p);
             await uploadBytes(r, f);
             return await getDownloadURL(r);
@@ -229,7 +294,6 @@ export default function ReturnRequest() {
         );
       }
 
-      // selected items
       const selectedItems = items
         .map((it, idx) => {
           const qty = Number(qtyMap[idx] || 0);
@@ -246,39 +310,33 @@ export default function ReturnRequest() {
         })
         .filter(Boolean);
 
-      // compute estimated refund (sum of unitPrice * qty)
       const requestedAmount = selectedItems.reduce((s, it) => s + Number(it.unitPrice || 0) * Number(it.qty || 0), 0);
-
-      // payload (include createdAtMs to avoid composite-index dependence in admin)
       const nowMs = Date.now();
+
       const payload = {
         userId: uid,
-        orderId,
+        orderId: target.id,
         status: "requested",
-        origin: originKey,                 // CATALOG | CUSTOMIZATION | REPAIR
+        origin: originKey,
         source: "user",
         createdAt: serverTimestamp(),
         createdAtMs: nowMs,
         updatedAt: serverTimestamp(),
 
-        // order context
-        orderNumber: order?.orderNumber || null,
+        orderNumber: order?.orderNumber || order.id || null,
         paymentMethod: order?.paymentMethod || "GCASH",
         deliveredAt: order?.deliveredAt || null,
 
-        // customer contact
         contactEmail: order?.contactEmail || order?.shippingAddress?.email || null,
         contactPhone: order?.shippingAddress?.phone || order?.phone || null,
 
-        // request details
         reasonCode: reason,
         message: String(desc || "").trim(),
         images: imageUrls,
         items: selectedItems,
-        requestedAmount,                   // numeric (PHP)
+        requestedAmount,
 
-        // refund channel is locked to original via GCash
-        refundMethod: REFUND_METHOD.value, // "original"
+        refundMethod: REFUND_METHOD.value,
         refundChannel: "GCASH",
         gcash: {
           accountName: gcashName.trim(),
@@ -286,7 +344,6 @@ export default function ReturnRequest() {
           last4: String(gcashDigits).slice(-4),
         },
 
-        // convenience flags for Admin UI
         hasPhotos: imageUrls.length > 0,
         hasMessage: String(desc || "").trim().length > 0,
         totals: {
@@ -295,30 +352,25 @@ export default function ReturnRequest() {
         },
       };
 
-      // 1) master record
-      const masterRef = await addDoc(collection(db, "return_requests"), payload);
+      const masterRef = await addDoc(collection(db, "returns"), payload);
 
-      // 2) subcollection under the order (same id)
-      await setDoc(doc(db, "orders", orderId, "returns", masterRef.id), {
+      await setDoc(doc(db, target.collection, target.id, "returns", masterRef.id), {
         id: masterRef.id,
         ...payload,
       });
 
-      // 3) top-level mirror (legacy)
-      await setDoc(doc(collection(db, "returns"), masterRef.id), {
-        id: masterRef.id,
-        ...payload,
-      });
-
-      // mark order
-      await updateDoc(doc(db, "orders", orderId), {
+      await updateDoc(doc(db, target.collection, target.id), {
         hasOpenReturn: true,
         lastReturnRequestId: masterRef.id,
         lastReturnRequestedAt: serverTimestamp(),
       }).catch(() => {});
 
       alert("Return/Refund request submitted.");
-      navigate(`/ordersummary?orderId=${orderId}`, { replace: true });
+      
+      if (target.key === "REPAIR") navigate(`/ordersummary?repairId=${target.id}`, { replace: true });
+      else if (target.key === "CUSTOMIZATION") navigate(`/ordersummary?customId=${target.id}`, { replace: true });
+      else navigate(`/ordersummary?orderId=${target.id}`, { replace: true });
+
     } catch (e) {
       console.error(e);
       alert(e?.message || "Failed to submit return request.");
@@ -327,19 +379,46 @@ export default function ReturnRequest() {
     }
   }
 
-  // ---------- derived UI state for Submit button ----------
+  // Derived UI state
   const selectedCount = sumSelected();
   let disabledReason = "";
-  if (!eligible) {
-    disabledReason = (getOriginKey(order || {}) !== "CATALOG")
-      ? "This order type isn't eligible for returns."
-      : "Return window has ended.";
-  } else if (selectedCount <= 0) {
-    disabledReason = "Select at least one item to return.";
+  let mainButtonLabel = "SUBMIT";
+  let isDisabled = false;
+
+  // 1. Check existing request FIRST (highest priority)
+  if (existingRequest) {
+      isDisabled = true;
+      if (existingRequest.status === "rejected") {
+          mainButtonLabel = "REFUND REJECTED";
+          disabledReason = "Your return request for this order was rejected.";
+      } else if (existingRequest.status === "refund_issued") {
+          mainButtonLabel = "REFUND ISSUED";
+          disabledReason = "This order has already been refunded.";
+      } else {
+          mainButtonLabel = "RETURN PENDING";
+          disabledReason = "You already have a pending return request.";
+      }
+  } 
+  // 2. Check eligibility windows if no existing request
+  else if (!eligible) {
+      isDisabled = true;
+      disabledReason = "Return window has ended.";
+  } 
+  // 3. Check form validity
+  else if (selectedCount <= 0) {
+      isDisabled = true;
+      disabledReason = "Select at least one item to return.";
   } else if (gcashName.trim().length < 2) {
-    disabledReason = "Enter your GCash account name.";
+      isDisabled = true;
+      disabledReason = "Enter your GCash account name.";
   } else if (!is11DigitsLoose(gcashNumber)) {
-    disabledReason = "GCash number must be exactly 11 digits.";
+      isDisabled = true;
+      disabledReason = "GCash number must be exactly 11 digits.";
+  }
+
+  if (submitting) {
+      isDisabled = true;
+      mainButtonLabel = "SUBMITTING...";
   }
 
   return (
@@ -363,15 +442,16 @@ export default function ReturnRequest() {
                   : (computedDeadline(order) ? fmtDate(computedDeadline(order)) : "—")}
                 {eligible ? ` (${daysRemaining} day${daysRemaining===1?"":"s"} left)` : (order.returnDeadlineAt || computedDeadline(order) ? " (ended)" : "")}
               </div>
-              <div><strong>Type:</strong> {getOriginKey(order)}</div>
+              <div><strong>Type:</strong> {originKey}</div>
             </div>
 
-            {getOriginKey(order) !== "CATALOG" && (
-              <div className="err" style={{ marginBottom: 12 }}>
-                This order type isn’t eligible for returns under current policy.
-              </div>
+            {existingRequest && existingRequest.status === 'rejected' && (
+                <div className="err" style={{ marginBottom: 12, border: "1px solid #ef4444", padding: 8, borderRadius: 6, backgroundColor: "#fef2f2", color: "#991b1b" }}>
+                    <strong>Request Rejected:</strong> This return request was previously reviewed and rejected by the admin.
+                </div>
             )}
-            {!eligible && getOriginKey(order) === "CATALOG" && (
+
+            {!eligible && !existingRequest && (
               <div className="err" style={{ marginBottom: 12 }}>
                 The return window for this order has ended.
               </div>
@@ -386,7 +466,7 @@ export default function ReturnRequest() {
                   const qty = Number(qtyMap[idx] || 0);
                   const img = it?.image || it?.img || "/placeholder.jpg";
                   return (
-                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "64px 1fr auto", gap: 8, alignItems: "center", padding: "8px 0", borderTop: idx ? "1px dashed #f1f5f9" : "none" }}>
+                    <div key={idx} style={{ display: "grid", gridTemplateColumns: "64px 1fr auto", gap: 8, alignItems: "center", padding: "8px 0", borderTop: idx ? "1px dashed #f1f5r9" : "none" }}>
                       <img src={img} alt={it?.title || it?.name || "Item"} style={{ width: 64, height: 64, objectFit: "cover", borderRadius: 6 }} onError={(e)=>{ e.currentTarget.src="/placeholder.jpg"; }} />
                       <div>
                         <div style={{ fontWeight: 600, fontSize: 14 }}>{it?.title || it?.name || "Item"}</div>
@@ -403,6 +483,7 @@ export default function ReturnRequest() {
                           value={qty}
                           onChange={(e) => onQtyChange(idx, max, e.target.value)}
                           style={{ width: 72, padding: "6px 8px", border: "1px solid #e5e7eb", borderRadius: 6 }}
+                          disabled={!!existingRequest} // Disable input if request exists
                         />
                       </div>
                     </div>
@@ -418,12 +499,12 @@ export default function ReturnRequest() {
                   value={reason}
                   onChange={(e) => setReason(e.target.value)}
                   style={{ width: "100%", marginTop: 4, padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
+                  disabled={!!existingRequest}
                 >
                   {REASONS.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
                 </select>
               </label>
 
-              {/* Refund method is locked to original (GCash) */}
               <div style={{ fontSize: 12 }}>
                 Refund method
                 <div style={{ marginTop: 4, padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb", background: "#f8fafc" }}>
@@ -431,7 +512,6 @@ export default function ReturnRequest() {
                 </div>
               </div>
 
-              {/* GCash fields */}
               <div className="card" style={{ padding: 0, border: "none" }}>
                 <div style={{ fontSize: 12, marginTop: 4 }}>GCash Details</div>
 
@@ -443,6 +523,7 @@ export default function ReturnRequest() {
                   onChange={(e) => setGcashName(e.target.value)}
                   required
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
+                  disabled={!!existingRequest}
                 />
 
                 <label className="field-label" style={{ fontSize: 12, marginTop: 8 }}>Account Number</label>
@@ -454,6 +535,7 @@ export default function ReturnRequest() {
                   onChange={(e) => setGcashNumber(e.target.value)}
                   required
                   style={{ width: "100%", padding: "8px 10px", borderRadius: 6, border: "1px solid #e5e7eb" }}
+                  disabled={!!existingRequest}
                 />
                 <small style={{ opacity: 0.8 }}>
                   We accept “0917 123 4567” or “0917-123-4567” — we’ll clean it automatically.
@@ -461,13 +543,17 @@ export default function ReturnRequest() {
               </div>
             </div>
 
-            <label style={{ marginTop: 12, fontSize: 12 }}>Upload Photos (optional, up to 6)</label>
-            <input
-              type="file"
-              accept="image/*"
-              multiple
-              onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
-            />
+            {!existingRequest && (
+                <>
+                    <label style={{ marginTop: 12, fontSize: 12 }}>Upload Photos (optional, up to 6)</label>
+                    <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    onChange={(e) => setFiles(e.target.files ? Array.from(e.target.files) : [])}
+                    />
+                </>
+            )}
 
             <label style={{ marginTop: 12, fontSize: 12 }}>Message / Description (optional)</label>
             <textarea
@@ -476,6 +562,7 @@ export default function ReturnRequest() {
               onChange={(e) => setDesc(e.target.value)}
               placeholder="Tell us what went wrong…"
               style={{ width: "100%" }}
+              disabled={!!existingRequest}
             />
 
             <div className="form-actions" style={{ marginTop: 12 }}>
@@ -485,10 +572,11 @@ export default function ReturnRequest() {
               <button
                 className="order-btn"
                 onClick={submit}
-                disabled={submitting || !!disabledReason}
+                disabled={isDisabled}
                 title={disabledReason || ""}
+                style={existingRequest?.status === 'rejected' ? { backgroundColor: "#9ca3af", cursor: "not-allowed" } : {}}
               >
-                {submitting ? "SUBMITTING…" : "SUBMIT"}
+                {mainButtonLabel}
               </button>
               {disabledReason && (
                 <div className="err" style={{ marginTop: 8, fontSize: 12 }}>
@@ -500,13 +588,11 @@ export default function ReturnRequest() {
         )}
       </div>
 
-      {/* RIGHT: summary/help */}
       <div className="order-summary">
         <h3>RETURN POLICY</h3>
         <div className="order-card" style={{ padding: 16, fontSize: 14 }}>
           <ul style={{ paddingLeft: 16, margin: 0 }}>
             <li>Return window is based on <strong>Delivered</strong> date.</li>
-            <li>Customized and repair orders are not eligible.</li>
             <li>You may request partial returns by item/quantity.</li>
             <li>We’ll review and update you via notifications and email.</li>
           </ul>

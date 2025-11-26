@@ -29,6 +29,9 @@ const STATUS_OPTIONS = [
   { value: "to_receive", label: "To Receive" },
   { value: "completed", label: "Completed" },
   { value: "refund", label: "Refund / Return" },
+  /* NEW RETURN STATUSES FOR NOTIFICATION DISPLAY */
+  { value: "return_approved", label: "Return Approved" },
+  { value: "return_rejected", label: "Return Rejected" },
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]));
 
@@ -40,14 +43,25 @@ const PAYMENT_STATUSES = [
   "paid",
   "refunded",
   "rejected",
+  // Include return statuses here to utilize the badge coloring logic easily
+  "return_approved",
+  "return_rejected",
 ];
+
 function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
+  
+  // existing
   if (v === "paid") return "badge status-completed";
   if (v === "rejected") return "badge status-refund";
   if (v === "refunded") return "badge status-to-receive";
   if (v === "deposit_paid") return "badge status-preparing";
   if (v === "awaiting_additional_payment") return "badge status-to-receive";
+  
+  // NEW: return specific styling
+  if (v === "return_approved") return "badge status-completed"; // Green/Success look
+  if (v === "return_rejected") return "badge status-refund";    // Red/Error look
+
   return "badge status-processing";
 }
 
@@ -416,7 +430,7 @@ export default function Notification() {
                           style={{ marginLeft: 8 }}
                         >
                           {isPayment
-                            ? mainStatus.toUpperCase()
+                            ? (STATUS_LABEL[mainStatus] || mainStatus).toUpperCase()
                             : (STATUS_LABEL[mainStatus] || mainStatus).toUpperCase()}
                         </span>
                       )}

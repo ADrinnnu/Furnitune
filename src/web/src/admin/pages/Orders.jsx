@@ -10,7 +10,6 @@ import {
   collection,
   onSnapshot,
   query,
-  orderBy,
   addDoc,
   deleteDoc,
   writeBatch,
@@ -22,6 +21,9 @@ import { ensureShipmentForOrder, deleteShipmentsForOrder } from "../data/firebas
 import { upsertAssessmentAndRequest } from "../data/assessmentProvider";
 import "../Orders.css";
 
+/* -------------------------------------------------------------------------- */
+/* HELPERS                                                                    */
+/* -------------------------------------------------------------------------- */
 
 function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
   const [url, setUrl] = React.useState(
@@ -65,7 +67,6 @@ function ResolvedImg({ pathOrUrl, alt = "", size = 100 }) {
   );
 }
 
-
 const STATUS_OPTIONS = [
   { value: "processing", label: "Processing" },
   { value: "preparing", label: "Preparing" },
@@ -77,13 +78,20 @@ const STATUS_OPTIONS = [
 ];
 const STATUS_LABEL = Object.fromEntries(STATUS_OPTIONS.map((s) => [s.value, s.label]));
 
+const RETURN_REASON_LABEL = {
+  damaged: "Item arrived damaged",
+  wrong_item: "Received wrong item/variant",
+  missing_parts: "Missing parts/accessories",
+  not_as_described: "Not as described",
+  quality_issue: "Quality issue",
+  other: "Other",
+};
 
 const SHIPPING_DRIVEN_STATUSES = new Set(["to_receive", "to_rate", "completed"]);
 
 const clrOrders = "#d9534f";
 const clrRepairs = "#b33939";
 const clrCustom = "#c62828";
-
 
 function paymentBadgeClass(ps) {
   const v = String(ps || "pending").toLowerCase();
@@ -119,6 +127,7 @@ function pickDate(row) {
   }
   return null;
 }
+
 function tsToMillis(ts) {
   if (!ts) return 0;
   if (typeof ts?.toDate === "function") return ts.toDate().getTime();
@@ -131,10 +140,12 @@ function tsToMillis(ts) {
   if (!Number.isNaN(n)) return n > 1e12 ? n : n * 1000;
   return 0;
 }
+
 function fmtDate(tsLike) {
   const ms = tsToMillis(tsLike);
   return ms ? new Date(ms).toLocaleString() : "";
 }
+
 function pickCustomerReferenceImages(obj = {}) {
   const keys = [
     "referenceImages",
@@ -154,7 +165,6 @@ function pickCustomerReferenceImages(obj = {}) {
   return [];
 }
 
-
 function fmtAdditionals(adds) {
   if (!adds) return "";
   const arr = Array.isArray(adds) ? adds : [adds];
@@ -164,7 +174,6 @@ function fmtAdditionals(adds) {
       : a?.label || a?.name || a?.title || a?.id || a?.type || "";
   return arr.map(label).filter(Boolean).join(", ");
 }
-
 
 const toCents = (php) => Math.max(0, Math.round(Number(php || 0) * 100));
 const N = (x) => Math.max(0, Math.round(Number(x || 0)));
@@ -176,6 +185,7 @@ function assessedCentsFrom(row) {
   if (row?.total != null) return toCents(row.total);
   return toCents(unit + ship);
 }
+
 function computeMonies(row) {
   const assessed = assessedCentsFrom(row);
   const dep = N(row?.depositCents);
@@ -199,6 +209,7 @@ function computeMonies(row) {
     displayTotalPHP,
   };
 }
+
 async function ensureOrderForRepair(db, repairRow) {
   if (!repairRow?.id) return null;
   const qy = query(
@@ -213,6 +224,7 @@ async function ensureOrderForRepair(db, repairRow) {
   }
   return null;
 }
+
 async function ensureOrderForCustom(db, customRow) {
   if (!customRow?.id) return null;
   if (customRow.orderId) {
@@ -238,6 +250,7 @@ async function ensureOrderForCustom(db, customRow) {
   });
   return linked;
 }  
+
 function latestAdditionalCents(row) {
   const fromField = N(row?.lastAdditionalPaymentCents);
   if (fromField > 0) return fromField;
@@ -254,6 +267,7 @@ function latestAdditionalCents(row) {
   }
   return 0;
 }
+
 function applySettlement(row, basePatch, desiredStatus) {
   const merged = { ...row, ...basePatch };
   const m = computeMonies(merged);
@@ -279,6 +293,7 @@ function applySettlement(row, basePatch, desiredStatus) {
   }
   return patch;
 }
+
 function IconTrashBtn({ color, title, disabled, onClick, style }) {
   const [h, setH] = useState(false);
   return (
@@ -310,6 +325,7 @@ function IconTrashBtn({ color, title, disabled, onClick, style }) {
     </button>
   );
 }
+
 function CustomerBlock({ row, title = "Customer" }) {
   const addr =
     row?.shippingAddress ||
@@ -452,6 +468,7 @@ function CustomerBlock({ row, title = "Customer" }) {
     </div>
   );
 }
+
 function AssessmentPanel({ kind, row }) {
   const [assessed, setAssessed] = useState(
     row?.assessedTotalCents != null
@@ -642,10 +659,13 @@ function AssessmentPanel({ kind, row }) {
   );
 }
 
+/* -------------------------------------------------------------------------- */
+/* MAIN COMPONENT                                                             */
+/* -------------------------------------------------------------------------- */
+
 export default function Orders() {
   const db = useMemo(() => getFirestore(auth.app), []);
   const [activeTab, setActiveTab] = useState("orders");
-
   
   const [rows, setRows] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -655,7 +675,6 @@ export default function Orders() {
   const [draft, setDraft] = useState({});
   const [deleting, setDeleting] = useState({});
   const [expandedOrderId, setExpandedOrderId] = useState(null);
-
   
   const [repairs, setRepairs] = useState([]);
   const [repairsLoading, setRepairsLoading] = useState(true);
@@ -665,7 +684,6 @@ export default function Orders() {
   const [repairsDraft, setRepairsDraft] = useState({});
   const [repDeleting, setRepDeleting] = useState({});
   const [expandedRepairId, setExpandedRepairId] = useState(null);
-
   
   const [customs, setCustoms] = useState([]);
   const [customsLoading, setCustomsLoading] = useState(true);
@@ -676,7 +694,12 @@ export default function Orders() {
   const [customDeleting, setCustomDeleting] = useState({});
   const [expandedCustomId, setExpandedCustomId] = useState(null);
 
- 
+  // Return / refund requests (from return_requests collection)
+  const [returnReqs, setReturnReqs] = useState([]);
+  const [returnReqsLoading, setReturnReqsLoading] = useState(true);
+  const [returnReqsErr, setReturnReqsErr] = useState("");
+  const [returnSaving, setReturnSaving] = useState({});
+
   useEffect(() => {
     const qy = query(collection(db, "orders"));
     const stop = onSnapshot(
@@ -727,7 +750,23 @@ export default function Orders() {
     return stop;
   }, [db]);
 
- 
+  // Listen to return / refund requests
+  useEffect(() => {
+    const qy = query(collection(db, "returns"));
+    const stop = onSnapshot(
+      qy,
+      (snap) => {
+        setReturnReqs(snap.docs.map((d) => ({ id: d.id, ...d.data() })));
+        setReturnReqsLoading(false);
+      },
+      (e) => {
+        setReturnReqsErr(e?.message || "Failed to load return requests.");
+        setReturnReqsLoading(false);
+      }
+    );
+    return stop;
+  }, [db]);
+
   const productOrders = useMemo(
     () =>
       rows.filter(
@@ -782,6 +821,7 @@ export default function Orders() {
       return `₱${Number(n) || 0}`;
     }
   }
+
   async function mirrorPatchToLinkedDocsFromOrder(orderRow, patch) {
     const db2 = getFirestore(auth.app);
     if (orderRow?.repairId) {
@@ -823,6 +863,7 @@ export default function Orders() {
       }
     }
   }   
+
   async function requestRemainingBalanceForOrder(orderRow) {
     const db2 = getFirestore(auth.app);
     const m = computeMonies(orderRow);
@@ -866,6 +907,7 @@ export default function Orders() {
       ).toLocaleString()} remaining balance.`
     );
   }
+
   async function requestRemainingBalanceForRepair(repairRow) {
     const db2 = getFirestore(auth.app);
     const linkedOrder =
@@ -917,6 +959,7 @@ export default function Orders() {
       ).toLocaleString()} remaining balance.`
     );
   }
+
   async function requestRemainingBalanceForCustom(customRow) {
     const db2 = getFirestore(auth.app);
     const linkedOrder =
@@ -978,40 +1021,200 @@ export default function Orders() {
       ).toLocaleString()} remaining balance.`
     );
   }
-  async function updatePaymentForCustomization(customRow, nextStatus) {
-  const db2 = getFirestore(auth.app);
-  const linkedOrder = await ensureOrderForCustom(db2, customRow);
-  if (!linkedOrder) {
-    await updateCustomPayment(customRow.id, nextStatus);
-    return;
+
+  // --- START NEW CODE: Return Request Handler ---
+  async function handleReturnDecision(req, decision, orderRow, kind) {
+    const actionLabel = decision === "approved" ? "Accept" : "Reject";
+    if (!confirm(`Are you sure you want to ${actionLabel} this return request?`)) return;
+    
+    try {
+      const db2 = getFirestore(auth.app);
+      const batch = writeBatch(db2);
+
+      // 1. Update the Return Request Document status
+      const reqRef = doc(db2, "returns", req.id);
+      batch.update(reqRef, {
+        status: decision, 
+        adminResponseAt: serverTimestamp(),
+        resolvedBy: auth.currentUser?.uid || null,
+      });
+
+      // 2. If Accepted ('approved'), update the Order/Repair/Custom status to 'refund'
+      if (decision === "approved") {
+        const collectionName = kind === "repair" ? "repairs" : kind === "custom" ? "custom_orders" : "orders";
+        const orderRef = doc(db2, collectionName, orderRow.id);
+        
+        batch.update(orderRef, {
+          status: "refund",
+          statusUpdatedAt: serverTimestamp(),
+          paymentStatus: "refunded", 
+          hasOpenReturn: false,
+        });
+      } else {
+        // If rejected, just clear flags on the order
+        const collectionName = kind === "repair" ? "repairs" : kind === "custom" ? "custom_orders" : "orders";
+        const orderRef = doc(db2, collectionName, orderRow.id);
+        batch.update(orderRef, {
+           hasOpenReturn: false,
+        });
+      }
+
+      // 3. Notify the Customer
+      const uid = req.userId || orderRow.userId || orderRow.uid;
+      if (uid) {
+        const notifRef = doc(collection(db2, "users", uid, "notifications"));
+        
+        // Determine the link based on kind to ensure the notification is clickable
+        let linkUrl = "";
+        if (kind === "repair") linkUrl = `/ordersummary?repairId=${orderRow.id}`;
+        else if (kind === "custom") linkUrl = `/ordersummary?customId=${orderRow.id}`;
+        else linkUrl = `/ordersummary?orderId=${orderRow.id}`;
+
+        batch.set(notifRef, {
+          type: "return_decision", // Matches what you need to whitelist in Notification.jsx
+          status: decision === "approved" ? "return_approved" : "return_rejected", // Triggers Green/Red badges
+          title: decision === "approved" ? "Return Request Accepted" : "Return Request Declined",
+          body: decision === "approved" 
+            ? `Your return request for order ${orderRow.id.slice(0, 6)} has been approved. Refund processing will begin.`
+            : `Your return request for order ${orderRow.id.slice(0, 6)} has been declined.`,
+          link: linkUrl, // Critical for Notification.jsx visibility
+          orderId: kind === "order" ? orderRow.id : null,
+          repairId: kind === "repair" ? orderRow.id : null,
+          customId: kind === "custom" ? orderRow.id : null,
+          read: false,
+          createdAt: serverTimestamp(),
+        });
+      }
+
+      await batch.commit();
+      
+      // Update local state immediately so UI reflects changes
+      setReturnReqs(prev => prev.map(r => r.id === req.id ? { ...r, status: decision } : r));
+      
+      // Update local order row state if approved
+      if (decision === "approved") {
+        const updateLocal = (prev) => prev.map(o => o.id === orderRow.id ? { ...o, status: "refund", paymentStatus: "refunded" } : o);
+        if (kind === "order") setRows(updateLocal);
+        if (kind === "repair") setRepairs(updateLocal);
+        if (kind === "custom") setCustoms(updateLocal);
+      }
+
+      alert(`Return request ${decision}.`);
+    } catch (e) {
+      console.error(e);
+      alert("Failed to process return request: " + e.message);
+    }
   }
-  await updateOrderPayment(linkedOrder.id, linkedOrder, nextStatus);
-  let freshOrder = linkedOrder;
-  try {
-    const s = await getDoc(doc(db2, "orders", linkedOrder.id));
-    if (s.exists()) freshOrder = { id: s.id, ...s.data() };
-  } catch {}
-  const patch = {
-    paymentStatus: String(nextStatus || "").toLowerCase(),
-    paymentUpdatedAt: serverTimestamp(),
-    depositCents: freshOrder?.depositCents ?? null,
-    additionalPaymentsCents: freshOrder?.additionalPaymentsCents ?? null,
-    refundsCents: freshOrder?.refundsCents ?? null,
-    assessedTotalCents: freshOrder?.assessedTotalCents ?? null,
-    requestedAdditionalPaymentCents:
-      freshOrder?.requestedAdditionalPaymentCents ?? 0,
-    paymentProofPendingReview: !!freshOrder?.paymentProofPendingReview,
+  // --- END NEW CODE ---
+
+  // --- START NEW CODE: Return UI Panel ---
+  const ReturnRequestBlock = ({ orderId, row, kind }) => {
+    // Find a 'requested' return request for this order (matching ReturnRequest.jsx status)
+    const req = returnReqs.find(r => r.orderId === orderId && r.status === "requested");
+    
+    if (!req) return null;
+
+    return (
+      <div className="span-2" style={{ 
+        border: "1px solid #ef4444", 
+        background: "#fef2f2", 
+        borderRadius: 8, 
+        padding: 16, 
+        marginTop: 12 
+      }}>
+        <h4 style={{ color: "#b91c1c", marginTop: 0 }}>⚠️ Return Request Pending</h4>
+        
+        <div className="kv">
+          <label>Reason:</label>
+          <div><strong>{RETURN_REASON_LABEL[req.reasonCode] || req.reasonCode}</strong></div>
+        </div>
+        
+        <div className="kv">
+          <label>Customer Message:</label>
+          <div>{req.message || "No description provided."}</div>
+        </div>
+
+        {req.gcash && (
+          <div className="kv">
+            <label>Refund To (GCash):</label>
+            <div className="mono">
+              {req.gcash.accountName} — {req.gcash.accountNumber}
+            </div>
+          </div>
+        )}
+        
+        <div className="kv">
+            <label>Requested Amount:</label>
+            <div className="mono strong">{fmtPHP(req.requestedAmount)}</div>
+        </div>
+
+        {Array.isArray(req.images) && req.images.length > 0 && (
+          <div style={{ marginTop: 8 }}>
+            <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+              {req.images.map((url, i) => (
+                <ResolvedImg key={i} pathOrUrl={url} alt="Return Proof" size={80} />
+              ))}
+            </div>
+          </div>
+        )}
+
+        <div style={{ marginTop: 16, display: "flex", gap: 12 }}>
+          <button 
+            className="save-btn" 
+            onClick={() => handleReturnDecision(req, "approved", row, kind)}
+            style={{ backgroundColor: "#059669", color: "white" }} 
+          >
+            Accept Return
+          </button>
+          
+          <button 
+            className="save-btn" 
+            onClick={() => handleReturnDecision(req, "rejected", row, kind)}
+            style={{ backgroundColor: "#dc2626", color: "white" }} 
+          >
+            Reject Return
+          </button>
+        </div>
+      </div>
+    );
   };
-  await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
-  setCustoms((prev) =>
-    prev.map((c) => (c.id === customRow.id ? { ...c, ...patch } : c))
-  );
-  setRows((prev) =>
-    prev.map((o) =>
-      o.id === freshOrder.id ? { ...o, paymentStatus: patch.paymentStatus } : o
-    )
-  );
-}
+  // --- END NEW CODE ---
+
+  async function updatePaymentForCustomization(customRow, nextStatus) {
+    const db2 = getFirestore(auth.app);
+    const linkedOrder = await ensureOrderForCustom(db2, customRow);
+    if (!linkedOrder) {
+      await updateCustomPayment(customRow.id, nextStatus);
+      return;
+    }
+    await updateOrderPayment(linkedOrder.id, linkedOrder, nextStatus);
+    let freshOrder = linkedOrder;
+    try {
+      const s = await getDoc(doc(db2, "orders", linkedOrder.id));
+      if (s.exists()) freshOrder = { id: s.id, ...s.data() };
+    } catch {}
+    const patch = {
+      paymentStatus: String(nextStatus || "").toLowerCase(),
+      paymentUpdatedAt: serverTimestamp(),
+      depositCents: freshOrder?.depositCents ?? null,
+      additionalPaymentsCents: freshOrder?.additionalPaymentsCents ?? null,
+      refundsCents: freshOrder?.refundsCents ?? null,
+      assessedTotalCents: freshOrder?.assessedTotalCents ?? null,
+      requestedAdditionalPaymentCents:
+        freshOrder?.requestedAdditionalPaymentCents ?? 0,
+      paymentProofPendingReview: !!freshOrder?.paymentProofPendingReview,
+    };
+    await updateDoc(doc(db2, "custom_orders", customRow.id), patch);
+    setCustoms((prev) =>
+      prev.map((c) => (c.id === customRow.id ? { ...c, ...patch } : c))
+    );
+    setRows((prev) =>
+      prev.map((o) =>
+        o.id === freshOrder.id ? { ...o, paymentStatus: patch.paymentStatus } : o
+      )
+    );
+  }
+
   async function updateOrderPayment(orderId, currentRow, nextStatus) {
     const db2 = getFirestore(auth.app);
     const val = String(nextStatus || "").toLowerCase();
@@ -1079,11 +1282,8 @@ export default function Orders() {
       patch
     );
   }
-  async function updateRepairPayment(
-    repairId,
-    currentRow,
-    nextStatus
-  ) {
+
+  async function updateRepairPayment(repairId, currentRow, nextStatus) {
     const db2 = getFirestore(auth.app);
     const val = String(nextStatus || "").toLowerCase();
     let patch = { paymentUpdatedAt: serverTimestamp() };
@@ -1144,6 +1344,7 @@ export default function Orders() {
       )
     );
   }
+
   async function updateCustomPayment(customId, nextStatus) {
     const db2 = getFirestore(auth.app);
     const val = String(nextStatus || "").toLowerCase();
@@ -1214,6 +1415,7 @@ export default function Orders() {
       )
     );
   }
+
   async function saveStatus(id) {
     const newStatus = draft[id];
     if (!newStatus) return;
@@ -1274,6 +1476,7 @@ export default function Orders() {
       setSaving((prev) => ({ ...prev, [id]: false }));
     }
   }
+
   async function saveRepairStatus(id) {
     const newStatus = repairsDraft[id];
     if (!newStatus) return;
@@ -1300,7 +1503,6 @@ export default function Orders() {
           rRow.customerInfo?.uid ??
           null;
 
-      
         if (!uid) {
           const linkedOrder = rows.find((o) => o?.repairId === id) || null;
           if (linkedOrder?.userId) uid = linkedOrder.userId;
@@ -1323,7 +1525,6 @@ export default function Orders() {
       } catch (e) {
         console.warn("Failed to create repair status notification:", e);
       }
-
       
       if (newStatus === "to_ship") {
         const rRow = repairs.find((x) => x.id === id) || { id };
@@ -1343,143 +1544,128 @@ export default function Orders() {
     }
   }
 
-      
   async function saveCustomStatus(id) {
-  const newStatus = customsDraft[id];
-  if (!newStatus) return;
+    const newStatus = customsDraft[id];
+    if (!newStatus) return;
 
-  setCustomsSaving((p) => ({ ...p, [id]: true }));
+    setCustomsSaving((p) => ({ ...p, [id]: true }));
 
-  try {
-    const db2 = getFirestore(auth.app);
-
-    const updates = {
-      status: newStatus,
-      statusUpdatedAt: serverTimestamp(),
-    };
-
-    
-    await updateDoc(doc(db2, "custom_orders", id), updates);
-
-    
-    setCustoms((prev) =>
-      prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
-    );
-
-    
     try {
-      const cRow = customs.find((x) => x.id === id) || {};
-      
-      let uid =
-        cRow.userId ??
-        cRow.uid ??
-        cRow.customer?.uid ??
-        cRow.customerInfo?.uid ??
-        null;
+      const db2 = getFirestore(auth.app);
 
+      const updates = {
+        status: newStatus,
+        statusUpdatedAt: serverTimestamp(),
+      };
       
-      if (!uid) {
-        const linkedOrder =
-          rows.find(
-            (o) =>
-              String(o?.origin || "") === "customization" &&
-              (o?.customId === id ||
-                o?.linkedCustomId === id ||
-                o?.metadata?.customId === id ||
-                o?.id === cRow.orderId)
-          ) || null;
-        if (linkedOrder?.userId) uid = linkedOrder.userId;
+      await updateDoc(doc(db2, "custom_orders", id), updates);
+
+      setCustoms((prev) =>
+        prev.map((r) => (r.id === id ? { ...r, ...updates } : r))
+      );
+
+      try {
+        const cRow = customs.find((x) => x.id === id) || {};
+        let uid =
+          cRow.userId ??
+          cRow.uid ??
+          cRow.customer?.uid ??
+          cRow.customerInfo?.uid ??
+          null;
+
+        if (!uid) {
+          const linkedOrder =
+            rows.find(
+              (o) =>
+                String(o?.origin || "") === "customization" &&
+                (o?.customId === id ||
+                  o?.linkedCustomId === id ||
+                  o?.metadata?.customId === id ||
+                  o?.id === cRow.orderId)
+            ) || null;
+          if (linkedOrder?.userId) uid = linkedOrder.userId;
+        }
+
+        if (uid) {
+          await addDoc(collection(db2, "users", uid, "notifications"), {
+            type: "custom_status",
+            customId: id,
+            status: newStatus,
+            title: `Customization ${String(id).slice(0, 6)} status updated`,
+            body: `Customization status is now ${
+              STATUS_LABEL[newStatus] || newStatus
+            }.`,
+            link: `/ordersummary?customId=${id}`,
+            createdAt: serverTimestamp(),
+            read: false,
+          });
+        }
+      } catch (e) {
+        console.warn("Failed to create customization status notification:", e);
       }
 
-      if (uid) {
-        await addDoc(collection(db2, "users", uid, "notifications"), {
-          type: "custom_status",
-          customId: id,
-          status: newStatus,
-          title: `Customization ${String(id).slice(0, 6)} status updated`,
-          body: `Customization status is now ${
-            STATUS_LABEL[newStatus] || newStatus
-          }.`,
-          link: `/ordersummary?customId=${id}`,
-          createdAt: serverTimestamp(),
-          read: false,
-        });
+      if (newStatus === "to_ship") {
+        const cRow = customs.find((x) => x.id === id) || { id };
+
+        try {
+          await ensureShipmentForOrder({
+            ...cRow,
+            ...updates,
+            id,
+            kind: "custom_orders",
+          });
+        } catch (e) {
+          console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
+        }
       }
     } catch (e) {
-      console.warn("Failed to create customization status notification:", e);
+      alert(e?.message || "Failed to update customization status.");
+    } finally {
+      setCustomsSaving((p) => ({ ...p, [id]: false }));
     }
-
-    
-    if (newStatus === "to_ship") {
-      const cRow = customs.find((x) => x.id === id) || { id };
-
-      try {
-        await ensureShipmentForOrder({
-          ...cRow,
-          ...updates,
-          id,
-          kind: "custom_orders",
-        });
-      } catch (e) {
-        console.warn("ensureShipmentForOrder (custom) failed:", e?.message || e);
-      }
-    }
-  } catch (e) {
-    alert(e?.message || "Failed to update customization status.");
-  } finally {
-    setCustomsSaving((p) => ({ ...p, [id]: false }));
   }
-}
-  
-async function deleteOrderCascade(id) {
-  try {
-    setDeleting((p) => ({ ...p, [id]: true }));
-    const db2 = getFirestore(auth.app);
 
-    
-    const row = rows.find((o) => o.id === id) || {};
-    const userId =
-      row.userId ??
-      row.uid ??
-      row.customer?.uid ??
-      row.customerInfo?.uid ??
-      null;
-
-    
-    await deleteShipmentsForOrder(id).catch(() => {});
-
-    
-    if (userId) {
-      try {
-        await deleteNotificationsForOrder(db2, {
-          userId,
-          sourceId: id,
-          kind: "orders",
-        });
-      } catch (e) {
-        console.warn("Failed to delete order notifications:", e);
+  async function deleteOrderCascade(id) {
+    try {
+      setDeleting((p) => ({ ...p, [id]: true }));
+      const db2 = getFirestore(auth.app);
+      
+      const row = rows.find((o) => o.id === id) || {};
+      const userId =
+        row.userId ??
+        row.uid ??
+        row.customer?.uid ??
+        row.customerInfo?.uid ??
+        null;
+      
+      await deleteShipmentsForOrder(id).catch(() => {});
+      
+      if (userId) {
+        try {
+          await deleteNotificationsForOrder(db2, {
+            userId,
+            sourceId: id,
+            kind: "orders",
+          });
+        } catch (e) {
+          console.warn("Failed to delete order notifications:", e);
+        }
       }
+      
+      await deleteDoc(doc(db2, "orders", id));
+      
+      setRows((prev) => prev.filter((o) => o.id !== id));
+    } catch (e) {
+      alert(e?.message || "Failed to delete order.");
+    } finally {
+      setDeleting((p) => ({ ...p, [id]: false }));
     }
-
-    
-    await deleteDoc(doc(db2, "orders", id));
-
-    
-    setRows((prev) => prev.filter((o) => o.id !== id));
-  } catch (e) {
-    alert(e?.message || "Failed to delete order.");
-  } finally {
-    setDeleting((p) => ({ ...p, [id]: false }));
   }
-}
 
-
-  
   async function deleteRepairCascade(id) {
     try {
       setRepDeleting((p) => ({ ...p, [id]: true }));
       const db2 = getFirestore(auth.app);
-
       
       const rRow = repairs.find((x) => x.id === id) || {};
       const userId =
@@ -1488,18 +1674,14 @@ async function deleteOrderCascade(id) {
         rRow.customer?.uid ??
         rRow.customerInfo?.uid ??
         null;
-
       
       const linked =
         rows.find((o) => o?.repairId === id) || null;
       if (linked) {
-        
         await deleteOrderCascade(linked.id);
       }
-
       
       await deleteShipmentsForOrder(id).catch(() => {});
-
       
       if (userId) {
         try {
@@ -1512,10 +1694,8 @@ async function deleteOrderCascade(id) {
           console.warn("Failed to delete repair notifications:", e);
         }
       }
-
       
       await deleteDoc(doc(db2, "repairs", id));
-
       
       setRepairs((prev) => prev.filter((r) => r.id !== id));
     } catch (e) {
@@ -1525,12 +1705,10 @@ async function deleteOrderCascade(id) {
     }
   }
 
-  
   async function deleteCustomCascade(id) {
     try {
       setCustomDeleting((p) => ({ ...p, [id]: true }));
       const db2 = getFirestore(auth.app);
-
       
       const cRow = customs.find((x) => x.id === id) || {};
       const userId =
@@ -1539,7 +1717,6 @@ async function deleteOrderCascade(id) {
         cRow.customer?.uid ??
         cRow.customerInfo?.uid ??
         null;
-
       
       const linked =
         rows.find(
@@ -1552,13 +1729,10 @@ async function deleteOrderCascade(id) {
         ) || null;
 
       if (linked) {
-        
         await deleteOrderCascade(linked.id);
       }
-
       
       await deleteShipmentsForOrder(id).catch(() => {});
-
       
       if (userId) {
         try {
@@ -1571,10 +1745,8 @@ async function deleteOrderCascade(id) {
           console.warn("Failed to delete custom notifications:", e);
         }
       }
-
       
       await deleteDoc(doc(db2, "custom_orders", id));
-
       
       setCustoms((prev) => prev.filter((c) => c.id !== id));
     } catch (e) {
@@ -1584,35 +1756,27 @@ async function deleteOrderCascade(id) {
     }
   }
 
+  async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
+    if (!db || !userId || !sourceId) return;
 
+    const field =
+      kind === "repairs"
+        ? "repairId"
+        : kind === "custom_orders"
+        ? "customId"
+        : "orderId";
 
-  
-async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
-  
-  if (!db || !userId || !sourceId) return;
+    const notifCol = collection(db, "users", userId, "notifications");
+    const qy = query(notifCol, where(field, "==", sourceId));
 
-  const field =
-    kind === "repairs"
-      ? "repairId"
-      : kind === "custom_orders"
-      ? "customId"
-      : "orderId";
+    const snap = await getDocs(qy);
+    if (snap.empty) return;
 
-  const notifCol = collection(db, "users", userId, "notifications");
-  const qy = query(notifCol, where(field, "==", sourceId));
+    const batch = writeBatch(db);
+    snap.forEach((docSnap) => batch.delete(docSnap.ref));
+    await batch.commit();
+  }
 
-  const snap = await getDocs(qy);
-  if (snap.empty) return;
-
-  const batch = writeBatch(db);
-  snap.forEach((docSnap) => batch.delete(docSnap.ref));
-  await batch.commit();
-}
-
-
-  
-
- 
   const TabButton = ({ id, label, count }) => (
     <button
       type="button"
@@ -1783,7 +1947,6 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                 <option
                                   key={opt.value}
                                   value={opt.value}
-                                  
                                   disabled={SHIPPING_DRIVEN_STATUSES.has(
                                     opt.value
                                   )}
@@ -1837,6 +2000,10 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                           <tr>
                             <td colSpan={8}>
                               <div className="details-grid">
+                                
+                                {/* --- Inserted Return Request Block --- */}
+                                <ReturnRequestBlock orderId={id} row={o} kind="order" />
+
                                 {/* Deposit proof */}
                                 {depositProof && (
                                   <div className="span-2">
@@ -2022,66 +2189,66 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                 />
 
                                 <div className="span-2">
-  <h4>Items</h4>
-  <ul className="items">
-    {(o?.items || []).map((it, i) => {
-      const size =
-        it?.size ||
-        it?.selectedSize ||
-        it?.sizeLabel ||
-        it?.selectedSizeLabel ||
-        null;
-      const color =
-        it?.color ||
-        it?.selectedColor ||
-        it?.colorLabel ||
-        null;
-      const material =
-        it?.material ||
-        it?.selectedMaterial ||
-        it?.materialLabel ||
-        null;
+                                  <h4>Items</h4>
+                                  <ul className="items">
+                                    {(o?.items || []).map((it, i) => {
+                                      const size =
+                                        it?.size ||
+                                        it?.selectedSize ||
+                                        it?.sizeLabel ||
+                                        it?.selectedSizeLabel ||
+                                        null;
+                                      const color =
+                                        it?.color ||
+                                        it?.selectedColor ||
+                                        it?.colorLabel ||
+                                        null;
+                                      const material =
+                                        it?.material ||
+                                        it?.selectedMaterial ||
+                                        it?.materialLabel ||
+                                        null;
 
-      const variantParts = [
-        size,
-        color,
-        material,
-      ].filter(Boolean);
+                                      const variantParts = [
+                                        size,
+                                        color,
+                                        material,
+                                      ].filter(Boolean);
 
-      // mobile items may store additionals on the item too
-      const additionalsText =
-        fmtAdditionals(it?.additionals) || "";
+                                      // mobile items may store additionals on the item too
+                                      const additionalsText =
+                                        fmtAdditionals(it?.additionals) || "";
 
-      return (
-        <li key={i} className="item">
-          <div className="item-title">
-            {it?.title || it?.name || "Item"}
-          </div>
+                                      return (
+                                        <li key={i} className="item">
+                                          <div className="item-title">
+                                            {it?.title || it?.name || "Item"}
+                                          </div>
 
-          <div className="muted">
-            {variantParts.length > 0 && (
-              <>
-                {variantParts.join(" • ")}
-                {" · "}
-              </>
-            )}
-            Qty: {it?.qty ?? 1}
-          </div>
+                                          <div className="muted">
+                                            {variantParts.length > 0 && (
+                                              <>
+                                                {variantParts.join(" • ")}
+                                                {" · "}
+                                              </>
+                                            )}
+                                            Qty: {it?.qty ?? 1}
+                                          </div>
 
-          {additionalsText && (
-            <div className="muted">
-              Additionals: {additionalsText}
-            </div>
-          )}
+                                          {additionalsText && (
+                                            <div className="muted">
+                                              Additionals: {additionalsText}
+                                            </div>
+                                          )}
 
-          <div className="mono">
-            {fmtPHP(it?.price)}
-          </div>
-        </li>
-      );
-    })}
-  </ul>
-</div>
+                                          <div className="mono">
+                                            {fmtPHP(it?.price)}
+                                          </div>
+                                        </li>
+                                      );
+                                    })}
+                                  </ul>
+                                </div>
 
 
                                 {o?.note && (
@@ -2269,14 +2436,14 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                               ))}
                             </select>
                             <button
-  className="save-btn"
-  onClick={() => saveRepairStatus(id)}
-  disabled={repairsSaving[id] || draftStatus === status}
-  type="button"
-  title={draftStatus === status ? "No changes" : "Save"}
->
-  {repairsSaving[id] ? "Saving…" : "Save"}
-</button>
+                              className="save-btn"
+                              onClick={() => saveRepairStatus(id)}
+                              disabled={repairsSaving[id] || draftStatus === status}
+                              type="button"
+                              title={draftStatus === status ? "No changes" : "Save"}
+                            >
+                              {repairsSaving[id] ? "Saving…" : "Save"}
+                            </button>
                             <IconTrashBtn
                               color={clrRepairs}
                               disabled={!!repDeleting[id]}
@@ -2309,6 +2476,10 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                           <tr>
                             <td colSpan={11}>
                               <div className="details-grid">
+                                
+                                {/* --- Inserted Return Request Block --- */}
+                                <ReturnRequestBlock orderId={id} row={r} kind="repair" />
+
                                 {/* Deposit proof */}
                                 {depositProof && (
                                   <div className="span-2">
@@ -2427,55 +2598,55 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                 </div>
 
                                 {/* Order total (linked order if exists, otherwise this repair doc) */}
-{(() => {
-  const target = linkedOrder || r;
-  const money = linkedOrder ? mLinked : computeMonies(target);
-  if (!money) return null;
+                                {(() => {
+                                  const target = linkedOrder || r;
+                                  const money = linkedOrder ? mLinked : computeMonies(target);
+                                  if (!money) return null;
 
-  return (
-    <div>
-      <h4>Order Total</h4>
-      <div className="kv">
-        <label>Unit Price</label>
-        <div className="mono">
-          {fmtPHP(money.unitPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Shipping</label>
-        <div className="mono">
-          {fmtPHP(money.shipPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Total</label>
-        <div className="mono strong">
-          {fmtPHP(money.displayTotalPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Net Paid</label>
-        <div className="mono strong">
-          {fmtPHP(
-            Math.round((money.dep + money.adds - money.refs) / 100)
-          )}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Balance Due</label>
-        <div
-          className="mono"
-          style={{
-            fontWeight: 700,
-            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
-          }}
-        >
-          {fmtPHP(Math.round(money.balance / 100))}
-        </div>
-      </div>
-    </div>
-  );
-})()}
+                                  return (
+                                    <div>
+                                      <h4>Order Total</h4>
+                                      <div className="kv">
+                                        <label>Unit Price</label>
+                                        <div className="mono">
+                                          {fmtPHP(money.unitPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Shipping</label>
+                                        <div className="mono">
+                                          {fmtPHP(money.shipPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Total</label>
+                                        <div className="mono strong">
+                                          {fmtPHP(money.displayTotalPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Net Paid</label>
+                                        <div className="mono strong">
+                                          {fmtPHP(
+                                            Math.round((money.dep + money.adds - money.refs) / 100)
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Balance Due</label>
+                                        <div
+                                          className="mono"
+                                          style={{
+                                            fontWeight: 700,
+                                            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
+                                          }}
+                                        >
+                                          {fmtPHP(Math.round(money.balance / 100))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
                               <CustomerBlock title="Customer" row={r} />
                                 {/* Items summary for this repair */}
                                 <div className="span-2">
@@ -2796,6 +2967,10 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                           <tr>
                             <td colSpan={13}>
                               <div className="details-grid">
+                                
+                                {/* --- Inserted Return Request Block --- */}
+                                <ReturnRequestBlock orderId={id} row={c} kind="custom" />
+
                                 {/* Deposit proof */}
                                 {depositProof && (
                                   <div className="span-2">
@@ -2908,58 +3083,56 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                 </div>
 
                                 {/* Order total (linked order if exists, otherwise custom order doc) */}
-{(() => {
-  const target = linkedOrder || c;
-  const money = linkedOrder ? mLinked : computeMonies(target);
-  if (!money) return null;
+                                {(() => {
+                                  const target = linkedOrder || c;
+                                  const money = linkedOrder ? mLinked : computeMonies(target);
+                                  if (!money) return null;
 
-  return (
-    <div>
-      <h4>Order Total</h4>
-      <div className="kv">
-        <label>Unit Price</label>
-        <div className="mono">
-          {fmtPHP(money.unitPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Shipping</label>
-        <div className="mono">
-          {fmtPHP(money.shipPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Total</label>
-        <div className="mono strong">
-          {fmtPHP(money.displayTotalPHP)}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Net Paid</label>
-        <div className="mono strong">
-          {fmtPHP(
-            Math.round((money.dep + money.adds - money.refs) / 100)
-          )}
-        </div>
-      </div>
-      <div className="kv">
-        <label>Balance Due</label>
-        <div
-          className="mono"
-          style={{
-            fontWeight: 700,
-            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
-          }}
-        >
-          {fmtPHP(Math.round(money.balance / 100))}
-        </div>
-      </div>
-    </div>
-  );
-})()}
-
-
-                                                                <CustomerBlock title="Customer" row={c} />
+                                  return (
+                                    <div>
+                                      <h4>Order Total</h4>
+                                      <div className="kv">
+                                        <label>Unit Price</label>
+                                        <div className="mono">
+                                          {fmtPHP(money.unitPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Shipping</label>
+                                        <div className="mono">
+                                          {fmtPHP(money.shipPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Total</label>
+                                        <div className="mono strong">
+                                          {fmtPHP(money.displayTotalPHP)}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Net Paid</label>
+                                        <div className="mono strong">
+                                          {fmtPHP(
+                                            Math.round((money.dep + money.adds - money.refs) / 100)
+                                          )}
+                                        </div>
+                                      </div>
+                                      <div className="kv">
+                                        <label>Balance Due</label>
+                                        <div
+                                          className="mono"
+                                          style={{
+                                            fontWeight: 700,
+                                            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
+                                          }}
+                                        >
+                                          {fmtPHP(Math.round(money.balance / 100))}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  );
+                                })()}
+                                <CustomerBlock title="Customer" row={c} />
 
                                 {/* Items (what the customer picked) */}
                                 <div className="span-2">

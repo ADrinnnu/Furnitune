@@ -229,6 +229,9 @@ export default function MyPurchases() {
   const [orders, setOrders] = useState([]);
   const [filter, setFilter] = useState("all");
 
+  // Track return requests to grey out buttons
+  const [returnRequests, setReturnRequests] = useState({});
+
   // Rating / Editing modal state
   const [ratingOpen, setRatingOpen] = useState(false);
   const [ratingOrder, setRatingOrder] = useState(null);
@@ -429,6 +432,34 @@ export default function MyPurchases() {
     });
     return stop;
   }, []);
+
+  /* ---------------------- LISTEN FOR RETURN REQUESTS ---------------------- */
+  useEffect(() => {
+    if (!uid) {
+      setReturnRequests({});
+      return;
+    }
+
+    const q = query(
+      collection(db, "return_requests"),
+      where("userId", "==", uid)
+    );
+
+    const unsubscribe = onSnapshot(q, (snapshot) => {
+      const mapping = {};
+      snapshot.forEach((doc) => {
+        const data = doc.data();
+        // Map requests by their associated order/repair ID for easy lookup
+        if (data.orderId) mapping[data.orderId] = { id: doc.id, ...data };
+        if (data.repairId) mapping[data.repairId] = { id: doc.id, ...data };
+        if (data.customId) mapping[data.customId] = { id: doc.id, ...data };
+      });
+      setReturnRequests(mapping);
+    });
+
+    return () => unsubscribe();
+  }, [db, uid]);
+  /* ---------------------------------------------------------------------- */
 
   /* Live: ORDERS by uid OR email */
   useEffect(() => {
@@ -802,15 +833,16 @@ export default function MyPurchases() {
   const handleReturnClick = (order) => {
     if (!order) return;
 
-    // still skip explicit returns for repairs (same behavior as before)
-    const isRepair = !!order?.repairId || getOriginKey(order) === "REPAIR";
-    if (isRepair) return;
+    // Check if return is already active
+    const rid = order.repairId || order.customId || order.id;
+    if (returnRequests[rid]) return; // Extra safety check
 
     if (order._source === "custom") {
       const cid = order.customId || order.id;
       navigate(`/return?customId=${cid}`);
+    } else if (order._source === "repair" || order.origin === "repair") {
+       navigate(`/return?repairId=${order.id}`); 
     } else {
-      // normal catalog order
       navigate(`/return?orderId=${order.id}`);
     }
   };
@@ -1001,6 +1033,13 @@ export default function MyPurchases() {
 
         const showCancel = status === "processing" && !LOCK_CANCEL.includes(status);
 
+        // CHECK IF RETURN ALREADY EXISTS FOR THIS ORDER/REPAIR
+        const returnReq =
+          returnRequests[o.id] ||
+          (o.repairId && returnRequests[o.repairId]) ||
+          (o.customId && returnRequests[o.customId]);
+        const isReturnActive = !!returnReq;
+
         return (
           <div className="order-card" key={o.id}>
             <div className="order-header">
@@ -1060,15 +1099,20 @@ export default function MyPurchases() {
                     >
                       TO RECEIVE
                     </button>
-                    {!isRepair && (
-                      <button
-                        className="pending"
-                        type="button"
-                        onClick={() => handleReturnClick(o)}
-                      >
-                        RETURN/REFUND
-                      </button>
-                    )}
+                    {/* MODIFIED RETURN BUTTON LOGIC */}
+                    <button
+                      className={isReturnActive ? "disabled-btn" : "pending"}
+                      type="button"
+                      onClick={() => !isReturnActive && handleReturnClick(o)}
+                      disabled={isReturnActive}
+                      style={
+                        isReturnActive
+                          ? { backgroundColor: "#ccc", cursor: "not-allowed", color: "#666", borderColor: "#bbb" }
+                          : {}
+                      }
+                    >
+                      {isReturnActive ? "RETURN SUBMITTED" : "RETURN/REFUND"}
+                    </button>
                   </>
                 )}
 
