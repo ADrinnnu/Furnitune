@@ -485,3 +485,185 @@ header.nav .container {
 @media (max-width:860px) {
   .hero { grid-template-columns:1fr }
 }
+
+/* ============================================================
+   📱 MOBILE RESPONSIVE LAYER
+   ============================================================ */
+
+/* ---- Global container spacing ---- */
+@media (max-width: 768px) {
+  .container {
+    width: 94%;
+    padding-inline: 8px;
+  }
+  .section {
+    padding-block: 20px;
+  }
+}
+
+
+/* ---- Navbar ---- */
+@media (max-width: 768px) {
+  .top-bar {
+    padding: 10px 0;
+  }
+  .menu-bar {
+    flex-direction: column;
+    gap: 10px;
+  }
+  .categories {
+    width: 100%;
+    overflow-x: auto;
+    white-space: nowrap;
+    gap: 8px;
+  }
+  .categories a {
+    border-right: none;
+    display: inline-block;
+  }
+}
+
+
+/* ---- Category Chips Grid ---- */
+@media (max-width: 768px) {
+  .chipbar {
+    grid-template-columns: repeat(2, 1fr) !important;
+    gap: 16px;
+  }
+  .chip-image-box {
+    aspect-ratio: 4 / 3;
+  }
+  .chip-label {
+    font-size: 11px;
+  }
+}
+
+
+/* ---- Product & Collection Carousels ---- */
+@media (max-width: 768px) {
+  .carousel {
+    gap: 12px;
+    padding: 4px;
+  }
+  .product-cards {
+    width: 200px;
+    height: auto;
+  }
+  .card-image {
+    height: 150px;
+  }
+}
+
+
+/* ---- Homepage Feature Cards ---- */
+@media (max-width: 768px) {
+  .cards-container {
+    flex-direction: column;
+    align-items: center;
+    gap: 1rem;
+  }
+  .feature-card {
+    width: 90%;
+  }
+}
+
+
+/* ---- Review Cards ---- */
+@media (max-width: 768px) {
+  .review-card {
+    width: 90%;
+  }
+}
+
+
+/* ---- Landing Page Sections ---- */
+@media (max-width: 768px) {
+  h2 {
+    text-align: center;
+    font-size: 1.5rem;
+  }
+
+  #hero {
+    padding-top: 10px;
+  }
+}
+
+
+/* ---- Footer ---- */
+@media (max-width: 768px) {
+  .footer-top {
+    grid-template-columns: 1fr !important;
+    gap: 24px;
+  }
+  .footer-meta {
+    flex-direction: column;
+    text-align: center;
+  }
+}
+
+
+/* ============================================================
+   📱 FOOTER — MOBILE RESPONSIVE FIXES
+   ============================================================ */
+
+@media (max-width: 768px) {
+
+  /* Container adjustments */
+  .footer {
+    padding-bottom: 20px;
+  }
+
+  .footer-top {
+    grid-template-columns: 1fr !important;
+    gap: 28px !important;
+    text-align: center;
+  }
+
+  .ft-col {
+    min-width: unset;
+  }
+
+  .ft-title {
+    font-size: 13px !important;
+    margin-bottom: 10px;
+  }
+
+  .link-item,
+  .ft-link {
+    font-size: 13px !important;
+    padding: 4px 0;
+    display: block;
+  }
+
+  /* Bottom meta */
+  .footer-meta {
+    flex-direction: column;
+    justify-content: center;
+    text-align: center;
+    gap: 12px !important;
+  }
+
+  .meta-links {
+    flex-direction: column;
+    text-align: center;
+    gap: 6px !important;
+  }
+
+  .meta-sep {
+    display: none;
+  }
+
+  /* Social icons */
+  .socials {
+    justify-content: center;
+    width: 100%;
+    gap: 14px !important;
+  }
+
+  .icon-circle {
+    width: 36px;
+    height: 36px;
+  }
+}
+
+
