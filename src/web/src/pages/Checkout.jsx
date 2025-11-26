@@ -75,7 +75,7 @@ export default function Checkout() {
           ? draft.image
           : null);
 
-      setItems([
+            setItems([
         {
           id: `custom-${Date.now()}`,
           productId: draft.productId || "custom",
@@ -85,6 +85,21 @@ export default function Checkout() {
           price,
           image,
           imageUrl: image,
+
+          // 👉 carry the customer's choices into the item
+          size: draft.size || null,
+          selectedSize: draft.size || null,
+
+          color: draft?.cover?.color || null,
+          selectedColor: draft?.cover?.color || null,
+
+          material: draft?.cover?.materialType || null,
+          selectedMaterial: draft?.cover?.materialType || null,
+
+          additionals: Array.isArray(draft.additionals)
+            ? draft.additionals
+            : [],
+
           meta: { custom: true },
         },
       ]);

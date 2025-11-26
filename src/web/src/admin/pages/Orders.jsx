@@ -2426,66 +2426,85 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                   </div>
                                 </div>
 
-                                {mLinked && (
-                                  <div>
-                                    <h4>Order Total</h4>
-                                    <div className="kv">
-                                      <label>Unit Price</label>
-                                      <div className="mono">
-                                        {fmtPHP(mLinked.unitPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Shipping</label>
-                                      <div className="mono">
-                                        {fmtPHP(mLinked.shipPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Total</label>
-                                      <div className="mono strong">
-                                        {fmtPHP(mLinked.displayTotalPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Net Paid</label>
-                                      <div className="mono strong">
-                                        {fmtPHP(
-                                          Math.round(
-                                            (mLinked.dep +
-                                              mLinked.adds -
-                                              mLinked.refs) /
-                                              100
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Balance Due</label>
-                                      <div
-                                        className="mono"
-                                        style={{
-                                          fontWeight: 700,
-                                          color:
-                                            mLinked.balance > 0
-                                              ? "#b91c1c"
-                                              : "#1f2937",
-                                        }}
-                                      >
-                                        {fmtPHP(
-                                          Math.round(
-                                            mLinked.balance / 100
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
+                                {/* Order total (linked order if exists, otherwise this repair doc) */}
+{(() => {
+  const target = linkedOrder || r;
+  const money = linkedOrder ? mLinked : computeMonies(target);
+  if (!money) return null;
 
-                                <CustomerBlock title="Customer" row={r} />
-
+  return (
+    <div>
+      <h4>Order Total</h4>
+      <div className="kv">
+        <label>Unit Price</label>
+        <div className="mono">
+          {fmtPHP(money.unitPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Shipping</label>
+        <div className="mono">
+          {fmtPHP(money.shipPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Total</label>
+        <div className="mono strong">
+          {fmtPHP(money.displayTotalPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Net Paid</label>
+        <div className="mono strong">
+          {fmtPHP(
+            Math.round((money.dep + money.adds - money.refs) / 100)
+          )}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Balance Due</label>
+        <div
+          className="mono"
+          style={{
+            fontWeight: 700,
+            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
+          }}
+        >
+          {fmtPHP(Math.round(money.balance / 100))}
+        </div>
+      </div>
+    </div>
+  );
+})()}
+                              <CustomerBlock title="Customer" row={r} />
+                                {/* Items summary for this repair */}
+                                <div className="span-2">
+                                  <h4>Items</h4>
+                                  <ul className="items">
+                                    <li className="item">
+                                      <div className="item-title">
+                                        {r?.typeLabel || r?.typeId || "Repair"}
+                                      </div>
+                                      <div className="muted">
+                                        {[
+                                          r?.coverMaterialLabel ||
+                                            r?.coverMaterialId,
+                                          r?.frameMaterialLabel ||
+                                            r?.frameMaterialId,
+                                        ]
+                                          .filter(Boolean)
+                                          .join(" • ")}{" "}
+                                        · Qty: 1
+                                      </div>
+                                      <div className="mono">
+                                        {fmtPHP(r?.total ?? 0)}
+                                      </div>
+                                    </li>
+                                  </ul>
+                                </div>
                                 {Array.isArray(r?.images) &&
                                   r.images.length > 0 && (
+
                                     <div className="span-2">
                                       <h4>Photos</h4>
                                       <div
@@ -2888,67 +2907,162 @@ async function deleteNotificationsForOrder(db, { userId, sourceId, kind }) {
                                   </div>
                                 </div>
 
-                                {mLinked && (
-                                  <div>
-                                    <h4>Order Total</h4>
-                                    <div className="kv">
-                                      <label>Unit Price</label>
-                                      <div className="mono">
-                                        {fmtPHP(mLinked.unitPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Shipping</label>
-                                      <div className="mono">
-                                        {fmtPHP(mLinked.shipPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Total</label>
-                                      <div className="mono strong">
-                                        {fmtPHP(mLinked.displayTotalPHP)}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Net Paid</label>
-                                      <div className="mono strong">
-                                        {fmtPHP(
-                                          Math.round(
-                                            (mLinked.dep +
-                                              mLinked.adds -
-                                              mLinked.refs) /
-                                              100
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                    <div className="kv">
-                                      <label>Balance Due</label>
-                                      <div
-                                        className="mono"
-                                        style={{
-                                          fontWeight: 700,
-                                          color:
-                                            mLinked.balance > 0
-                                              ? "#b91c1c"
-                                              : "#1f2937",
-                                        }}
-                                      >
-                                        {fmtPHP(
-                                          Math.round(
-                                            mLinked.balance / 100
-                                          )
-                                        )}
-                                      </div>
-                                    </div>
-                                  </div>
-                                )}
+                                {/* Order total (linked order if exists, otherwise custom order doc) */}
+{(() => {
+  const target = linkedOrder || c;
+  const money = linkedOrder ? mLinked : computeMonies(target);
+  if (!money) return null;
 
-                                <CustomerBlock title="Customer" row={c} />
+  return (
+    <div>
+      <h4>Order Total</h4>
+      <div className="kv">
+        <label>Unit Price</label>
+        <div className="mono">
+          {fmtPHP(money.unitPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Shipping</label>
+        <div className="mono">
+          {fmtPHP(money.shipPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Total</label>
+        <div className="mono strong">
+          {fmtPHP(money.displayTotalPHP)}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Net Paid</label>
+        <div className="mono strong">
+          {fmtPHP(
+            Math.round((money.dep + money.adds - money.refs) / 100)
+          )}
+        </div>
+      </div>
+      <div className="kv">
+        <label>Balance Due</label>
+        <div
+          className="mono"
+          style={{
+            fontWeight: 700,
+            color: money.balance > 0 ? "#b91c1c" : "#1f2937",
+          }}
+        >
+          {fmtPHP(Math.round(money.balance / 100))}
+        </div>
+      </div>
+    </div>
+  );
+})()}
+
+
+                                                                <CustomerBlock title="Customer" row={c} />
+
+                                {/* Items (what the customer picked) */}
+                                <div className="span-2">
+                                  <h4>Items</h4>
+                                  <ul className="items">
+                                    {(() => {
+                                      // Prefer items[] written by Payment.jsx.
+                                      // For older docs (mobile or very old web), fall back to the top-level fields.
+                                      const baseItems =
+                                        Array.isArray(c?.items) && c.items.length
+                                          ? c.items
+                                          : [
+                                              {
+                                                title:
+                                                  c?.productTitle ||
+                                                  c?.title ||
+                                                  c?.name ||
+                                                  "Custom Furniture",
+                                                qty: 1,
+                                                price:
+                                                  c?.unitPrice ??
+                                                  c?.total ??
+                                                  0,
+                                              },
+                                            ];
+
+                                      return baseItems.map((it, i) => {
+                                        // size/color/material: use item first, then doc-level
+                                        const size =
+                                          it?.size ||
+                                          it?.selectedSize ||
+                                          c?.size ||
+                                          null;
+
+                                        const color =
+                                          it?.color ||
+                                          it?.selectedColor ||
+                                          it?.colorName ||
+                                          c?.cover?.color ||
+                                          null;
+
+                                        const material =
+                                          it?.material ||
+                                          it?.selectedMaterial ||
+                                          c?.cover?.materialType ||
+                                          null;
+
+                                        const variantParts = [
+                                          size,
+                                          color,
+                                          material,
+                                        ].filter(Boolean);
+
+                                        // additionals: item-level first, else top-level c.additionals
+                                        const addArr =
+                                          Array.isArray(it?.additionals) &&
+                                          it.additionals.length
+                                            ? it.additionals
+                                            : Array.isArray(c?.additionals) &&
+                                              c.additionals.length
+                                            ? c.additionals
+                                            : [];
+
+                                        const additionalsText = addArr.length
+                                          ? `Additionals: ${addArr.join(", ")}`
+                                          : "";
+
+                                        return (
+                                          <li key={i} className="item">
+                                            <div className="item-title">
+                                              {it?.title ||
+                                                it?.name ||
+                                                "Item"}
+                                            </div>
+                                            <div className="muted">
+                                              {variantParts.length > 0 && (
+                                                <>
+                                                  {variantParts.join(" • ")}
+                                                  {" · "}
+                                                </>
+                                              )}
+                                              {additionalsText && (
+                                                <>
+                                                  {additionalsText}
+                                                  {" · "}
+                                                </>
+                                              )}
+                                              Qty: {it?.qty ?? 1}
+                                            </div>
+                                            <div className="mono">
+                                              {fmtPHP(it?.price ?? 0)}
+                                            </div>
+                                          </li>
+                                        );
+                                      });
+                                    })()}
+                                  </ul>
+                                </div>
 
                                 {images.length > 0 && (
                                   <div className="span-2">
                                     <h4>Product Images</h4>
+
                                     <div
                                       style={{
                                         display: "flex",
