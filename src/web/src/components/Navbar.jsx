@@ -431,7 +431,7 @@ export default function Navbar() {
 
           {/* DOWNLOAD pill button that jumps position on hover */}
           <NavLink
-            to="https://drive.google.com/file/d/1oGXj2LX9XyZdEi4hwZ8S694ZrVgJo6yf/view?usp=drive_link"
+            to="https://drive.google.com/file/d/1AWoakE_NNvTO7wqOw42qmi7L7PsDPNsT/view?usp=sharing"
             style={{
               marginLeft: 16,
               backgroundColor: "#1f5a3b",
