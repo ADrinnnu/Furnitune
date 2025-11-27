@@ -429,28 +429,30 @@ export default function Navbar() {
             REPAIR
           </NavLink>
 
-          {/* DOWNLOAD pill button that jumps position on hover */}
-          <NavLink
-            to="https://drive.google.com/file/d/1AWoakE_NNvTO7wqOw42qmi7L7PsDPNsT/view?usp=sharing"
-            style={{
-              marginLeft: 16,
-              backgroundColor: "#1f5a3b",
-              color: "#ffffff",
-              padding: "6px 24px",
-              borderRadius: 999,
-              fontSize: 12,
-              fontWeight: 700,
-              letterSpacing: "0.08em",
-              textTransform: "uppercase",
-              border: "none",
-              textDecoration: "none",
-              display: "inline-flex",
-              alignItems: "center",
-              justifyContent: "center",
-            }}
-          >
-            Download
-          </NavLink>
+          {/* DOWNLOAD pill button */}
+<a
+  href="https://drive.google.com/file/d/1AWoakE_NNvTO7wqOw42qmi7L7PsDPNsT/view?usp=sharing"
+  target="_blank"
+  rel="noopener noreferrer"
+  style={{
+    marginLeft: 16,
+    backgroundColor: "#1f5a3b",
+    color: "#ffffff",
+    padding: "6px 24px",
+    borderRadius: 999,
+    fontSize: 12,
+    fontWeight: 700,
+    letterSpacing: "0.08em",
+    textTransform: "uppercase",
+    border: "none",
+    textDecoration: "none",
+    display: "inline-flex",
+    alignItems: "center",
+    justifyContent: "center",
+  }}
+>
+  Download
+</a>
         </div>
       </div>
     </header>
