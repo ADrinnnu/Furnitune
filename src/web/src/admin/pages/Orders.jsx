@@ -457,10 +457,6 @@ function CustomerBlock({ row, title = "Customer" }) {
           {[city, province, zip].filter(Boolean).join(" · ") || "—"}
         </div>
         <div className="kv">
-          <label style={{ fontWeight: 600 }}>Country</label>
-        </div>
-        <div>{country || "—"}</div>
-        <div className="kv">
           <label style={{ fontWeight: 600 }}>User ID</label>
         </div>
         <div className="mono">{uid || "—"}</div>
