@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io, json, tempfile, urllib.parse
+import os, re, base64, io, json, tempfile, urllib.parse, random
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -11,7 +11,7 @@ from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
 
-# NEW: Import the updated Google GenAI SDK
+# Import the updated Google GenAI SDK
 from google import genai
 
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
@@ -67,7 +67,7 @@ db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
 # -----------------------------------------------------------------------------
-# AI Interior Designer Logic (Budget Restored)
+# AI Interior Designer Logic (Budget Restored & Pollinations Fixed)
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
     try:
@@ -120,6 +120,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
+        # Uses the correct, active model
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents
@@ -140,12 +141,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                # 1. Force the prompt to be shorter so it doesn't break the URL limits
-                short_prompt = img_prompt[:400] if len(img_prompt) > 400 else img_prompt
+                # 1. Remove newlines and weird symbols that break URLs
+                clean_prompt = re.sub(r'[^a-zA-Z0-9\s,.-]', '', img_prompt)
                 
+                # 2. Aggressively shorten it (Image AIs only need keywords, not paragraphs)
+                short_prompt = clean_prompt[:250] if len(clean_prompt) > 250 else clean_prompt
+                
+                # 3. Build the prompt and add a random seed so the server doesn't get stuck on a cached error
                 enhanced_prompt = f"Professional interior design photography, modern furniture catalog shot. {short_prompt}"
                 encoded_prompt = urllib.parse.quote(enhanced_prompt)
-                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
+                seed = random.randint(1, 100000)
+                
+                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true&seed={seed}"
 
         return parsed
     except Exception as e:
@@ -155,6 +162,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
             "room_analysis": f"🚨 DEBUG ERROR: Gemini crashed with error: {str(e)}",
             "custom_concepts": []
         }
+
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
@@ -535,7 +543,6 @@ def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optio
 # Routes
 # -----------------------------------------------------------------------------
 
-# IMPORTANT: These Health Check routes prevent Render from crashing (502 Gateway Error)
 @app.route("/health", methods=["GET"])
 def plain_health():
     return jsonify({"status": "ok", "project": PROJECT_ID or "<unset>"}), 200
@@ -674,8 +681,8 @@ def recommend():
             f_type=f_type,
             size_pref=size_pref,
             color_pref=color_pref,
-            min_b=min_budget, # BUDGET RESTORED
-            max_b=max_budget, # BUDGET RESTORED
+            min_b=min_budget,
+            max_b=max_budget,
             top_items=payload_items[:3] 
         )
 
