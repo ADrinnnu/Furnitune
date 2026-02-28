@@ -48,8 +48,9 @@ PORT = int(os.getenv("PORT", "5000"))
 BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.35"))
-COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.25"))
+# Decreased these boosts so the IMAGE AI score matters more!
+SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.10"))
+COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.10"))
 
 # Initialize Gemini Client
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -67,14 +68,13 @@ db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
 # -----------------------------------------------------------------------------
-# AI Interior Designer Logic (Budget Restored & Pollinations Fixed)
+# AI Interior Designer Logic
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
     try:
-        # If Render hasn't loaded the key yet, print this to the chatbot!
         if not gemini_client:
             return {
-                "room_analysis": "🚨 DEBUG: No API Key found on the server! Did you click 'Manual Deploy' after saving the key in Render?",
+                "room_analysis": "🚨 DEBUG: No API Key found on the server!",
                 "custom_concepts": []
             }
 
@@ -120,7 +120,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
-        # Uses the correct, active model
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents
@@ -128,7 +127,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         
         resp_text = response.text.strip()
         
-        # BULLETPROOF JSON EXTRACTOR (Stops crashes if Gemini formatting is weird)
         start_idx = resp_text.find('{')
         end_idx = resp_text.rfind('}')
         if start_idx != -1 and end_idx != -1:
@@ -141,23 +139,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                # 1. Remove newlines and weird symbols that break URLs
-                clean_prompt = re.sub(r'[^a-zA-Z0-9\s,.-]', '', img_prompt)
+                # ULTRA SAFE PROMPT CLEANER: Only letters, max 100 chars, so Pollinations NEVER breaks!
+                clean_prompt = re.sub(r'[^a-zA-Z\s]', '', img_prompt)
+                short_prompt = clean_prompt[:100] 
                 
-                # 2. Aggressively shorten it (Image AIs only need keywords, not paragraphs)
-                short_prompt = clean_prompt[:250] if len(clean_prompt) > 250 else clean_prompt
-                
-                # 3. Build the prompt and add a random seed so the server doesn't get stuck on a cached error
-                enhanced_prompt = f"Professional interior design photography, modern furniture catalog shot. {short_prompt}"
-                encoded_prompt = urllib.parse.quote(enhanced_prompt)
+                encoded_prompt = urllib.parse.quote(f"beautiful modern furniture, {short_prompt}")
                 seed = random.randint(1, 100000)
                 
-                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true&seed={seed}"
+                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&seed={seed}"
 
         return parsed
     except Exception as e:
         print(f"Gemini Error: {e}")
-        # IF IT CRASHES, PRINT THE ERROR DIRECTLY TO THE CHATBOT UI!
         return {
             "room_analysis": f"🚨 DEBUG ERROR: Gemini crashed with error: {str(e)}",
             "custom_concepts": []
@@ -255,8 +248,6 @@ def _type_matches(item: dict, f_type: str) -> bool:
             return True
     return False
 
-# -- size/color helpers -------------------------------------------------------
-
 def _norm_token(s: str) -> str:
     return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
@@ -321,7 +312,6 @@ def _color_match_score(meta: dict, pref: str) -> float:
             return 1.0
     return 0.0
 
-# ---- Firestore hydration (images) -------------------------------------------
 def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, size_pref: Optional[str] = None) -> List[str]:
     try:
         snap = db.collection("products").document(pid).get()
@@ -385,7 +375,6 @@ def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, s
     except Exception:
         return []
 
-# ---- Color helpers ----------------------------------------------------------
 def _room_avg_lab_from_b64(b64: str):
     try:
         img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("LAB")
@@ -423,7 +412,6 @@ def _rerank_by_color(items: List[dict], room_b64: Optional[str], weight: float =
         out.append(it2)
     return out, room_lab
 
-# ---- Lazy avg_lab computation -----------------------------------------------
 _avg_lab_cache: Dict[str, List[float]] = {}
 
 def _compute_avg_lab_from_url(url: str) -> Optional[List[float]]:
@@ -452,18 +440,12 @@ def _ensure_item_avg_lab(it: dict) -> dict:
             return it
     return it
 
-# -----------------------------------------------------------------------------
-# Artifacts & index
-# -----------------------------------------------------------------------------
 art = ArtifactIndex(os.path.join(os.path.dirname(__file__), "artifacts"))
 art.load()
 encoder = ClipQueryEncoder()
 searcher = FaissSearcher(art)
 CATALOG: Dict[str, dict] = {m["id"]: m for m in art.mapping_list}
 
-# -----------------------------------------------------------------------------
-# Flags cache
-# -----------------------------------------------------------------------------
 def _load_flags_cache() -> Dict[str, Dict[str, bool]]:
     flags: Dict[str, Dict[str, bool]] = {}
     for snap in db.collection("products").where("active", "==", True).stream():
@@ -472,9 +454,6 @@ def _load_flags_cache() -> Dict[str, Dict[str, bool]]:
         flags[pid] = {field: bool(doc.get(field)) for field in ADDITIONAL_TO_FIELD.values()}
     return flags
 
-# -----------------------------------------------------------------------------
-# Additionals mapping
-# -----------------------------------------------------------------------------
 ADDITIONAL_TO_FIELD: Dict[str, str] = {
     "Cushion": "hasCushions",
     "With armrest": "hasArmrest",
@@ -539,10 +518,6 @@ def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optio
         })
     return out
 
-# -----------------------------------------------------------------------------
-# Routes
-# -----------------------------------------------------------------------------
-
 @app.route("/health", methods=["GET"])
 def plain_health():
     return jsonify({"status": "ok", "project": PROJECT_ID or "<unset>"}), 200
@@ -567,12 +542,11 @@ def recommend():
     size_pref       = (data.get("size") or "").strip()
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
-    w_image         = float(data.get("w_image", 0.8)) # Increased image weight to fix repeating items
-    w_text          = float(data.get("w_text", 0.2))
-    color_weight    = float(data.get("color_weight", 0.35))
+    w_image         = float(data.get("w_image", 0.9)) # VERY HIGH to favor images!
+    w_text          = float(data.get("w_text", 0.1))
+    color_weight    = float(data.get("color_weight", 0.6))
     color_mode      = str(data.get("color_mode", "match")).strip().lower()
 
-    # BUDGET LOGIC RESTORED
     try:
         min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
         max_budget = float(data.get("max_budget")) if data.get("max_budget") else None
@@ -604,10 +578,10 @@ def recommend():
         pid = it.get("id")
         if not pid:
             continue
+        # We still want them to get a Sofa if they ask for a Sofa
         if f_type and not _type_matches(it, f_type):
             continue
         
-        # BUDGET FILTER RESTORED
         price = float(it.get("basePrice") or it.get("price") or 0)
         if min_budget is not None and price < min_budget:
             continue
@@ -654,13 +628,12 @@ def recommend():
         c_score = _color_match_score(it2, color_pref)
         it2["size_match"] = s_score
         it2["color_match"] = c_score
+        # Add a tiny boost so matching sizes rise, but they don't overpower the image search
         it2["score"] = it2["score"] + s_score * SIZE_PREF_BOOST + c_score * COLOR_PREF_BOOST
         boosted.append(it2)
 
-    if (size_pref or color_pref) and any((it.get("size_match") or 0) > 0 or (it.get("color_match") or 0) > 0 for it in boosted):
-        ranked = [it for it in boosted if (it.get("size_match") or 0) > 0 or (it.get("color_match") or 0) > 0]
-    else:
-        ranked = boosted
+    # REMOVED: The strict array filter that was deleting all your other furniture!
+    ranked = boosted
 
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
 
