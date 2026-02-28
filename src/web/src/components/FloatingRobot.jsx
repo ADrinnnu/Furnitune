@@ -35,7 +35,9 @@ const PANEL_CSS = `
 .chip.on{background:#2d4739;color:#fff;border-color:#2d4739}
 .thumb{width:170px;height:110px;border-radius:12px;overflow:hidden;border:1px solid #d8d0c1;margin-top:10px}
 .thumb img{width:100%;height:100%;object-fit:cover}
-.card{border:1px solid #e3dccb;border-radius:12px;background:#fff;overflow:hidden;margin-top:8px}
+.card{position:relative;border:1px solid #e3dccb;border-radius:12px;background:#fff;overflow:hidden;margin-top:8px}
+.card.ai-concept{border:2px solid #2d4739;}
+.ai-badge{position:absolute;top:8px;left:8px;background:rgba(45,71,57,0.9);color:#fff;font-size:0.65rem;padding:4px 6px;border-radius:4px;font-weight:bold;z-index:10;letter-spacing:0.04em;}
 .card img{width:100%;height:160px;object-fit:cover;display:block}
 .card .body{padding:10px}
 .card .title{font-weight:800}
@@ -256,8 +258,8 @@ export default function FloatingRobot() {
         strict: !Array.isArray(allAnswers.additionals)
           ? false
           : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
-        w_image: 0.6,
-        w_text: 0.4,
+        w_image: 0.8, // <-- INCREASED to force the catalog to care about your room photo
+        w_text: 0.2,  // <-- DECREASED
         color_weight: 0.35,
         color_mode: "match",
       };
@@ -271,34 +273,50 @@ export default function FloatingRobot() {
       if (Array.isArray(data.items) && data.items.length) items = data.items;
       else if (Array.isArray(data.related) && data.related.length) items = data.related;
 
+      // 1. SHOW AI ANALYSIS TEXT
+      if (data.ai_designer && data.ai_designer.room_analysis) {
+        addRecoMsg({ role: "bot", text: `🤖 ${data.ai_designer.room_analysis}` });
+      }
+
+      // 2. SHOW CATALOG ITEMS
       const sameType = items.filter(it => itemLooksLikeType(it, type));
       const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
 
       if (picks.length) {
         addRecoMsg({
           role: "bot",
-          text: RECO_K === 1
-            ? "Here’s the best match from our catalog:"
-            : "Here are some great matches from our catalog:",
+          text: "📦 Here are some ready-to-ship matches from our catalog:",
         });
 
         picks.forEach(p => {
           addRecoMsg({ role: "bot", product: p });
         });
-
-        // ask about additional custom furniture / changes
-        addRecoMsg({
-          role:"bot",
-          text:"Do you want additional custom furniture or changes based on this recommendation?",
-          chips:["Yes, go to custom order","No, that's all for now"],
-        });
       } else {
         addRecoMsg({
           role: "bot",
-          text: `I couldn’t find a perfect ${type.toLowerCase()} for that selection.`,
+          text: `I couldn’t find a perfect ${type.toLowerCase()} in our ready-to-ship catalog.`,
         });
-        addRecoMsg({ role:"bot", text:"Want to adjust anything?", chips:["Change type","Start over"] });
       }
+
+      // 3. SHOW AI GENERATED CONCEPTS
+      if (data.ai_designer && data.ai_designer.custom_concepts && data.ai_designer.custom_concepts.length > 0) {
+        addRecoMsg({
+          role: "bot",
+          text: "🎨 Don't see what you like? I designed these custom concepts based on your room. We can build them for you!"
+        });
+        
+        data.ai_designer.custom_concepts.forEach(concept => {
+          addRecoMsg({ role: "bot", customConcept: concept });
+        });
+      }
+
+      // 4. FOLLOW UP OPTIONS
+      addRecoMsg({
+        role:"bot",
+        text:"What would you like to do next?",
+        chips:["Yes, go to custom order", "Change type", "Start over"],
+      });
+
     } catch (e) {
       setRecoError(e.message || "Recommender failed");
       addRecoMsg({ role:"bot", text:"Sorry — I couldn’t fetch a recommendation right now." });
@@ -522,10 +540,10 @@ export default function FloatingRobot() {
               <UserBubble key={i}>{m.text}</UserBubble>
             ) : (
               <BotBubble key={i}>
-                <div>{m.text}</div>
+                {m.text && <div>{m.text}</div>}
                 {m.imageUrl && <div className="thumb" style={{marginTop:8}}><img src={m.imageUrl} alt="uploaded room"/></div>}
 
-                {/* Product card(s) */}
+                {/* PRODUCT CARD (Inside Catalog) */}
                 {m.product && (
                   <div className="card">
                     {(() => { const p=m.product; const img=getPrimaryImage(p); return img ? <img src={img} alt={p.title||p.name||"Product"} /> : null; })()}
@@ -538,7 +556,28 @@ export default function FloatingRobot() {
                   </div>
                 )}
 
-                {/* chips */}
+                {/* CUSTOM CONCEPT CARD (AI Generated) */}
+                {m.customConcept && (
+                  <div className="card ai-concept">
+                    <div className="ai-badge">AI CONCEPT</div>
+                    {m.customConcept.image_url ? (
+                      <img src={m.customConcept.image_url} alt={m.customConcept.title} />
+                    ) : (
+                      <div style={{height:160, display:'grid', placeItems:'center', background:'#eee'}}>Generating Image...</div>
+                    )}
+                    <div className="body">
+                      <div className="type">CUSTOM {m.customConcept.category || recoType}</div>
+                      <div className="title">{m.customConcept.title}</div>
+                      <div style={{fontSize: "0.8rem", color: "#555", marginTop: 4, lineHeight: 1.3}}>{m.customConcept.description}</div>
+                      <div style={{fontSize: "0.75rem", background: "#f5f5f5", padding: "6px", borderRadius: "6px", marginTop: "8px"}}>
+                        <strong>Color:</strong> {m.customConcept.suggested_color}
+                      </div>
+                      <button className="btn" onClick={() => window.location.href="/customization"}>Build This Custom</button>
+                    </div>
+                  </div>
+                )}
+
+                {/* CHIPS */}
                 {m.chips?.length ? (
                   <div className="chips">
                     {m.chips.map(c=>{
