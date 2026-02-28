@@ -140,7 +140,10 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                enhanced_prompt = f"Professional interior design photography, highly detailed, 8k resolution, furniture catalog shot. {img_prompt}"
+                # 1. Force the prompt to be shorter so it doesn't break the URL limits
+                short_prompt = img_prompt[:400] if len(img_prompt) > 400 else img_prompt
+                
+                enhanced_prompt = f"Professional interior design photography, modern furniture catalog shot. {short_prompt}"
                 encoded_prompt = urllib.parse.quote(enhanced_prompt)
                 concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
 
