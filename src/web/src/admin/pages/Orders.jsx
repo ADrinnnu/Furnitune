@@ -157,10 +157,11 @@ function pickCustomerReferenceImages(obj = {}) {
     "refImages",
     "additionalImages",
     "additionalImageUrls",
+    "referenceImagesData"
   ];
   for (const k of keys) {
     const v = obj[k];
-    if (Array.isArray(v) && v.length && v.every((u) => typeof u === "string")) return v;
+    if (Array.isArray(v) && v.length) return v.map(i => typeof i === 'string' ? i : i.dataUrl || i.url);
   }
   return [];
 }
@@ -1801,7 +1802,7 @@ export default function Orders() {
       {open ? "Hide" : "View"}
     </button>
   );
- 
+  
   return (
     <div className="admin-orders">
       <div
@@ -2237,7 +2238,27 @@ export default function Orders() {
                                             </div>
                                           )}
 
-                                          <div className="mono">
+                                          {/* --- NEW: RENDER CUSTOM ITEM CONFIGURATION IN REGULAR ORDERS --- */}
+                                          {it?.descriptionFromProduct && (
+                                            <div style={{ marginTop: 8, padding: "10px", background: "#f8f9fa", border: "1px solid #e5e7eb", borderRadius: 6, fontSize: 12, whiteSpace: "pre-wrap", color: "#374151" }}>
+                                              <strong style={{ display: "block", marginBottom: 4, color: "#111827", textTransform: "uppercase" }}>Custom Build Specs:</strong>
+                                              {it.descriptionFromProduct}
+                                            </div>
+                                          )}
+
+                                          {it?.customSizeDetails && (
+                                            <div style={{ marginTop: 4, padding: "8px", background: "#f8f9fa", border: "1px solid #e5e7eb", borderRadius: 4, fontSize: 12 }}>
+                                              <strong>Custom Size Notes:</strong> {it.customSizeDetails}
+                                            </div>
+                                          )}
+
+                                          {it?.notes && (
+                                            <div style={{ marginTop: 4, padding: "8px", background: "#fffbeb", borderLeft: "3px solid #f59e0b", borderRadius: 4, fontSize: 12 }}>
+                                              <strong>Customer Notes:</strong> {it.notes}
+                                            </div>
+                                          )}
+
+                                          <div className="mono" style={{ marginTop: 8 }}>
                                             {fmtPHP(it?.price)}
                                           </div>
                                         </li>
@@ -3227,6 +3248,42 @@ export default function Orders() {
                                     })()}
                                   </ul>
                                 </div>
+
+                                {/* NEW: Custom Build Specifications inside Customizations Tab */}
+                                <div className="span-2">
+                                  <div style={{ padding: "16px", backgroundColor: "#f8f9fa", border: "1px solid #e5e7eb", borderRadius: "8px", marginTop: "8px" }}>
+                                    <h4 style={{ margin: "0 0 12px 0", color: "#111827", textTransform: "uppercase" }}>Custom Build Specs</h4>
+                                    {c.descriptionFromProduct ? (
+                                      <div style={{ whiteSpace: "pre-wrap", fontSize: "14px", color: "#374151", lineHeight: "1.6" }}>
+                                        {c.descriptionFromProduct}
+                                      </div>
+                                    ) : (
+                                      <ul style={{ paddingLeft: "20px", margin: "0", fontSize: "13px", color: "#374151", lineHeight: "1.6" }}>
+                                        <li><strong>Size:</strong> {c.size || "—"}</li>
+                                        {c.customSizeDetails && <li><strong>Custom Details:</strong> {c.customSizeDetails}</li>}
+                                        {c.materials && Object.entries(c.materials).map(([key, val]) => (
+                                          val && <li key={key}><strong>{key.replace(/([A-Z])/g, ' $1').toUpperCase()}:</strong> {val}</li>
+                                        ))}
+                                        {c.cover && <li><strong>Cover:</strong> {c.cover.materialType} ({c.cover.color})</li>}
+                                        {c.uniqueSpecs && Object.entries(c.uniqueSpecs).map(([key, val]) => (
+                                          <li key={key}><strong>{key}:</strong> {val}</li>
+                                        ))}
+                                      </ul>
+                                    )}
+                                  </div>
+                                </div>
+
+                                {/* Customer Notes */}
+                                {(c?.notes || c?.note) && (
+                                  <div className="span-2">
+                                    <div style={{ padding: "12px", backgroundColor: "#fffbeb", borderLeft: "4px solid #f59e0b", borderRadius: "4px", marginTop: "8px" }}>
+                                      <h4 style={{ margin: "0 0 8px 0", color: "#92400e" }}>Customer Notes</h4>
+                                      <pre className="note" style={{ whiteSpace: "pre-wrap", margin: 0, color: "#92400e" }}>
+                                        {c.notes || c.note}
+                                      </pre>
+                                    </div>
+                                  </div>
+                                )}
 
                                 {images.length > 0 && (
                                   <div className="span-2">

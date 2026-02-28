@@ -1,10 +1,19 @@
+// src/pages/Checkout.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import OrderSummaryCard from "../components/OrderSummaryCard";
 import { getCheckoutItems } from "../utils/checkoutSelection";
-import { auth, firestore } from "../firebase";
+import { auth, firestore, storage } from "../firebase"; 
 import { doc, getDoc } from "firebase/firestore";
+import { ref, getDownloadURL } from "firebase/storage"; 
 import "../Checkout.css";
+
+import {
+  regions,
+  provinces,
+  cities,
+  barangays,
+} from "select-philippines-address";
 
 const PENDING_KEY = "PENDING_CHECKOUT";
 const LOGIN_PATH = "/login";
@@ -17,8 +26,34 @@ const isValidEmail = (v = "") => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 const isValidPHZip = (digits = "") => /^\d{4}$/.test(digits);
 const isValidMobilePH = (digits = "") => /^\d{10,11}$/.test(digits);
 
-// keep payload small: drop big props we don't need on /Payment
-// keep payload small, but DO NOT drop size/color/material
+// 🔹 ROBUST URL RESOLVER (Converts gs:// -> https://)
+async function resolveStorageUrl(path) {
+  if (!path || typeof path !== "string") return null;
+  
+  if (path.startsWith("http") || path.startsWith("data:")) return path;
+
+  if (path.startsWith("gs://") || path.includes("firebasestorage")) {
+    try {
+      let relativePath = path;
+      if (path.startsWith("gs://")) {
+        const bucketEndIndex = path.indexOf("/", 5);
+        if (bucketEndIndex !== -1) {
+          relativePath = path.substring(bucketEndIndex + 1);
+        }
+      }
+      
+      const storageRef = ref(storage, relativePath);
+      return await getDownloadURL(storageRef);
+    } catch (e) {
+      console.error("Error resolving image URL:", path, e);
+      return null;
+    }
+  }
+  return path;
+}
+
+// 🔹 FIX 1: UPDATE THE GATEKEEPER
+// We add 'uniqueSpecs', 'customDimensions', and 'notes' to the list so they aren't deleted.
 const slimItems = (items = []) =>
   items.map((it) => ({
     id: it.id,
@@ -27,25 +62,24 @@ const slimItems = (items = []) =>
     name: it.name || it.title || "Item",
     qty: Number(it.qty || 1),
     price: Number(it.price || 0),
-    image:
-      typeof it.image === "string" && it.image.startsWith("http")
-        ? it.image
-        : null,
+    image: it.image || it.imageUrl || null, 
 
-    // 🔹 keep variant info so Payment can store it in orders
     size: it.size || it.selectedSize || null,
     selectedSize: it.selectedSize ?? it.size ?? null,
 
-    // ProductDetail uses colorName/colorHex, so keep those too
     color: it.color || it.selectedColor || it.colorName || null,
     selectedColor: it.selectedColor ?? it.color ?? it.colorName ?? null,
     colorName: it.colorName ?? it.selectedColor ?? null,
     colorHex: it.colorHex ?? null,
 
-    // future-proof – if you ever add materials/additionals on catalog
     material: it.material || null,
     selectedMaterial: it.selectedMaterial ?? null,
     additionals: Array.isArray(it.additionals) ? it.additionals : [],
+
+    // 👇 THIS IS THE MISSING PART THAT WAS DELETING YOUR DATA
+    uniqueSpecs: it.uniqueSpecs || {},
+    customDimensions: it.customDimensions || {},
+    notes: it.notes || it.note || "", 
   }));
 
 
@@ -55,60 +89,101 @@ export default function Checkout() {
   const repairId = params.get("repairId");
   const customMode = params.get("custom") === "1";
 
-  // Right-side list (cart/buy-now or single repair/custom item)
-  const [items, setItems] = useState(getCheckoutItems());
+  // Start empty if custom mode to prevent flashing cart items
+  const [items, setItems] = useState(customMode ? [] : getCheckoutItems());
 
-  // If Customization flow, load draft as single line item
+  // ---------------------------------------------
+  // RESOLVE IMAGES FOR STANDARD CART ITEMS
+  // ---------------------------------------------
+  useEffect(() => {
+    if (customMode || repairId) return; 
+    
+    const resolveImages = async () => {
+      let hasChanges = false;
+      const resolvedItems = await Promise.all(
+        items.map(async (item) => {
+          const raw = item.image || item.imageUrl;
+          if (raw && (raw.startsWith("gs://") || !raw.startsWith("http"))) {
+            const url = await resolveStorageUrl(raw);
+            if (url && url !== raw) {
+              hasChanges = true;
+              return { ...item, image: url, imageUrl: url };
+            }
+          }
+          return item;
+        })
+      );
+      if (hasChanges) setItems(resolvedItems);
+    };
+
+    if (items.length > 0) resolveImages();
+  }, [items.length, customMode, repairId]); 
+
+
+  // ---------------------------------------------
+  // 🔹 FIX 2: LOAD THE SPECS FROM STORAGE
+  // ---------------------------------------------
   useEffect(() => {
     if (!customMode) return;
-    try {
-      const raw = sessionStorage.getItem("custom_draft");
-      const draft = raw ? JSON.parse(raw) : null;
-      if (!draft) return;
+    
+    const loadCustomDraft = async () => {
+      try {
+        const raw = sessionStorage.getItem("custom_draft");
+        if (!raw) return;
 
-      const title = draft.productTitle || "Customized Furniture";
-      const price = Number(draft.unitPrice || 0);
-      const image =
-        (Array.isArray(draft.images) && draft.images[0]) ||
-        (draft.imageUrls && draft.imageUrls[0]) ||
-        (typeof draft.image === "string" && draft.image.startsWith("http")
-          ? draft.image
-          : null);
+        const draft = JSON.parse(raw);
 
-            setItems([
-        {
-          id: `custom-${Date.now()}`,
-          productId: draft.productId || "custom",
-          name: title,
-          title,
-          qty: 1,
-          price,
-          image,
-          imageUrl: image,
+        const title = draft.productTitle || "Customized Furniture";
+        const price = Number(draft.unitPrice || 0);
+        
+        const rawImage = 
+          (Array.isArray(draft.images) && draft.images[0]) ||
+          (draft.imageUrls && draft.imageUrls[0]) ||
+          (typeof draft.image === "string" ? draft.image : null);
 
-          // 👉 carry the customer's choices into the item
-          size: draft.size || null,
-          selectedSize: draft.size || null,
+        const resolvedImage = await resolveStorageUrl(rawImage);
 
-          color: draft?.cover?.color || null,
-          selectedColor: draft?.cover?.color || null,
+        setItems([
+          {
+            id: `custom-${Date.now()}`,
+            productId: draft.productId || "custom",
+            name: title,
+            title,
+            qty: 1,
+            price,
+            image: resolvedImage, 
+            imageUrl: resolvedImage,
+            
+            size: draft.size || null,
+            selectedSize: draft.size || null,
+            
+            color: draft?.cover?.color || null,
+            selectedColor: draft?.cover?.color || null,
+            
+            material: draft?.cover?.materialType || null,
+            selectedMaterial: draft?.cover?.materialType || null,
+            
+            additionals: Array.isArray(draft.additionals) ? draft.additionals : [],
+            
+            // 👇 LOAD THE DATA SO IT EXISTS IN THE ITEM LIST
+            uniqueSpecs: draft.uniqueSpecs || {},
+            customDimensions: draft.customDimensions || {},
+            notes: draft.notes || "",
 
-          material: draft?.cover?.materialType || null,
-          selectedMaterial: draft?.cover?.materialType || null,
-
-          additionals: Array.isArray(draft.additionals)
-            ? draft.additionals
-            : [],
-
-          meta: { custom: true },
-        },
-      ]);
-    } catch (e) {
-      console.warn("No custom draft found:", e);
-    }
+            meta: { custom: true },
+          },
+        ]);
+      } catch (e) {
+        console.error("Error loading custom draft:", e);
+      }
+    };
+    loadCustomDraft();
   }, [customMode]);
 
-  // If Repair flow, load that one repair as a line item for preview
+
+  // ---------------------------------------------
+  // RESOLVE IMAGES FOR REPAIR ORDERS
+  // ---------------------------------------------
   useEffect(() => {
     if (!repairId || customMode) return;
     (async () => {
@@ -117,15 +192,10 @@ export default function Checkout() {
         if (!snap.exists()) return;
         const r = snap.data();
         const title = `Repair — ${r.typeLabel || r.typeId || "Furniture"}`;
-        const price =
-          Number(
-            r?.total ??
-              (r?.typePrice || 0) +
-                (r?.coverMaterialPrice || 0) +
-                (r?.frameMaterialPrice || 0)
-          ) || 0;
-        const image =
-          Array.isArray(r?.images) && r.images[0] ? r.images[0] : null;
+        const price = Number(r?.total ?? (r?.typePrice || 0) + (r?.coverMaterialPrice || 0) + (r?.frameMaterialPrice || 0)) || 0;
+        
+        const rawImage = Array.isArray(r?.images) && r.images[0] ? r.images[0] : null;
+        const resolvedImage = await resolveStorageUrl(rawImage);
 
         setItems([
           {
@@ -135,8 +205,8 @@ export default function Checkout() {
             title,
             qty: 1,
             price,
-            image,
-            imageUrl: image,
+            image: resolvedImage,
+            imageUrl: resolvedImage,
             meta: { repairId },
           },
         ]);
@@ -146,75 +216,110 @@ export default function Checkout() {
     })();
   }, [repairId, customMode]);
 
+  /* --- FORM STATE --- */
   const [email, setEmail] = useState("");
   const [news, setNews] = useState(false);
   const [first, setFirst] = useState("");
   const [last, setLast] = useState("");
   const [street, setStreet] = useState("");
-  const [apt, setApt] = useState("");
-  const [city, setCity] = useState("");
-  const [stateProv, setStateProv] = useState("");
-  const [zip, setZip] = useState("");
+  const [apt, setApt] = useState(""); 
   const [phone, setPhone] = useState("");
+  const [zip, setZip] = useState("");
 
+  const [region, setRegion] = useState("");
+  const [city, setCity] = useState("");        
+  const [stateProv, setStateProv] = useState(""); 
+  const [barangay, setBarangay] = useState("");   
+
+  const [addrLists, setAddrLists] = useState({ region: [], province: [], city: [], barangay: [] });
+  const [addrCodes, setAddrCodes] = useState({ region: "", province: "", city: "", barangay: "" });
+
+  useEffect(() => {
+    regions().then((res) => {
+      setAddrLists((prev) => ({ ...prev, region: res }));
+    });
+  }, []);
+
+  /* --- HANDLERS --- */
+  const handleRegionChange = (e) => {
+    const code = e.target.value;
+    const name = e.target.options[e.target.selectedIndex].text;
+    setRegion(name);
+    setAddrCodes((prev) => ({ ...prev, region: code, province: "", city: "", barangay: "" }));
+    setAddrLists((prev) => ({ ...prev, province: [], city: [], barangay: [] }));
+    setStateProv(""); setCity(""); setBarangay("");
+    if (code) provinces(code).then((res) => setAddrLists((prev) => ({ ...prev, province: res })));
+  };
+
+  const handleProvinceChange = (e) => {
+    const code = e.target.value;
+    const name = e.target.options[e.target.selectedIndex].text;
+    setStateProv(name);
+    setAddrCodes((prev) => ({ ...prev, province: code, city: "", barangay: "" }));
+    setAddrLists((prev) => ({ ...prev, city: [], barangay: [] }));
+    setCity(""); setBarangay("");
+    if (code) cities(code).then((res) => setAddrLists((prev) => ({ ...prev, city: res })));
+  };
+
+  const handleCityChange = (e) => {
+    const code = e.target.value;
+    const name = e.target.options[e.target.selectedIndex].text;
+    setCity(name);
+    setAddrCodes((prev) => ({ ...prev, city: code, barangay: "" }));
+    setAddrLists((prev) => ({ ...prev, barangay: [] }));
+    setBarangay("");
+    if (code) barangays(code).then((res) => setAddrLists((prev) => ({ ...prev, barangay: res })));
+  };
+
+  const handleBarangayChange = (e) => {
+    const code = e.target.value;
+    const name = e.target.options[e.target.selectedIndex].text;
+    setBarangay(name);
+    setAddrCodes((prev) => ({ ...prev, barangay: code }));
+  };
+
+  /* --- VALIDATION & SUBMIT --- */
   const [errors, setErrors] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
   const shippingFee = 510;
   const subtotal = useMemo(
-    () =>
-      items.reduce(
-        (sum, it) => sum + (Number(it.price) || 0) * (Number(it.qty) || 1),
-        0
-      ),
+    () => items.reduce((sum, it) => sum + (Number(it.price) || 0) * (Number(it.qty) || 1), 0),
     [items]
   );
   const total = subtotal + shippingFee;
 
-  /* ---- PURE computeErrors (no setState in render) ---- */
   const computeErrors = () => {
     const nextErrors = {};
-
     const emailTrim = trimStr(email);
     const firstTrim = trimStr(first);
     const lastTrim = trimStr(last);
     const streetTrim = trimStr(street);
     const cityTrim = trimStr(city);
     const stateTrim = trimStr(stateProv);
+    const brgyTrim = trimStr(barangay);
     const zipDigits = onlyDigits(zip);
     const phoneDigits = onlyDigits(phone);
 
     if (!emailTrim) nextErrors.email = "Email is required.";
     else if (!isValidEmail(emailTrim)) nextErrors.email = "Enter a valid email.";
-
     if (!firstTrim) nextErrors.first = "First name is required.";
     if (!lastTrim) nextErrors.last = "Last name is required.";
     if (!streetTrim) nextErrors.street = "Street address is required.";
-    if (!cityTrim) nextErrors.city = "City is required.";
-    if (!stateTrim) nextErrors.stateProv = "Province is required.";
-
+    if (!stateTrim || stateTrim === "Select Province") nextErrors.stateProv = "Province is required.";
+    if (!cityTrim || cityTrim === "Select City") nextErrors.city = "City is required.";
+    if (!brgyTrim || brgyTrim === "Select Barangay") nextErrors.barangay = "Barangay is required.";
     if (!zipDigits) nextErrors.zip = "ZIP is required.";
     else if (!isValidPHZip(zipDigits)) nextErrors.zip = "ZIP should be 4 digits.";
-
     if (!phoneDigits) nextErrors.phone = "Mobile number is required.";
-    else if (!isValidMobilePH(phoneDigits))
-      nextErrors.phone = "Mobile should be 10–11 digits.";
+    else if (!isValidMobilePH(phoneDigits)) nextErrors.phone = "Mobile should be 10–11 digits.";
 
     const missingLabels = Object.entries(nextErrors)
       .filter(([, msg]) => /required/i.test(String(msg)))
-      .map(
-        ([k]) =>
-          ({
-            email: "Email",
-            first: "First Name",
-            last: "Last Name",
-            street: "Street Address",
-            city: "City",
-            stateProv: "Province",
-            zip: "ZIP/Postal Code",
-            phone: "Phone Number",
-          }[k] || k)
-      );
+      .map(([k]) => ({
+        email: "Email", first: "First Name", last: "Last Name", street: "Street Address",
+        city: "City", stateProv: "Province", barangay: "Barangay", zip: "ZIP/Postal Code", phone: "Phone Number",
+      }[k] || k));
 
     return { nextErrors, missingLabels, valid: Object.keys(nextErrors).length === 0 };
   };
@@ -223,30 +328,19 @@ export default function Checkout() {
     const keys = Object.keys(errs || {});
     if (!keys.length) return;
     const el = document.querySelector(`[name="${keys[0]}"]`);
-    if (el) {
-      el.scrollIntoView({ behavior: "smooth", block: "center" });
-      el.focus();
-    }
+    if (el) { el.scrollIntoView({ behavior: "smooth", block: "center" }); el.focus(); }
   };
 
   const handleContinueToPay = async () => {
     setSubmitAttempted(true);
-
-    if (!items || items.length === 0) {
-      alert("Your order is empty.");
-      return;
-    }
-
-    // requireds
-    if (!email || !first || !last || !street || !city || !stateProv || !zip || !phone) {
+    if (!items || items.length === 0) { alert("Your order is empty."); return; }
+    if (!email || !first || !last || !street || !city || !stateProv || !barangay || !zip || !phone) {
       const { nextErrors } = computeErrors();
       setErrors(nextErrors);
       setTimeout(() => scrollToFirstError(nextErrors), 0);
       alert("Please complete all required fields.");
       return;
     }
-
-    // formats
     const { nextErrors, valid } = computeErrors();
     setErrors(nextErrors);
     if (!valid) {
@@ -255,7 +349,7 @@ export default function Checkout() {
       return;
     }
 
-    // Build shipping + pending payload now (so we can save before redirecting)
+    const line2Combined = [barangay, apt].filter(Boolean).join(", ");
     const shippingAddress = {
       fullName: `${first} ${last}`.trim(),
       firstName: first,
@@ -263,88 +357,59 @@ export default function Checkout() {
       email: trimStr(email),
       phone: onlyDigits(phone),
       line1: street,
-      line2: apt || "",
+      line2: line2Combined,
       city,
       province: stateProv,
       zip: onlyDigits(zip),
-      country: COUNTRY_DEFAULT, // added
+      country: COUNTRY_DEFAULT,
       newsletterOptIn: !!news,
     };
 
     const pendingPayload = {
-      items: slimItems(items),
+      items: slimItems(items), // <--- NOW INCLUDES SPECS
       subtotal,
       shippingFee,
       total,
       shippingAddress,
-
-      // helpful top-level mirrors for admin readers
       contactEmail: shippingAddress.email,
       contactPhone: shippingAddress.phone,
       nameFull: shippingAddress.fullName,
       userId: auth.currentUser?.uid || null,
-
-      // common “customer” shape (some readers expect this)
       customer: {
         name: shippingAddress.fullName,
         email: shippingAddress.email,
         phone: shippingAddress.phone,
-        address: {
-          line1: shippingAddress.line1,
-          line2: shippingAddress.line2,
-          city: shippingAddress.city,
-          province: shippingAddress.province,
-          zip: shippingAddress.zip,
-          country: shippingAddress.country,
-        },
+        address: { ...shippingAddress },
         uid: auth.currentUser?.uid || null,
       },
-
       repairId: repairId || null,
       createdAtClient: Date.now(),
       custom: !!customMode,
     };
 
-    // Save with fallback if quota exceeded
     const payloadStr = JSON.stringify(pendingPayload);
-    try {
-      sessionStorage.setItem(PENDING_KEY, payloadStr);
-    } catch (e1) {
+    try { sessionStorage.setItem(PENDING_KEY, payloadStr); } 
+    catch (e1) {
       try {
-        const ultraSlim = {
-          ...pendingPayload,
-          items: pendingPayload.items.map((i) => ({
-            id: i.id,
-            productId: i.productId,
-            qty: i.qty,
-            price: i.price,
-            title: i.title,
-          })),
-        };
+        const ultraSlim = { ...pendingPayload, items: pendingPayload.items.map((i) => ({ id: i.id, productId: i.productId, qty: i.qty, price: i.price, title: i.title })) };
         sessionStorage.setItem(PENDING_KEY, JSON.stringify(ultraSlim));
       } catch (e2) {
         sessionStorage.removeItem(PENDING_KEY);
-        alert(
-          "Your selection is too large to save temporarily. We'll continue, but if you go back you may need to re-enter details."
-        );
+        alert("Your selection is too large to save temporarily. We'll continue, but if you go back you may need to re-enter details.");
       }
     }
 
-    // Build target (Payment) URL now
     const qsParts = [];
     if (repairId) qsParts.push(`repairId=${encodeURIComponent(repairId)}`);
     if (customMode) qsParts.push("custom=1");
     const qs = qsParts.length ? `?${qsParts.join("&")}` : "";
     const paymentUrl = `/Payment${qs}`;
 
-    // If not logged in, send to login first (then resume)
     if (!auth.currentUser) {
       const next = encodeURIComponent(paymentUrl);
       navigate(`${LOGIN_PATH}?next=${next}&checkout=1`);
       return;
     }
-
-    // Already logged in -> proceed straight to Payment
     navigate(paymentUrl);
   };
 
@@ -352,27 +417,9 @@ export default function Checkout() {
     if (!submitAttempted) return null;
     const { valid, missingLabels } = computeErrors();
     if (valid) return null;
-
-    const missingTxt =
-      missingLabels.length > 0
-        ? `Missing required: ${missingLabels.join(", ")}.`
-        : "Please fix the highlighted fields.";
-
+    const missingTxt = missingLabels.length > 0 ? `Missing required: ${missingLabels.join(", ")}.` : "Please fix the highlighted fields.";
     return (
-      <div
-        className="form-banner warning"
-        role="alert"
-        aria-live="assertive"
-        style={{
-          background: "#fff4e5",
-          border: "1px solid #ffc266",
-          color: "#663c00",
-          padding: "10px 12px",
-          borderRadius: 8,
-          marginBottom: 12,
-          fontSize: 14,
-        }}
-      >
+      <div className="form-banner warning" role="alert" style={{ background: "#fff4e5", border: "1px solid #ffc266", color: "#663c00", padding: "10px 12px", borderRadius: 8, marginBottom: 12, fontSize: 14 }}>
         <strong>Check your details.</strong> {missingTxt}
       </div>
     );
@@ -380,212 +427,83 @@ export default function Checkout() {
 
   return (
     <div className="checkout-container">
-      {/* LEFT: Email + Shipping form */}
       <div className="checkout-form">
         {renderBanner()}
-
         <h3>EMAIL</h3>
         <div className={`field ${errors.email ? "has-error" : ""}`}>
-          <input
-            name="email"
-            type="email"
-            placeholder="*Email"
-            required
-            value={email}
-            onChange={(e) => setEmail(e.target.value)}
-            onBlur={() => setEmail(trimStr(email))}
-            aria-invalid={!!errors.email}
-            aria-describedby={errors.email ? "err-email" : undefined}
-          />
-          {errors.email && (
-            <small id="err-email" className="error-text">
-              {errors.email}
-            </small>
-          )}
+          <input name="email" type="email" placeholder="*Email" required value={email} onChange={(e) => setEmail(e.target.value)} onBlur={() => setEmail(trimStr(email))} />
+          {errors.email && <small className="error-text">{errors.email}</small>}
         </div>
-
-        <label className="checkbox">
-          <input
-            type="checkbox"
-            checked={news}
-            onChange={(e) => setNews(e.target.checked)}
-          />{" "}
-          Sign up for news &amp; special offers?
-        </label>
+        <label className="checkbox"><input type="checkbox" checked={news} onChange={(e) => setNews(e.target.checked)} /> Sign up for news &amp; special offers?</label>
 
         <h3>SHIPPING ADDRESS</h3>
         <div className="form-grid">
           <div className={`field ${errors.first ? "has-error" : ""}`}>
-            <input
-              name="first"
-              type="text"
-              placeholder="*First Name"
-              required
-              value={first}
-              onChange={(e) => setFirst(e.target.value)}
-              onBlur={() => setFirst(trimStr(first))}
-              aria-invalid={!!errors.first}
-              aria-describedby={errors.first ? "err-first" : undefined}
-            />
-            {errors.first && (
-              <small id="err-first" className="error-text">
-                {errors.first}
-              </small>
-            )}
+            <input name="first" type="text" placeholder="*First Name" required value={first} onChange={(e) => setFirst(e.target.value)} onBlur={() => setFirst(trimStr(first))} />
+            {errors.first && <small className="error-text">{errors.first}</small>}
           </div>
-
           <div className={`field ${errors.last ? "has-error" : ""}`}>
-            <input
-              name="last"
-              type="text"
-              placeholder="*Last Name"
-              required
-              value={last}
-              onChange={(e) => setLast(e.target.value)}
-              onBlur={() => setLast(trimStr(last))}
-              aria-invalid={!!errors.last}
-              aria-describedby={errors.last ? "err-last" : undefined}
-            />
-            {errors.last && (
-              <small id="err-last" className="error-text">
-                {errors.last}
-              </small>
-            )}
+            <input name="last" type="text" placeholder="*Last Name" required value={last} onChange={(e) => setLast(e.target.value)} onBlur={() => setLast(trimStr(last))} />
+            {errors.last && <small className="error-text">{errors.last}</small>}
+          </div>
+        </div>
+
+        <div className="field">
+          <select value={addrCodes.region} onChange={handleRegionChange} style={{width: '100%', padding: '10px'}}>
+            <option value="">Select Region *</option>
+            {addrLists.region.map((reg) => (<option key={reg.region_code} value={reg.region_code}>{reg.region_name}</option>))}
+          </select>
+        </div>
+
+        <div className="form-grid">
+          <div className={`field ${errors.stateProv ? "has-error" : ""}`}>
+            <select name="stateProv" value={addrCodes.province} onChange={handleProvinceChange} disabled={!addrCodes.region} style={{width: '100%', padding: '10px'}}>
+              <option value="">Select Province *</option>
+              {addrLists.province.map((prov) => (<option key={prov.province_code} value={prov.province_code}>{prov.province_name}</option>))}
+            </select>
+            {errors.stateProv && <small className="error-text">{errors.stateProv}</small>}
+          </div>
+          <div className={`field ${errors.city ? "has-error" : ""}`}>
+            <select name="city" value={addrCodes.city} onChange={handleCityChange} disabled={!addrCodes.province} style={{width: '100%', padding: '10px'}}>
+              <option value="">Select City *</option>
+              {addrLists.city.map((c) => (<option key={c.city_code} value={c.city_code}>{c.city_name}</option>))}
+            </select>
+            {errors.city && <small className="error-text">{errors.city}</small>}
+          </div>
+        </div>
+
+        <div className="form-grid">
+          <div className={`field ${errors.barangay ? "has-error" : ""}`}>
+            <select name="barangay" value={addrCodes.barangay} onChange={handleBarangayChange} disabled={!addrCodes.city} style={{width: '100%', padding: '10px'}}>
+              <option value="">Select Barangay *</option>
+              {addrLists.barangay.map((b) => (<option key={b.brgy_code} value={b.brgy_code}>{b.brgy_name}</option>))}
+            </select>
+            {errors.barangay && <small className="error-text">{errors.barangay}</small>}
+          </div>
+          <div className={`field ${errors.zip ? "has-error" : ""}`}>
+            <input name="zip" type="text" placeholder="*Zip/Postal Code" required value={zip} onChange={(e) => setZip(onlyDigits(e.target.value).slice(0, 6))} onBlur={() => setZip(onlyDigits(zip))} maxLength={6} />
+            {errors.zip && <small className="error-text">{errors.zip}</small>}
           </div>
         </div>
 
         <div className={`field ${errors.street ? "has-error" : ""}`}>
-          <input
-            name="street"
-            type="text"
-            placeholder="*Street Address"
-            required
-            value={street}
-            onChange={(e) => setStreet(e.target.value)}
-            onBlur={() => setStreet(trimStr(street))}
-            aria-invalid={!!errors.street}
-            aria-describedby={errors.street ? "err-street" : undefined}
-          />
-          {errors.street && (
-            <small id="err-street" className="error-text">
-              {errors.street}
-            </small>
-          )}
+          <input name="street" type="text" placeholder="*Street Address" required value={street} onChange={(e) => setStreet(e.target.value)} onBlur={() => setStreet(trimStr(street))} />
+          {errors.street && <small className="error-text">{errors.street}</small>}
         </div>
-
-        <input
-          name="apt"
-          type="text"
-          placeholder="Barangay, Unit, Suite, etc. (optional)"
-          value={apt}
-          onChange={(e) => setApt(e.target.value)}
-          onBlur={() => setApt(trimStr(apt))}
-        />
-
-        <div className="form-grid">
-          <div className={`field ${errors.city ? "has-error" : ""}`}>
-            <input
-              name="city"
-              type="text"
-              placeholder="*City"
-              required
-              value={city}
-              onChange={(e) => setCity(e.target.value)}
-              onBlur={() => setCity(trimStr(city))}
-              aria-invalid={!!errors.city}
-              aria-describedby={errors.city ? "err-city" : undefined}
-            />
-            {errors.city && (
-              <small id="err-city" className="error-text">
-                {errors.city}
-              </small>
-            )}
-          </div>
-
-          <div className={`field ${errors.stateProv ? "has-error" : ""}`}>
-            <input
-              name="stateProv"
-              type="text"
-              placeholder="*Province"
-              required
-              value={stateProv}
-              onChange={(e) => setStateProv(e.target.value)}
-              onBlur={() => setStateProv(trimStr(stateProv))}
-              aria-invalid={!!errors.stateProv}
-              aria-describedby={errors.stateProv ? "err-state" : undefined}
-            />
-            {errors.stateProv && (
-              <small id="err-state" className="error-text">
-                {errors.stateProv}
-              </small>
-            )}
-          </div>
-
-          <div className={`field ${errors.zip ? "has-error" : ""}`}>
-            <input
-              name="zip"
-              type="text"
-              placeholder="*Zip/Postal Code"
-              required
-              value={zip}
-              onChange={(e) => setZip(onlyDigits(e.target.value).slice(0, 6))}
-              onBlur={() => setZip(onlyDigits(zip))}
-              inputMode="numeric"
-              pattern="\d*"
-              maxLength={6}
-              aria-invalid={!!errors.zip}
-              aria-describedby={errors.zip ? "err-zip" : undefined}
-            />
-            {errors.zip && (
-              <small id="err-zip" className="error-text">
-                {errors.zip}
-              </small>
-            )}
-          </div>
-        </div>
-
+        <input name="apt" type="text" placeholder="Unit, Floor, House No. (Optional)" value={apt} onChange={(e) => setApt(e.target.value)} onBlur={() => setApt(trimStr(apt))} />
         <div className={`field ${errors.phone ? "has-error" : ""}`}>
-          <input
-            name="phone"
-            type="tel"
-            placeholder="*Phone Number"
-            required
-            value={phone}
-            onChange={(e) => setPhone(onlyDigits(e.target.value).slice(0, 11))}
-            onBlur={() => setPhone(onlyDigits(phone))}
-            inputMode="numeric"
-            pattern="\d{10,11}"
-            maxLength={11}
-            aria-invalid={!!errors.phone}
-            aria-describedby={errors.phone ? "err-phone" : undefined}
-          />
-          {errors.phone && (
-            <small id="err-phone" className="error-text">
-              {errors.phone}
-            </small>
-          )}
+          <input name="phone" type="tel" placeholder="*Phone Number" required value={phone} onChange={(e) => setPhone(onlyDigits(e.target.value).slice(0, 11))} onBlur={() => setPhone(onlyDigits(phone))} maxLength={11} />
+          {errors.phone && <small className="error-text">{errors.phone}</small>}
         </div>
 
         <div className="form-actions">
-          <button className="cancel-btn" onClick={() => navigate(-1)}>
-            CANCEL
-          </button>
-          <button className="pay-btn" onClick={handleContinueToPay}>
-            CONTINUE TO PAY
-          </button>
+          <button className="cancel-btn" onClick={() => navigate(-1)}>CANCEL</button>
+          <button className="pay-btn" onClick={handleContinueToPay}>CONTINUE TO PAY</button>
         </div>
       </div>
 
-      {/* RIGHT: Order Summary */}
       <div className="checkout-summary">
-        <OrderSummaryCard
-          title="ORDER SUMMARY"
-          showSupport
-          showAddress={false}
-          items={items}
-          shippingFee={510}
-          order={{ items, subtotal, shippingFee: 510, total }}
-        />
+        <OrderSummaryCard title="ORDER SUMMARY" showSupport showAddress={false} items={items} shippingFee={510} order={{ items, subtotal, shippingFee: 510, total }} />
       </div>
     </div>
   );

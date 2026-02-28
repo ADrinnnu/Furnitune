@@ -4,7 +4,6 @@ import "../Customization.css";
 import "../AllFurnitures.css";
 import { useNavigate } from "react-router-dom";
 
-// Your app's firebase wrapper must export these:
 import {
   firestore,
   collection,
@@ -14,35 +13,142 @@ import {
   storage,
   ref,
   getDownloadURL,
-  auth, // ← added
+  auth,
 } from "../firebase";
 
-// If your wrapper doesn't re-export query/where, import from Firestore directly:
 import { query, where } from "firebase/firestore";
 
-/* ───────────────────────── helpers ───────────────────────── */
+/* ───────────────────────── CONFIGURATION (GAME-STYLE CHARACTER CREATOR) ───────────────────────── */
+
+const CATEGORY_OPTIONS = {
+  "Beds": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "Main bed frame, structural wooden slats/base, and standard assembly hardware.",
+    exclusions: "Mattress, foam toppers, pillows, and bed sheets are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / PRIMARY MATERIAL", choices: ["Mahogany Wood", "Oak Wood", "Pine Wood", "Metal Frame", "Upholstered Base"] },
+      { id: "headboardStyle", label: "HEADBOARD STYLE", choices: ["Deep Button Tufted", "Vertical Channel", "Plain Upholstered", "Slatted Wood", "Woven Rattan", "No Headboard"] },
+      { id: "legStyle", label: "BASE / LEG STYLE", choices: ["Tapered Wood Legs", "Metal Pin Legs", "Storage Drawer Base", "Floating Base", "Hidden Glides"] },
+      { id: "frameHeight", label: "FRAME HEIGHT", choices: ["Low Profile (Minimalist)", "Standard Height", "High Clearance (Storage)", "Custom Height"] }
+    ]
+  },
+  "Sofas": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "Main sofa frame, primary seat cushions, and backrest cushions.",
+    exclusions: "Throw pillows, decorative blankets, and center tables are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Kiln-Dried Hardwood", "Premium Plywood", "Steel Enforced", "Exposed Mahogany Wood"] },
+      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms (Square)", "Rolled Arms", "English Roll", "Pillow Top", "Flare Arms", "Armless"] },
+      { id: "backCushion", label: "BACK CUSHION STYLE", choices: ["Tight Back", "Loose Cushions", "Semi-Attached", "Tufted Back"] },
+      { id: "seatDepth", label: "SEAT DEPTH", choices: ["Standard (21-22\")", "Deep Lounge (23-25\")", "Extra Deep (26\"+)", "Custom Depth"] },
+      { id: "legStyle", label: "LEG STYLE", choices: ["Mid-Century Wood Pegs", "Modern Metal Stiletto", "Block Wood Legs", "Hidden Glides"] }
+    ]
+  },
+  "Sectionals": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "Complete sectional frame (all modular pieces), seat cushions, and back cushions.",
+    exclusions: "Throw pillows, ottomans (unless added as an upgrade), and rugs are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Kiln-Dried Hardwood", "Premium Plywood", "Steel Enforced", "Exposed Oak Wood"] },
+      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms", "Rolled Arms", "Pillow Top", "Flare Arms"] },
+      { id: "configuration", label: "CHAISE / SHAPE CONFIGURATION", choices: ["Left-Facing Chaise", "Right-Facing Chaise", "U-Shape", "Symmetrical L-Shape", "Custom Shape"] },
+      { id: "seatDepth", label: "SEAT DEPTH", choices: ["Standard", "Deep Lounge", "Extra Deep", "Custom Depth"] }
+    ]
+  },
+  "Dining Tables": {
+    hasFoam: false,
+    hasCover: false,
+    inclusions: "The main dining table top and the structural base/legs.",
+    exclusions: "Dining chairs, table runners, and tableware/decorations are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / TABLE TOP MATERIAL", choices: ["Solid Mahogany", "Walnut Veneer", "Tempered Glass", "Sintered Stone / Marble", "Live Edge Wood", "Epoxy Resin River"] },
+      { id: "edgeStyle", label: "TABLE EDGE STYLE", choices: ["Straight Edge", "Beveled Edge", "Bullnose (Rounded)", "Live Edge (Natural)", "Reverse Bevel"] },
+      { id: "baseDesign", label: "BASE / LEG DESIGN", choices: ["Standard 4-Post", "Trestle Base", "Double Pedestal", "Spider Metal Legs", "X-Shape Metal"] },
+      { id: "surfaceFinish", label: "SURFACE FINISH", choices: ["Matte Clear Coat", "High Gloss Polyurethane", "Natural Oil Rub", "Distressed / Rustic"] }
+    ]
+  },
+  "Tables": {
+    hasFoam: false,
+    hasCover: false,
+    inclusions: "The table top and the supporting legs/base.",
+    exclusions: "Chairs, surrounding decor, and floor rugs are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / TOP MATERIAL", choices: ["Solid Wood", "Tempered Glass", "Marble Top", "Concrete", "Travertine"] },
+      { id: "shapeType", label: "TOP SHAPE", choices: ["Rectangular", "Perfect Square", "Round", "Oval", "Abstract / Asymmetrical", "Custom Shape"] },
+      { id: "baseDesign", label: "BASE DESIGN", choices: ["Hairpin Metal Legs", "Geometric Metal", "Solid Wood Plinth", "Open Frame"] }
+    ]
+  },
+  "Chairs": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "The main chair unit and built-in seat padding/cushioning.",
+    exclusions: "Extra decorative back pillows and footrests are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / FRAME MATERIAL", choices: ["Ash Wood", "Mahogany", "Matte Black Steel", "Chrome Tube"] },
+      { id: "backrestStyle", label: "BACKREST STYLE", choices: ["High Back", "Mid Back", "Curved / Barrel", "Spindle Back", "Custom Height"] },
+      { id: "armType", label: "ARMREST TYPE", choices: ["No Arms", "Sloped Wood Arms", "Upholstered Track Arms"] }
+    ]
+  },
+  "Ottomans": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "The fully upholstered ottoman unit and base.",
+    exclusions: "Decorative wooden trays and surrounding living room decor are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Plywood Core", "Solid Wood Frame"] },
+      { id: "topStyle", label: "TOP SURFACE STYLE", choices: ["Flat / Smooth", "Button Tufted", "Pillow Top"] },
+      { id: "baseStyle", label: "BASE / LEGS", choices: ["Hidden Glides", "Caster Wheels", "Exposed Wood Base", "Metal Perimeter Base"] }
+    ]
+  },
+  "Others": {
+    hasFoam: true,
+    hasCover: true,
+    inclusions: "The primary custom furniture item as ordered.",
+    exclusions: "Any items not explicitly listed in the final custom specifications.",
+    features: [
+      { id: "woodMaterial", label: "PRIMARY MATERIAL", choices: ["Standard Wood", "Standard Metal", "Plastic / Acrylic", "Glass", "Mixed Materials"] },
+      { id: "styleVibe", label: "STYLE / VIBE", choices: ["Modern Contemporary", "Industrial", "Classic Traditional", "Minimalist", "Rustic"] }
+    ]
+  }
+};
+
+const FOAM_CHOICES = ["Standard High Density", "Soft / Cloud Plush", "Extra Firm (Orthopedic)", "Memory Foam Topper"];
+const COVER_CHOICES = ["Fabric", "Premium Leather", "Velvet", "Linen", "Microfiber"];
+
+const COMMON_ADDITIONALS = {
+  "Beds": ["Cabinets", "Pull out Bed"],
+  "Chairs": ["Cushions", "With or without armrest"],
+  "Sofas": ["Cushions", "Footrest"],
+  "Dining Tables": ["Glass on top", "Padded foam on top"],
+  "Tables": ["Glass on top", "Padded foam on top"],
+  "Sectionals": ["Throw Pillow", "Footrest"],
+  "Ottomans": ["Decorative Tray", "With storage"],
+  "Others": [],
+};
+
+const DEFAULT_SIZES_BY_TYPE = {
+  Chairs: ["Standard", "Counter", "Bar", "Custom"],
+  Sofas: ["2 Seater", "3 Seater", "4 Seater", "Custom"],
+  Sectionals: ["3 Seater", "5 Seater", "6 Seater", "7 Seater", "Custom"],
+  Tables: ["2 people", "4 people", "6 people", "8 people", "Custom"],
+  "Dining Tables": ["2 people", "4 people", "6 people", "8 people", "Custom"],
+  Beds: ["Single", "Double", "Queen", "King", "Custom"],
+  Ottomans: ["Standard", "Cube", "Footstool", "Cocktail", "Custom"],
+  Others: ["Standard", "Custom"],
+};
+
+/* ───────────────────────── HELPERS ───────────────────────── */
 const norm = (s) => String(s || "").trim().toLowerCase();
-const titleCase = (s) =>
-  String(s || "")
-    .replace(/[-_]/g, " ")
-    .replace(/\b\w/g, (c) => c.toUpperCase());
+const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
 const slugify = (s) => norm(s).replace(/\s+/g, "-");
-
-// case-insensitive helpers
 const lc = (s) => String(s ?? "").toLowerCase().trim();
-const lcKeys = (obj) =>
-  Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [lc(k), v]));
-const normalizePricingTables = (p) =>
-  p
-    ? {
-        ...p,
-        sizeAdds: lcKeys(p.sizeAdds),
-        sizeMultipliers: lcKeys(p.sizeMultipliers),
-        materialMultipliers: lcKeys(p.materialMultipliers),
-      }
-    : null;
+const lcKeys = (obj) => Object.fromEntries(Object.entries(obj || {}).map(([k, v]) => [lc(k), v]));
 
-// OPTIONAL: alias unusual size labels to the ones in your UI
+const normalizePricingTables = (p) => p ? { ...p, sizeAdds: lcKeys(p.sizeAdds), sizeMultipliers: lcKeys(p.sizeMultipliers), materialMultipliers: lcKeys(p.materialMultipliers) } : null;
+
 const SIZE_ALIASES = { beds: { king: ["california king", "cal-king"] } };
 function canonicalSize(category, size) {
   const L = lc(size);
@@ -71,29 +177,6 @@ const normalizeCategory = (raw) => {
   return titleCase(raw);
 };
 
-const DEFAULT_SIZES_BY_TYPE = {
-  Chairs: ["Standard", "Counter", "Bar"],
-  Sofas: ["2 Seater", "3 Seater", "4 Seater"],
-  Sectionals: ["3 Seater", "5 Seater", "6 Seater", "7 Seater"],
-  Tables: ["2 people", "4 people", "6 people", "8 people"],
-  "Dining Tables": ["2 people", "4 people", "6 people", "8 people"],
-  Beds: ["Single", "Double", "Queen", "King"],
-  Ottomans: ["Standard", "Cube", "Footstool", "Cocktail"],
-  Others: ["Standard"],
-};
-
-const COMMON_ADDITIONALS = {
-  Beds: ["Cabinets", "Pull out Bed"],
-  Chairs: ["Cushions", "With or without armrest"],
-  Sofas: ["Cushions", "Footrest"],
-  "Dining Tables": ["Glass on top", "Padded foam on top"],
-  Tables: ["Glass on top", "Padded foam on top"],
-  Sectionals: ["Throw Pillow", "Footrest"],
-  Ottomans: ["Decorative Tray", "With storage"],
-  Others: [],
-};
-
-// money helpers
 const toCents = (v) => {
   if (v == null) return 0;
   const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.]/g, ""));
@@ -101,28 +184,11 @@ const toCents = (v) => {
   return Math.round(n * 100);
 };
 const fromCents = (c) => Math.round((c || 0) / 100);
-const formatPHP = (php) =>
-  Number(php || 0).toLocaleString("en-PH", {
-    style: "currency",
-    currency: "PHP",
-    maximumFractionDigits: 0,
-  });
+const formatPHP = (php) => Number(php || 0).toLocaleString("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 });
 
-/**
- * price = ((base + sizeAdd) * sizeMultiplier * materialMultiplier) + sum(additions)
- */
-function computePriceCents({
-  basePriceCents,
-  size,
-  material,
-  additionsSelected,
-  pricing,
-  additionsTable = [],
-  additionsArePesos = false, // <— NEW
-}) {
+function computePriceCents({ basePriceCents, size, material, additionsSelected, pricing, additionsTable = [], additionsArePesos = false }) {
   const sKey = lc(size);
   const mKey = lc(material);
-
   const sizeAdd = pricing?.sizeAdds?.[sKey] ?? 0;
   const sizeMult = pricing?.sizeMultipliers?.[sKey] ?? 1;
   const materialMult = pricing?.materialMultipliers?.[mKey] ?? 1;
@@ -130,7 +196,6 @@ function computePriceCents({
   const additionsCents = (additionsSelected || []).reduce((acc, label) => {
     const row = findAdditionCI(additionsTable, label);
     const v = Number(row?.cents || 0);
-    // if values are stored in PESOS in DB, convert to cents here
     return acc + (additionsArePesos ? Math.round(v * 100) : v);
   }, 0);
 
@@ -138,17 +203,10 @@ function computePriceCents({
   const multiplied = Math.round(pre * sizeMult * materialMult);
   const total = multiplied + additionsCents;
 
-  return {
-    base: basePriceCents,
-    sizeAdd,
-    sizeMult,
-    materialMult,
-    additions: additionsCents,
-    total,
-  };
+  return { base: basePriceCents, sizeAdd, sizeMult, materialMult, additions: additionsCents, total };
 }
 
-/* storage URL helpers */
+/* Storage URL helpers */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
   if (/^gs:\/\//i.test(u)) {
@@ -169,185 +227,86 @@ async function toDownloadUrl(val) {
     const objPath = objectPathFromAnyStorageUrl(val);
     if (objPath) return await getDownloadURL(ref(storage, objPath));
     return val;
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
-async function resolveImage(val) {
-  return await toDownloadUrl(val);
-}
+async function resolveImage(val) { return await toDownloadUrl(val); }
 const hydrateProductImages = async (list) =>
   Promise.all(
     list.map(async (p) => {
-      const rawImgs = Array.isArray(p.images)
-        ? p.images
-        : Array.isArray(p.imageUrls)
-        ? p.imageUrls
-        : p.image
-        ? [p.image]
-        : [];
+      const rawImgs = Array.isArray(p.images) ? p.images : Array.isArray(p.imageUrls) ? p.imageUrls : p.image ? [p.image] : [];
       const imgs = (await Promise.all(rawImgs.map(resolveImage))).filter(Boolean);
       const first = imgs[0] || "";
       return { ...p, images: imgs, imageUrls: imgs, image: first };
     })
   );
-const pickCardImage = (item) =>
-  (Array.isArray(item?.images) && item.images[0]) ||
-  (Array.isArray(item?.imageUrls) && item.imageUrls[0]) ||
-  item?.image ||
-  "";
+const pickCardImage = (item) => (Array.isArray(item?.images) && item.images[0]) || (Array.isArray(item?.imageUrls) && item.imageUrls[0]) || item?.image || "";
 
-/* read pricing rules */
+/* Read Pricing */
 async function loadPricingFromSizeRules(category) {
-  let snap = await getDocs(
-    query(collection(firestore, "sizePriceRules"), where("type", "==", category))
-  );
+  let snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", category)));
   if (snap.empty) {
-    snap = await getDocs(
-      query(
-        collection(firestore, "sizePriceRules"),
-        where("type", "==", titleCase(category))
-      )
-    );
+    snap = await getDocs(query(collection(firestore, "sizePriceRules"), where("type", "==", titleCase(category))));
   }
   if (snap.empty) return null;
 
-  const p = {
-    currency: "PHP",
-    sizeAdds: {},
-    sizeMultipliers: {},
-    materialMultipliers: { Fabric: 1, Leather: 1 },
-  };
-
+  const p = { currency: "PHP", sizeAdds: {}, sizeMultipliers: {}, materialMultipliers: { Fabric: 1, Leather: 1 } };
   snap.forEach((d) => {
     const r = d.data();
     if (!r || !r.size) return;
     const sizeKey = lc(canonicalSize(category, r.size));
     const mode = lc(r.mode);
     const value = Number(r.value || 0);
-    if (["delta", "add", "plus"].includes(mode))
-      p.sizeAdds[sizeKey] = Math.round(value * 100);
-    else if (["multiplier", "x", "mul"].includes(mode))
-      p.sizeMultipliers[sizeKey] = value || 1;
+    if (["delta", "add", "plus"].includes(mode)) p.sizeAdds[sizeKey] = Math.round(value * 100);
+    else if (["multiplier", "x", "mul"].includes(mode)) p.sizeMultipliers[sizeKey] = value || 1;
   });
-
   return p;
 }
 
-/* UI bits */
+/* UI Components */
 const chipStyle = (active) => ({
-  padding: "6px 10px",
+  padding: "8px 14px",
   borderRadius: 8,
-  border: "1px solid #d9d9d9",
+  border: active ? "1px solid #1a1a1a" : "1px solid #e0e0e0",
   background: active ? "#1a1a1a" : "#fff",
   color: active ? "#fff" : "#1a1a1a",
   cursor: "pointer",
   userSelect: "none",
+  fontSize: "12px",
+  fontWeight: active ? "600" : "400",
+  transition: "all 0.2s ease",
 });
+
 function Chip({ active, onClick, children }) {
   return (
-    <button
-      type="button"
-      aria-pressed={!!active}
-      onClick={onClick}
-      style={chipStyle(active)}
-    >
+    <button type="button" aria-pressed={!!active} onClick={onClick} style={chipStyle(active)}>
       {children}
     </button>
   );
 }
 
-/* Catalog Drawer */
-function CatalogDrawer({
-  open,
-  onClose,
-  productsByCategory,
-  activeCategory,
-  setActiveCategory,
-  onPick,
-}) {
+function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setActiveCategory, onPick }) {
   if (!open) return null;
-  const backdropStyle = {
-    position: "fixed",
-    inset: 0,
-    background: "rgba(0,0,0,0.35)",
-    zIndex: 9998,
-  };
-  const panelStyle = {
-    position: "fixed",
-    top: 0,
-    right: 0,
-    width: "560px",
-    maxWidth: "92vw",
-    height: "100vh",
-    background: "#fff",
-    overflow: "auto",
-    zIndex: 9999,
-    boxShadow: "0 0 20px rgba(0,0,0,0.2)",
-    boxSizing: "border-box",
-    paddingRight: 10,
-  };
-  const headerStyle = {
-    position: "sticky",
-    top: 0,
-    background: "#fff",
-    zIndex: 1,
-    padding: "12px 16px",
-    borderBottom: "1px solid #eee",
-  };
-  const gridStyle = {
-    display: "grid",
-    gridTemplateColumns: "1fr 1fr",
-    gap: "12px",
-    padding: "12px 16px 20px 16px",
-  };
-  const rail = {
-    display: "flex",
-    gap: 8,
-    padding: "8px 16px",
-    flexWrap: "wrap",
-  };
-  const pill = (active) => ({
-    padding: "6px 10px",
-    borderRadius: 999,
-    border: "1px solid #ddd",
-    background: active ? "#111" : "#fff",
-    color: active ? "#fff" : "#111",
-    cursor: "pointer",
-    fontSize: 12,
-  });
+  const backdropStyle = { position: "fixed", inset: 0, background: "rgba(0,0,0,0.35)", zIndex: 9998 };
+  const panelStyle = { position: "fixed", top: 0, right: 0, width: "560px", maxWidth: "92vw", height: "100vh", background: "#fff", overflow: "auto", zIndex: 9999, boxShadow: "0 0 20px rgba(0,0,0,0.2)", boxSizing: "border-box", paddingRight: 10 };
+  const headerStyle = { position: "sticky", top: 0, background: "#fff", zIndex: 1, padding: "12px 16px", borderBottom: "1px solid #eee" };
+  const gridStyle = { display: "grid", gridTemplateColumns: "1fr 1fr", gap: "12px", padding: "12px 16px 20px 16px" };
+  const rail = { display: "flex", gap: 8, padding: "8px 16px", flexWrap: "wrap" };
+  const pill = (active) => ({ padding: "6px 10px", borderRadius: 999, border: "1px solid #ddd", background: active ? "#111" : "#fff", color: active ? "#fff" : "#111", cursor: "pointer", fontSize: 12 });
 
   return (
     <>
       <div role="presentation" onClick={onClose} style={backdropStyle} />
-      <aside
-        role="dialog"
-        aria-label="Catalog"
-        style={panelStyle}
-        onClick={(e) => e.stopPropagation()}
-      >
+      <aside role="dialog" aria-label="Catalog" style={panelStyle} onClick={(e) => e.stopPropagation()}>
         <div style={headerStyle}>
-          <div
-            style={{
-              display: "flex",
-              alignItems: "center",
-              justifyContent: "space-between",
-            }}
-          >
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
             <strong>Catalog</strong>
-            <button className="btn btn-text" onClick={onClose} aria-label="Close">
-              ✕
-            </button>
+            <button className="btn btn-text" onClick={onClose} aria-label="Close">✕</button>
           </div>
           <div style={rail}>
             {Object.keys(productsByCategory).map((cat) => {
               const count = productsByCategory[cat]?.length ?? 0;
               return (
-                <button
-                  key={cat}
-                  style={pill(activeCategory === cat)}
-                  onClick={() => setActiveCategory(cat)}
-                >
+                <button key={cat} style={pill(activeCategory === cat)} onClick={() => setActiveCategory(cat)}>
                   {cat} {count ? `(${count})` : ""}
                 </button>
               );
@@ -362,28 +321,11 @@ function CatalogDrawer({
             const price = p.price ?? p.basePrice ?? null;
 
             return (
-              <div
-                key={p.id}
-                className="product-card"
-                onClick={() => {
-                  onPick(p);
-                }}
-                title="Pick this product"
-                style={{ cursor: "pointer" }}
-              >
-                {img && (
-                  <img
-                    src={img}
-                    alt={title}
-                    className="product-image"
-                    onError={(e) => (e.currentTarget.style.display = "none")}
-                  />
-                )}
+              <div key={p.id} className="product-card" onClick={() => onPick(p)} title="Pick this product" style={{ cursor: "pointer" }}>
+                {img && <img src={img} alt={title} className="product-image" onError={(e) => (e.currentTarget.style.display = "none")} />}
                 <div className="product-info">
                   <div className="product-title">{title}</div>
-                  {price != null && (
-                    <div className="product-price">{formatPHP(price)}</div>
-                  )}
+                  {price != null && <div className="product-price">{formatPHP(price)}</div>}
                 </div>
               </div>
             );
@@ -394,7 +336,7 @@ function CatalogDrawer({
   );
 }
 
-/* ───────── page ───────── */
+/* ───────── PAGE COMPONENT ───────── */
 export default function Customization() {
   const navigate = useNavigate();
 
@@ -406,18 +348,26 @@ export default function Customization() {
   // selection state
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("Others");
+  
+  // 1. Size & Dimensions
   const [sizeOptions, setSizeOptions] = useState(["S", "M", "L", "Custom"]);
   const [size, setSize] = useState("S");
-  const [coverColor, setCoverColor] = useState("#D3C6B3");
-  const [coverMaterialType, setCoverMaterialType] = useState("Fabric");
+  const [customSizeDetails, setCustomSizeDetails] = useState("");
+
+  // 2. Dynamic Features (The Character Creator Engine)
+  const [featureSelections, setFeatureSelections] = useState({});
+  const [customFeatureInputs, setCustomFeatureInputs] = useState({}); 
+  const [foamDensity, setFoamDensity] = useState("");
+
+  // 3. Upholstery & Color (RESTORED COLOR PALETTE)
+  const [coverMaterialType, setCoverMaterialType] = useState("");
+  const [coverColor, setCoverColor] = useState(""); // Restored this!
   const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
 
   // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
-
-  // currency prefers additionals_pricing currency
   const currency = additionalsPricing?.currency || pricing?.currency || "PHP";
 
   // additionals UI
@@ -425,11 +375,21 @@ export default function Customization() {
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
 
-  // reference images (up to 3) → store data URLs until checkout
-  const [referenceImages, setReferenceImages] = useState([]); // [{name, dataUrl}]
-
-  // 🔴 VALIDATION ERROR STATE
+  // Refs & Errors
+  const [referenceImages, setReferenceImages] = useState([]); 
   const [placeOrderError, setPlaceOrderError] = useState("");
+
+  const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
+  const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
+
+  // Reset granular choices when category changes
+  useEffect(() => {
+    setFeatureSelections({});
+    setCustomFeatureInputs({});
+    setFoamDensity("");
+    setCoverMaterialType("");
+    setCoverColor("");
+  }, [selectedCategory]); 
 
   // esc + scroll lock when drawer open
   useEffect(() => {
@@ -440,18 +400,63 @@ export default function Customization() {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
-    return () => {
-      document.body.style.overflow = prev;
-    };
+    return () => { document.body.style.overflow = prev; };
   }, [catalogOpen]);
 
-  const productTitle =
-    selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
-
+  // Construct dynamic description for admins and preview
   const descriptionText = useMemo(() => {
-    if (selectedProduct?.description) return selectedProduct.description;
-    return "No description available for this product.";
-  }, [selectedProduct]);
+    if (!selectedProduct) return "Please select a product to begin customization.";
+    const attachments = Object.keys(additionalPicked).filter((k) => additionalPicked[k]);
+
+    let finalDesc = `--- Custom Build Specifications ---\n`;
+
+    let primaryWoodStr = "Default Factory Wood/Material";
+
+    if (catConfig.features) {
+      catConfig.features.forEach((feat) => {
+        let val = featureSelections[feat.id];
+        
+        if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
+            val = `${val} - ${customFeatureInputs[feat.id]}`;
+        }
+
+        if (feat.id === "woodMaterial") {
+            primaryWoodStr = val || "Default Factory Wood";
+        }
+
+        if (val) {
+          finalDesc += `• ${titleCase(feat.label)}: ${val}\n`;
+        } else {
+          finalDesc += `• ${titleCase(feat.label)}: Default Spec\n`;
+        }
+      });
+    }
+
+    if (size === "Custom" && customSizeDetails) {
+      finalDesc += `• Custom Size/Shape: ${customSizeDetails}\n`;
+    }
+
+    finalDesc += `\n--- Construction & Materials ---\n`;
+    finalDesc += `• Constructed using: ${primaryWoodStr}\n`;
+    
+    if (catConfig.hasFoam) {
+      finalDesc += `• Foam / Padding: ${foamDensity || "Standard Factory Foam"}\n`;
+    }
+    if (catConfig.hasCover && coverEnabled) {
+      // Restored showing the cover color in the admin spec sheet
+      finalDesc += `• Upholstery Used: ${coverMaterialType || "Standard Material"} (Color: ${coverColor || "Default Color"})\n`;
+    }
+
+    finalDesc += `\n--- Package Inclusions & Exclusions ---\n`;
+    finalDesc += `✔️ INCLUDES: ${catConfig.inclusions || "Standard furniture pieces."}\n`;
+    finalDesc += `❌ DOES NOT INCLUDE: ${catConfig.exclusions || "Decorations or accessories."}\n`;
+
+    if (attachments.length > 0) {
+      finalDesc += `\n➕ ADD-ON UPGRADES: ${attachments.join(", ")}\n`;
+    }
+
+    return finalDesc.trim() || "No customizations selected.";
+  }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, coverEnabled, size, customSizeDetails, catConfig]);
 
   // load products
   useEffect(() => {
@@ -464,45 +469,26 @@ export default function Customization() {
         const list = await hydrateProductImages(raw);
 
         const grouped = list.reduce((acc, p) => {
-          const cat = normalizeCategory(
-            p.category || p.baseType || p.type || p.kind || p.categorySlug
-          );
+          const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
           if (!acc[cat]) acc[cat] = [];
           acc[cat].push(p);
           return acc;
         }, {});
 
-        const order = [
-          "Beds",
-          "Dining Tables",
-          "Chairs",
-          "Sofas",
-          "Sectionals",
-          "Ottomans",
-          "Tables",
-          "Others",
-        ];
+        const order = ["Beds", "Dining Tables", "Chairs", "Sofas", "Sectionals", "Ottomans", "Tables", "Others"];
         const ordered = {};
-        order.forEach((k) => {
-          if (grouped[k]?.length) ordered[k] = grouped[k];
-        });
-        Object.keys(grouped).forEach((k) => {
-          if (!(k in ordered)) ordered[k] = grouped[k];
-        });
+        order.forEach((k) => { if (grouped[k]?.length) ordered[k] = grouped[k]; });
+        Object.keys(grouped).forEach((k) => { if (!(k in ordered)) ordered[k] = grouped[k]; });
 
         setProductsByCategory(ordered);
         if (!ordered[activeCategory]) {
           const first = Object.keys(ordered)[0];
           if (first) setActiveCategory(first);
         }
-      } catch (e) {
-        console.error("Load products failed:", e);
-      }
+      } catch (e) { console.error("Load products failed:", e); }
     })();
-    return () => {
-      alive = false;
-    };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
+    return () => { alive = false; };
+  }, []); 
 
   // load pricing tables
   useEffect(() => {
@@ -512,10 +498,7 @@ export default function Customization() {
       try {
         let p = null;
         let snap = await getDoc(doc(firestore, "pricing", selectedCategory));
-        if (!snap.exists())
-          snap = await getDoc(
-            doc(firestore, "pricing", slugify(selectedCategory))
-          );
+        if (!snap.exists()) snap = await getDoc(doc(firestore, "pricing", slugify(selectedCategory)));
         if (snap.exists()) p = snap.data();
         if (!p) p = await loadPricingFromSizeRules(selectedCategory);
         if (!p) {
@@ -523,14 +506,9 @@ export default function Customization() {
           p = def.exists() ? def.data() : null;
         }
         if (!cancelled) setPricing(normalizePricingTables(p));
-      } catch (e) {
-        console.error("Load pricing failed:", e);
-        if (!cancelled) setPricing(null);
-      }
+      } catch (e) { console.error("Load pricing failed:", e); if (!cancelled) setPricing(null); }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedCategory]);
 
   // load additionals pricing
@@ -539,58 +517,26 @@ export default function Customization() {
     (async () => {
       if (!selectedCategory) return;
       try {
-        let snap = await getDoc(
-          doc(firestore, "additionals_pricing", selectedCategory)
-        );
-        if (!snap.exists())
-          snap = await getDoc(
-            doc(firestore, "additionals_pricing", slugify(selectedCategory))
-          );
+        let snap = await getDoc(doc(firestore, "additionals_pricing", selectedCategory));
+        if (!snap.exists()) snap = await getDoc(doc(firestore, "additionals_pricing", slugify(selectedCategory)));
         const data = snap.exists() ? snap.data() : null;
         if (!cancelled) setAdditionalsPricing(data);
-      } catch (e) {
-        console.error("Load additionals_pricing failed:", e);
-        if (!cancelled) setAdditionalsPricing(null);
-      }
+      } catch (e) { console.error("Load additionals_pricing failed:", e); if (!cancelled) setAdditionalsPricing(null); }
     })();
-    return () => {
-      cancelled = true;
-    };
+    return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // merge choices (preserve DB order first, then add others without duplicates)
+  // merge choices 
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
-    const pricedItems = (additionalsPricing?.items || []).map(
-      (a) => a.label || a.key
-    );
-    const legacyPriced = (pricing?.additions || []).map(
-      (a) => a.label || a.key
-    );
+    const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
+    const legacyPriced = (pricing?.additions || []).map((a) => a.label || a.key);
 
     const seen = new Set();
     const merged = [];
-    pricedItems.forEach((l) => {
-      const k = String(l);
-      if (!seen.has(lc(k))) {
-        seen.add(lc(k));
-        merged.push(k);
-      }
-    });
-    baseAdds.forEach((l) => {
-      const k = String(l);
-      if (!seen.has(lc(k))) {
-        seen.add(lc(k));
-        merged.push(k);
-      }
-    });
-    legacyPriced.forEach((l) => {
-      const k = String(l);
-      if (!seen.has(lc(k))) {
-        seen.add(lc(k));
-        merged.push(k);
-      }
-    });
+    pricedItems.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+    baseAdds.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
+    legacyPriced.forEach((l) => { const k = String(l); if (!seen.has(lc(k))) { seen.add(lc(k)); merged.push(k); } });
 
     setAdditionalChoices(merged);
     setAdditionalPicked((prev) => {
@@ -606,16 +552,12 @@ export default function Customization() {
   );
 
   const additionsTable = additionalsPricing?.items || pricing?.additions || [];
-  const additionsArePesos = !!additionalsPricing?.items; // true when using additionals_pricing
+  const additionsArePesos = !!additionalsPricing?.items; 
 
   const priceBreakdown = useMemo(() => {
     if (!selectedProduct) return null;
 
-    const base =
-      selectedProduct.basePriceCents != null
-        ? selectedProduct.basePriceCents
-        : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
-
+    const base = selectedProduct.basePriceCents != null ? selectedProduct.basePriceCents : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
     const sizeForPricing = canonicalSize(selectedCategory, size);
 
     return computePriceCents({
@@ -625,53 +567,38 @@ export default function Customization() {
       additionsSelected: pickedAdditionals,
       pricing,
       additionsTable,
-      additionsArePesos, // <— pass the flag
+      additionsArePesos, 
     });
-  }, [
-    selectedProduct,
-    size,
-    coverMaterialType,
-    pickedAdditionals,
-    pricing,
-    additionalsPricing,
-    selectedCategory,
-  ]);
+  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
 
-  // pick product (⚠️ exact name — used by Drawer)
+  // pick product 
   function handlePickProduct(p) {
-    const cat = normalizeCategory(
-      p.category || p.baseType || p.type || p.kind || p.categorySlug
-    );
+    const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
     setSelectedProduct(p);
     setSelectedCategory(cat);
 
-    const sizes =
-      Array.isArray(p?.sizeOptions) && p.sizeOptions.length
-        ? p.sizeOptions
-        : DEFAULT_SIZES_BY_TYPE[cat] || DEFAULT_SIZES_BY_TYPE.Others;
+    const sizes = Array.isArray(p?.sizeOptions) && p.sizeOptions.length ? p.sizeOptions : DEFAULT_SIZES_BY_TYPE[cat] || DEFAULT_SIZES_BY_TYPE.Others;
+    
+    if (!sizes.includes("Custom")) sizes.push("Custom");
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
 
+    // Pull the color palette specifically for the Upholstery Cover Color
     const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
-    const palette = raw
-      .map((c) => ({
-        hex: String(c?.hex || c?.color || "").trim(),
-        name: c?.name || "",
-      }))
-      .filter((c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex));
-    const enabled =
-      p?.hasCover === false ? false : palette.length > 0 || p?.hasCover === true;
-    setCoverEnabled(enabled);
+    const palette = raw.map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" })).filter((c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex));
+    
+    const isCoverEnabled = (CATEGORY_OPTIONS[cat] || CATEGORY_OPTIONS["Others"]).hasCover && (p?.hasCover !== false);
+    
+    setCoverEnabled(isCoverEnabled);
     setCoverPalette(palette);
-    if (enabled) setCoverColor(palette[0]?.hex || "#D3C6B3");
 
     setCatalogOpen(false);
   }
 
-  // choose up to 3 reference images → keep as data URLs
+  // choose reference images 
   async function onPickReferenceFiles(e) {
     const files = Array.from(e.target.files || []);
-       if (!files.length) return;
+    if (!files.length) return;
 
     const remain = Math.max(0, 3 - referenceImages.length);
     const take = files.slice(0, remain);
@@ -681,8 +608,7 @@ export default function Customization() {
         (f) =>
           new Promise((res, rej) => {
             const r = new FileReader();
-            r.onload = () =>
-              res({ name: f.name, dataUrl: String(r.result || "") });
+            r.onload = () => res({ name: f.name, dataUrl: String(r.result || "") });
             r.onerror = rej;
             r.readAsDataURL(f);
           })
@@ -692,13 +618,15 @@ export default function Customization() {
     setReferenceImages((prev) => [...prev, ...reads].slice(0, 3));
     e.target.value = "";
   }
+  
   function removeRefImage(i) {
     setReferenceImages((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  const colorBoxStyle = (c) => ({
-    background: c,
-    outline: coverColor === c ? "2px solid #111" : "none",
+  // Helper for the Color Swatches UI
+  const colorBoxStyle = (cHex, activeValue) => ({
+    background: cHex,
+    outline: activeValue === cHex ? "2px solid #111" : "1px solid #ccc",
   });
 
   const handlePlaceOrder = async () => {
@@ -706,33 +634,47 @@ export default function Customization() {
     const missing = [];
     if (!selectedProduct) missing.push("product");
     if (!size) missing.push("size");
-    if (coverEnabled && !coverColor) missing.push("cover color");
-    if (!coverMaterialType) missing.push("cover material");
-
+    
     if (missing.length) {
       setPlaceOrderError(
-        `Please fill out the following before placing your order: ${missing.join(
-          ", "
-        )}.`
+        `Please fill out the following before placing your order: ${missing.join(", ")}.`
       );
       return;
+    }
+
+    const compiledMaterials = {};
+    if (catConfig.features) {
+      catConfig.features.forEach(feat => {
+        let val = featureSelections[feat.id];
+        if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
+            val = `${val} (${customFeatureInputs[feat.id]})`;
+        }
+        if (val) {
+          compiledMaterials[feat.id] = val;
+        }
+      });
     }
 
     try {
       const draft = {
         type: "customization",
         productId: selectedProduct?.id || null,
-        productTitle:
-          selectedProduct?.title || selectedProduct?.name || null,
+        productTitle: selectedProduct?.title || selectedProduct?.name || null,
         category: selectedCategory,
         size: size || null,
-        cover: { materialType: coverMaterialType, color: coverColor },
+        customSizeDetails: size === "Custom" ? customSizeDetails : null,
+        
+        materials: {
+          ...compiledMaterials,
+          foamDensity: catConfig.hasFoam ? foamDensity : null,
+        },
+        
+        cover: (catConfig.hasCover && coverEnabled) ? { materialType: coverMaterialType, color: coverColor } : null,
         additionals: pickedAdditionals,
         notes: notes || "",
-        // include the temporary ref images (data URLs) — uploaded in Payment.jsx
-        referenceImagesData: referenceImages, // [{name, dataUrl}]
-        descriptionFromProduct: selectedProduct?.description || null,
-        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null, // PHP
+        referenceImagesData: referenceImages,
+        descriptionFromProduct: descriptionText,
+        unitPrice: priceBreakdown ? fromCents(priceBreakdown.total) : null, 
         priceBreakdown: priceBreakdown
           ? {
               basePHP: fromCents(priceBreakdown.base),
@@ -744,11 +686,7 @@ export default function Customization() {
               currency,
             }
           : null,
-        images: Array.isArray(selectedProduct?.images)
-          ? selectedProduct.images
-          : Array.isArray(selectedProduct?.imageUrls)
-          ? selectedProduct.imageUrls
-          : [],
+        images: Array.isArray(selectedProduct?.images) ? selectedProduct.images : Array.isArray(selectedProduct?.imageUrls) ? selectedProduct.imageUrls : [],
       };
 
       sessionStorage.setItem("custom_draft", JSON.stringify(draft));
@@ -768,62 +706,35 @@ export default function Customization() {
     }
   };
 
-  const toggleAdditional = (label) =>
-    setAdditionalPicked((prev) => ({ ...prev, [label]: !prev[label] }));
-
   /* ───────── UI ───────── */
   return (
     <div className="customization-container">
       <div className="customization-grid">
         {/* LEFT */}
         <div className="left-side">
-          <h1 className="title">FURNITURE CUZTOMIZATION</h1>
+          <h1 className="title">FURNITURE CUSTOMIZATION</h1>
 
           <div
             className="preview-box"
             onClick={() => setCatalogOpen(true)}
-            title={
-              selectedProduct ? "Click to change product" : "Open Catalog"
-            }
-            style={{
-              cursor: "pointer",
-              position: "relative",
-              overflow: "hidden",
-            }}
+            title={selectedProduct ? "Click to change product" : "Open Catalog"}
+            style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
           >
             {(() => {
-              const previewImg = selectedProduct
-                ? pickCardImage(selectedProduct)
-                : "";
+              const previewImg = selectedProduct ? pickCardImage(selectedProduct) : "";
               if (previewImg) {
                 return (
                   <img
                     src={previewImg}
-                    alt={
-                      selectedProduct?.title ||
-                      selectedProduct?.name ||
-                      "Selected product"
-                    }
-                    style={{
-                      width: "100%",
-                      height: "100%",
-                      objectFit: "contain",
-                      display: "block",
-                    }}
+                    alt={productTitle || "Selected product"}
+                    style={{ width: "100%", height: "100%", objectFit: "contain", display: "block" }}
                   />
                 );
               }
               return (
                 <div
                   data-fallback
-                  style={{
-                    width: "100%",
-                    height: "100%",
-                    display: "flex",
-                    alignItems: "center",
-                    justifyContent: "center",
-                    color: "#555",
-                  }}
+                  style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555" }}
                 >
                   Click here to choose a product
                 </div>
@@ -831,11 +742,7 @@ export default function Customization() {
             })()}
 
             {selectedProduct && (
-              <div
-                className="preview-title"
-                title={productTitle}
-                aria-label="Selected product"
-              >
+              <div className="preview-title" title={productTitle} aria-label="Selected product">
                 {productTitle}
               </div>
             )}
@@ -851,181 +758,195 @@ export default function Customization() {
           />
 
           <div className="section">
-            <h2 className="section-title">DESCRIPTION</h2>
-            <p className="text" style={{ whiteSpace: "pre-wrap" }}>
+            <h2 className="section-title">CONFIGURED SPECIFICATIONS</h2>
+            <p className="text" style={{ whiteSpace: "pre-wrap", background: "#f9f9f9", padding: "12px", borderRadius: "8px", border: "1px solid #eee" }}>
               {descriptionText}
             </p>
           </div>
 
           <div className="section">
-            <h2 className="section-title">STEPS</h2>
+            <h2 className="section-title">HOW TO BUILD YOUR PIECE</h2>
             <ul className="steps">
-              <li>The first step is to choose type of furniture.</li>
-              <li>The second step is to select size.</li>
-              <li>The third step is to choose the desired color.</li>
-              <li>
-                The fourth step is to pick material depending on preference.
-              </li>
-              <li>
-                The last step is to provide additional notes if necessary.
-              </li>
+              <li>1. <strong>Product:</strong> Select a base model from our catalog.</li>
+              <li>2. <strong>Dimensions:</strong> Choose standard sizing or specify custom shape requirements.</li>
+              <li>3. <strong>Architecture:</strong> Fine-tune the structural features. <br/><em>(Note: Leaving an item unpicked will use the standard default spec.)</em></li>
+              {catConfig.hasCover && <li>4. <strong>Aesthetics:</strong> Choose upholstery material and color.</li>}
+              <li>5. <strong>Accessories:</strong> Add functional elements and visual references.</li>
             </ul>
           </div>
         </div>
 
         {/* RIGHT */}
         <div className="right-side" style={{ position: "relative", zIndex: 1 }}>
+          
           {/* 1 SIZE */}
           <div className="option">
-            <h3 className="option-title">1 CHOOSE SIZE</h3>
-            <div
-              className="buttons-row"
-              style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-            >
+            <h3 className="option-title">1. SIZE & DIMENSIONS</h3>
+            <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {sizeOptions.map((s) => (
                 <Chip key={s} active={size === s} onClick={() => setSize(s)}>
                   {s}
                 </Chip>
               ))}
             </div>
-          </div>
-          <hr />
-
-          {/* 2 COLOR */}
-          {coverEnabled && (
-            <>
-              <div className="option">
-                <h3 className="option-title">2 CHOOSE COVER COLOR</h3>
-                <div className="colors">
-                  {(coverPalette.length
-                    ? coverPalette.map((c) => c.hex)
-                    : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79"]
-                  ).map((c) => (
-                    <div
-                      key={c}
-                      className="color-box"
-                      style={colorBoxStyle(c)}
-                      onClick={() => setCoverColor(c)}
-                      title={c}
-                    />
-                  ))}
-                </div>
-              </div>
-              <hr />
-            </>
-          )}
-
-          {/* 3 MATERIAL */}
-          <div className="option">
-            <h3 className="option-title">3 CHOOSE COVER MATERIAL</h3>
-            <div
-              className="buttons-row"
-              style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-            >
-              {["Fabric", "Leather"].map((m) => (
-                <Chip
-                  key={m}
-                  active={coverMaterialType === m}
-                  onClick={() => setCoverMaterialType(m)}
-                >
-                  {m}
-                </Chip>
-              ))}
-            </div>
-          </div>
-          <hr />
-
-          {/* 4 ADDITIONALS */}
-          <div className="option">
-            <h3 className="option-title">4 ADDITIONALS</h3>
-
-            {additionalChoices.length > 0 && (
-              <div
-                className="buttons-row"
-                style={{
-                  display: "flex",
-                  gap: 8,
-                  flexWrap: "wrap",
-                  marginBottom: 8,
-                }}
-              >
-                {additionalChoices.map((label) => {
-                  const row = findAdditionCI(additionsTable, label);
-                  // Display exactly what is stored in DB (no /100)
-                  const priceTxt =
-                    typeof row?.cents === "number"
-                      ? ` (+${formatPHP(row.cents)})`
-                      : "";
-                  return (
-                    <Chip
-                      key={label}
-                      active={!!additionalPicked[label]}
-                      onClick={() =>
-                        setAdditionalPicked((p) => ({
-                          ...p,
-                          [label]: !p[label],
-                        }))
-                      }
-                    >
-                      {label}
-                      {priceTxt}
-                    </Chip>
-                  );
-                })}
+            
+            {size === "Custom" && (
+              <div style={{ marginTop: 12 }}>
+                <label className="sub-label">Custom Dimensions & Shape Specs:</label>
+                <textarea
+                  placeholder="E.g. Length 200cm, Width 100cm. Describe any abstract shapes, curved edges, specific heights..."
+                  value={customSizeDetails}
+                  onChange={(e) => setCustomSizeDetails(e.target.value)}
+                />
               </div>
             )}
+          </div>
+          <hr />
 
+           {/* 2 DYNAMIC ARCHITECTURE / STRUCTURE OPTIONS */}
+           {catConfig.features && catConfig.features.length > 0 && (
+            <div className="option">
+                <h3 className="option-title">2. STRUCTURAL ARCHITECTURE</h3>
+                
+                {catConfig.features.map((feat) => {
+                  const isCustomSelected = featureSelections[feat.id]?.toLowerCase().includes("custom");
+                  
+                  return (
+                  <div key={feat.id} style={{marginBottom: 20}}>
+                      <label className="sub-label">{feat.label}</label>
+                      <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                      {feat.choices.map((choice) => (
+                          <Chip 
+                            key={choice} 
+                            active={featureSelections[feat.id] === choice} 
+                            onClick={() => {
+                              // If unpicking, remove the choice 
+                              if (featureSelections[feat.id] === choice) {
+                                setFeatureSelections(prev => ({...prev, [feat.id]: ""}));
+                              } else {
+                                setFeatureSelections(prev => ({...prev, [feat.id]: choice}));
+                              }
+                            }}
+                          >
+                            {choice}
+                          </Chip>
+                      ))}
+                      </div>
+
+                      {/* Render text box if they chose a custom option for this specific feature */}
+                      {isCustomSelected && (
+                        <div style={{ marginTop: 8 }}>
+                           <textarea 
+                             style={{ height: 40, width: "100%", fontSize: 12, padding: 8 }}
+                             placeholder={`Specify your custom ${feat.label.toLowerCase()} details...`}
+                             value={customFeatureInputs[feat.id] || ""}
+                             onChange={e => setCustomFeatureInputs(prev => ({...prev, [feat.id]: e.target.value}))}
+                           />
+                        </div>
+                      )}
+                  </div>
+                )})}
+            </div>
+          )}
+          {catConfig.features && <hr />}
+
+          {/* 3 COMFORT (Conditional) */}
+          {catConfig.hasFoam && (
+            <div className="option">
+                <h3 className="option-title">3. COMFORT DENSITY</h3>
+                <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                {FOAM_CHOICES.map((f) => (
+                    <Chip key={f} active={foamDensity === f} onClick={() => setFoamDensity(prev => prev === f ? "" : f)}>
+                    {f}
+                    </Chip>
+                ))}
+                </div>
+            </div>
+          )}
+          {catConfig.hasFoam && <hr />}
+
+          {/* 4 COVER MATERIAL & COLOR (RESTORED) */}
+          {catConfig.hasCover && coverEnabled && (
+            <div className="option">
+                <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
+                
+                <label className="sub-label">Outer Material</label>
+                <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                {COVER_CHOICES.map((m) => (
+                    <Chip key={m} active={coverMaterialType === m} onClick={() => setCoverMaterialType(prev => prev === m ? "" : m)}>
+                    {m}
+                    </Chip>
+                ))}
+                </div>
+
+                <label className="sub-label">Cover Color</label>
+                <div className="colors" style={{flexWrap: "wrap"}}>
+                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79", "#212121", "#9E6D4E", "#ffffff", "#000000"]).map((cHex) => (
+                    <div
+                    key={cHex}
+                    className="color-box"
+                    style={{
+                      ...colorBoxStyle(cHex, coverColor),
+                      width: 30,
+                      height: 30,
+                      borderRadius: "50%",
+                      cursor: "pointer"
+                    }}
+                    onClick={() => setCoverColor(prev => prev === cHex ? "" : cHex)}
+                    title={cHex}
+                    />
+                ))}
+                </div>
+            </div>
+          )}
+          {catConfig.hasCover && coverEnabled && <hr />}
+
+          {/* 5 ADDITIONALS */}
+          <div className="option">
+            <h3 className="option-title">{catConfig.hasCover ? "5." : "3."} ADD-ONS & REFERENCES</h3>
+
+            {additionalChoices.length > 0 && (
+              <>
+                <label className="sub-label">Functional Upgrades</label>
+                <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
+                    {additionalChoices.map((label) => {
+                    const row = findAdditionCI(additionsTable, label);
+                    const priceTxt = typeof row?.cents === "number" ? ` (+${formatPHP(row.cents)})` : "";
+                    return (
+                        <Chip key={label} active={!!additionalPicked[label]} onClick={() => setAdditionalPicked((p) => ({ ...p, [label]: !p[label] }))}>
+                        {label}{priceTxt}
+                        </Chip>
+                    );
+                    })}
+                </div>
+              </>
+            )}
+
+            <label className="sub-label">Special Blueprints / Notes</label>
             <textarea
-              placeholder="Write here..."
+              placeholder="e.g., 'Match the wood stain to my provided photo', 'Increase the armrest width by 2 inches'..."
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
-              style={{ marginBottom: 8 }}
+              style={{ marginBottom: 12, height: 80 }}
             />
 
-            {/* Reference images (no upload button; saved + uploaded later) */}
             <div style={{ display: "grid", gap: 8 }}>
-              <label style={{ fontSize: 13, color: "#555" }}>
-                Reference images (up to 3)
-              </label>
-              <input
-                type="file"
-                accept="image/*"
-                multiple
-                onChange={onPickReferenceFiles}
-              />
+              <label className="sub-label">Upload Inspiration Images (Max 3)</label>
+              <input type="file" accept="image/*" multiple onChange={onPickReferenceFiles} />
               {referenceImages.length > 0 && (
-                <div
-                  style={{ display: "flex", gap: 8, flexWrap: "wrap" }}
-                >
+                <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
                   {referenceImages.map((r, i) => (
                     <div key={i} style={{ position: "relative" }}>
                       <img
                         src={r.dataUrl}
                         alt={`ref-${i}`}
-                        style={{
-                          width: 100,
-                          height: 100,
-                          objectFit: "cover",
-                          borderRadius: 8,
-                          border: "1px solid #e5e5e5",
-                        }}
+                        style={{ width: 100, height: 100, objectFit: "cover", borderRadius: 8, border: "1px solid #e5e5e5" }}
                       />
                       <button
                         type="button"
                         onClick={() => removeRefImage(i)}
                         title="Remove"
-                        style={{
-                          position: "absolute",
-                          top: -6,
-                          right: -6,
-                          width: 22,
-                          height: 22,
-                          borderRadius: 999,
-                          border: "none",
-                          background: "#111",
-                          color: "#fff",
-                          cursor: "pointer",
-                        }}
+                        style={{ position: "absolute", top: -6, right: -6, width: 22, height: 22, borderRadius: 999, border: "none", background: "#111", color: "#fff", cursor: "pointer" }}
                       >
                         ×
                       </button>
@@ -1039,64 +960,48 @@ export default function Customization() {
           {/* PRICE SUMMARY */}
           <hr />
           <div className="option">
-            <h3 className="option-title">PRICE SUMMARY</h3>
+            <h3 className="option-title">ESTIMATED PRICE</h3>
             {priceBreakdown ? (
               <div className="text">
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Base</span>
+                  <span>Base Model</span>
                   <span>{formatPHP(fromCents(priceBreakdown.base))}</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Size adj.</span>
+                  <span>Size Adj.</span>
                   <span>
                     {formatPHP(fromCents(priceBreakdown.sizeAdd))}
-                    {priceBreakdown.sizeMult !== 1
-                      ? ` ×${priceBreakdown.sizeMult}`
-                      : ""}
+                    {priceBreakdown.sizeMult !== 1 ? ` ×${priceBreakdown.sizeMult}` : ""}
                   </span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Material multiplier</span>
+                  <span>Material Grade</span>
                   <span>{priceBreakdown.materialMult}×</span>
                 </div>
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
-                  <span>Additions</span>
-                  <span>
-                    {formatPHP(fromCents(priceBreakdown.additions))}
-                  </span>
+                  <span>Accessories</span>
+                  <span>{formatPHP(fromCents(priceBreakdown.additions))}</span>
                 </div>
-                <div
-                  style={{
-                    borderTop: "1px solid #e5e5e5",
-                    marginTop: 8,
-                    paddingTop: 8,
-                    fontWeight: 700,
-                    display: "flex",
-                    justifyContent: "space-between",
-                  }}
-                >
-                  <span>Total</span>
-                  <span>
-                    {formatPHP(fromCents(priceBreakdown.total))} {currency}
-                  </span>
+                <div style={{ borderTop: "1px solid #e5e5e5", marginTop: 8, paddingTop: 8, fontWeight: 700, display: "flex", justifyContent: "space-between" }}>
+                  <span>Total Estimate</span>
+                  <span>{formatPHP(fromCents(priceBreakdown.total))} {currency}</span>
                 </div>
+                <p style={{ fontSize: 11, fontStyle: "italic", marginTop: 6, color: '#777' }}>
+                   *Note: Final pricing for custom shapes and specific material upgrades will be confirmed upon order review.
+                </p>
               </div>
             ) : (
-              <div className="text">Select a product to see price.</div>
+              <div className="text">Select a product to view the price estimate.</div>
             )}
           </div>
 
           <hr />
-          <button
-            className="place-order"
-            onClick={handlePlaceOrder}
-            type="button"
-          >
-            PLACE ORDER
+          <button className="place-order" onClick={handlePlaceOrder} type="button">
+            PROCEED TO CHECKOUT
           </button>
 
           {placeOrderError && (
-            <p style={{ color: "red", marginTop: 8, fontSize: 13 }}>
+            <p style={{ color: "#d9534f", marginTop: 8, fontSize: 13, fontWeight: "bold" }}>
               {placeOrderError}
             </p>
           )}
