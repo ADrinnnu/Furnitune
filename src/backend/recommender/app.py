@@ -70,13 +70,13 @@ gcs = storage.Client(project=PROJECT_ID or None)
 # AI Interior Designer Logic (Budget Restored)
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
-    """
-    Passes the room image and user parameters to Gemini to generate
-    an interior design analysis and 2 custom out-of-catalog concepts.
-    """
     try:
+        # If Render hasn't loaded the key yet, print this to the chatbot!
         if not gemini_client:
-            return None
+            return {
+                "room_analysis": "🚨 DEBUG: No API Key found on the server! Did you click 'Manual Deploy' after saving the key in Render?",
+                "custom_concepts": []
+            }
 
         contents = []
 
@@ -96,7 +96,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         prompt += """
         Analyze the room image (if provided) and the user's preferences.
-        Output ONLY valid JSON with no markdown formatting or code blocks. Do not use ```json.
+        Output ONLY valid JSON.
         Structure exactly like this:
         {
           "room_analysis": "A warm, personalized 2-3 sentence paragraph analyzing their room's interior design style and explaining why the ready-to-ship catalog items match their aesthetic.",
@@ -113,7 +113,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         Provide exactly 2 custom concepts.
         """
         
-        # Attach the user's room image if they uploaded one
         if img_b64:
             img_data = base64.b64decode(img_b64)
             img = Image.open(io.BytesIO(img_data))
@@ -121,7 +120,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
-        # Generate content with google.genai
         response = gemini_client.models.generate_content(
             model='gemini-1.5-flash',
             contents=contents
@@ -129,17 +127,16 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         
         resp_text = response.text.strip()
         
-        # Clean markdown if Gemini hallucinates it
-        if resp_text.startswith("```json"):
-            resp_text = resp_text[7:]
-        if resp_text.startswith("```"):
-            resp_text = resp_text[3:]
-        if resp_text.endswith("```"):
-            resp_text = resp_text[:-3]
+        # BULLETPROOF JSON EXTRACTOR (Stops crashes if Gemini formatting is weird)
+        start_idx = resp_text.find('{')
+        end_idx = resp_text.rfind('}')
+        if start_idx != -1 and end_idx != -1:
+            json_str = resp_text[start_idx:end_idx+1]
+        else:
+            json_str = resp_text
+            
+        parsed = json.loads(json_str)
 
-        parsed = json.loads(resp_text.strip())
-
-        # Generate actual image URLs using Pollinations AI based on Gemini's prompt
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
@@ -150,8 +147,11 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         return parsed
     except Exception as e:
         print(f"Gemini Error: {e}")
-        return None
-
+        # IF IT CRASHES, PRINT THE ERROR DIRECTLY TO THE CHATBOT UI!
+        return {
+            "room_analysis": f"🚨 DEBUG ERROR: Gemini crashed with error: {str(e)}",
+            "custom_concepts": []
+        }
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
