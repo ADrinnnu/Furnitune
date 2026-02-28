@@ -121,7 +121,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         contents.append(prompt)
 
         response = gemini_client.models.generate_content(
-            model='gemini-1.5-flash',
+            model='gemini-2.5-flash',
             contents=contents
         )
         
