@@ -556,12 +556,19 @@ export default function FloatingRobot() {
                   </div>
                 )}
 
-                {/* CUSTOM CONCEPT CARD (AI Generated) */}
+               {/* CUSTOM CONCEPT CARD (AI Generated) */}
                 {m.customConcept && (
                   <div className="card ai-concept">
                     <div className="ai-badge">AI CONCEPT</div>
                     {m.customConcept.image_url ? (
-                      <img src={m.customConcept.image_url} alt={m.customConcept.title} />
+                      <img 
+                        src={m.customConcept.image_url} 
+                        alt={m.customConcept.title} 
+                        onError={(e) => {
+                          e.target.onerror = null;
+                          e.target.src = "https://placehold.co/800x600/eeeeee/999999?text=Image+Generating...";
+                        }}
+                      />
                     ) : (
                       <div style={{height:160, display:'grid', placeItems:'center', background:'#eee'}}>Generating Image...</div>
                     )}
