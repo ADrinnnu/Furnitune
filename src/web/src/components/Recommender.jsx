@@ -8,7 +8,7 @@ function fileToBase64(file) {
   return new Promise((resolve) => {
     if (!file) return resolve(null);
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result.split(",")[1]); // strip data: prefix
+    reader.onload = () => resolve(reader.result.split(",")[1]); 
     reader.readAsDataURL(file);
   });
 }
@@ -16,21 +16,20 @@ function fileToBase64(file) {
 export default function Recommender() {
   const navigate = useNavigate();
 
-  // Form State
   const [file, setFile] = useState(null);
   const [type, setType] = useState("");
   const [size, setSize] = useState("");
   const [color, setColor] = useState("");
+  const [text, setText] = useState(""); 
+  
+  // BUDGET STATES RESTORED
   const [minBudget, setMinBudget] = useState("");
   const [maxBudget, setMaxBudget] = useState("");
-  const [text, setText] = useState(""); // Additional Add-ons or notes
 
-  // Response State
-  const [results, setResults] = useState([]); // Inside Catalog (FAISS)
-  const [aiAnalysis, setAiAnalysis] = useState(""); // Gemini Text
-  const [customConcepts, setCustomConcepts] = useState([]); // Outside Catalog (Gemini + Pollinations)
+  const [results, setResults] = useState([]); 
+  const [aiAnalysis, setAiAnalysis] = useState(""); 
+  const [customConcepts, setCustomConcepts] = useState([]); 
 
-  // Loading & Error State
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
 
@@ -54,8 +53,8 @@ export default function Recommender() {
           type,
           size,
           color,
-          min_budget: minBudget ? Number(minBudget) : null,
-          max_budget: maxBudget ? Number(maxBudget) : null,
+          min_budget: minBudget ? Number(minBudget) : null, // BUDGET ADDED BACK
+          max_budget: maxBudget ? Number(maxBudget) : null, // BUDGET ADDED BACK
           k: 3
         }),
       });
@@ -65,7 +64,6 @@ export default function Recommender() {
 
       setResults(data.results || []);
 
-      // If Gemini returned data, save it!
       if (data.ai_designer) {
         setAiAnalysis(data.ai_designer.room_analysis || "");
         setCustomConcepts(data.ai_designer.custom_concepts || []);
@@ -79,9 +77,7 @@ export default function Recommender() {
     }
   }
 
-  // Handle Routing for Outside Catalog Ideas
   const handleBuildCustom = (concept) => {
-      // Navigate to customization page
       navigate("/Customization");
   };
 
@@ -92,7 +88,6 @@ export default function Recommender() {
         <p className="muted">Upload your room, set your budget, and let our AI find or design the perfect furniture for you.</p>
       </div>
 
-      {/* --- THE QUESTIONNAIRE FORM --- */}
       <form onSubmit={handleSearch} style={{ display: "grid", gap: 16, maxWidth: 600, margin: "0 auto", background: "#fff", padding: "24px", borderRadius: "12px", boxShadow: "0 4px 12px rgba(0,0,0,0.05)" }}>
         
         <div>
@@ -115,6 +110,7 @@ export default function Recommender() {
           </div>
         </div>
 
+        {/* BUDGET UI RESTORED */}
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
           <div>
             <label style={{ fontSize: "12px", fontWeight: "bold", display: "block", marginBottom: "4px" }}>Min Budget (₱)</label>
@@ -141,11 +137,9 @@ export default function Recommender() {
         {err && <div style={{ color: "crimson", textAlign: "center", fontSize: "14px" }}>{err}</div>}
       </form>
 
-      {/* --- RESULTS SECTION --- */}
       {(!loading && (results.length > 0 || aiAnalysis)) && (
         <div style={{ marginTop: "40px" }}>
           
-          {/* AI Analysis Block */}
           {aiAnalysis && (
             <div style={{ background: "#eef8e9", borderLeft: "5px solid #2F6F62", padding: "20px", borderRadius: "8px", marginBottom: "30px" }}>
               <h3 style={{ color: "#1E2C2B", fontSize: "18px", marginBottom: "10px" }}>🤖 AI Design Analysis</h3>
@@ -153,7 +147,6 @@ export default function Recommender() {
             </div>
           )}
 
-          {/* FAISS Results (Inside Catalog) */}
           {results.length > 0 && (
             <div style={{ marginBottom: "50px" }}>
               <h3 style={{ borderBottom: "2px solid #eee", paddingBottom: "10px", marginBottom: "20px" }}>📦 Ready to Ship (From our Catalog)</h3>
@@ -170,7 +163,6 @@ export default function Recommender() {
                         ₱{Number(p.price || p.basePrice || 0).toLocaleString()}
                       </div>
                       
-                      {/* Catalog item checkout goes to product details */}
                       <button 
                         onClick={() => navigate(`/product/${p.id || p.slug}`)} 
                         style={{ width: "100%", padding: "10px", background: "#1E2C2B", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold" }}
@@ -184,7 +176,6 @@ export default function Recommender() {
             </div>
           )}
 
-          {/* Gemini + Pollinations Results (Outside Catalog) */}
           {customConcepts.length > 0 && (
             <div>
               <h3 style={{ borderBottom: "2px solid #eee", paddingBottom: "10px", marginBottom: "20px" }}>🎨 Custom Styling Inspiration (Build to Order)</h3>
@@ -194,7 +185,6 @@ export default function Recommender() {
                 {customConcepts.map((concept, idx) => (
                   <div key={idx} className="pcard" style={{ border: "2px solid #2F6F62", borderRadius: 12, overflow: "hidden", background: "#fff", display: "flex", flexDirection: "column" }}>
                     
-                    {/* The AI Generated Image! */}
                     <div className="pcard-thumb" style={{ aspectRatio: "4/3", overflow: "hidden", background: "#f5f5f5", position: "relative" }}>
                       <div style={{ position: "absolute", top: 8, left: 8, background: "rgba(47, 111, 98, 0.9)", color: "white", padding: "4px 8px", fontSize: "10px", borderRadius: "4px", fontWeight: "bold", zIndex: 10 }}>AI GENERATED CONCEPT</div>
                       {concept.image_url ? (
@@ -216,7 +206,6 @@ export default function Recommender() {
                         <strong>Suggested Color:</strong> {concept.suggested_color}
                       </div>
 
-                      {/* Custom Idea checkout goes to Customization! */}
                       <button 
                         onClick={() => handleBuildCustom(concept)} 
                         style={{ width: "100%", padding: "10px", background: "#2F6F62", color: "#fff", border: "none", borderRadius: "6px", cursor: "pointer", fontWeight: "bold", marginTop: "auto" }}

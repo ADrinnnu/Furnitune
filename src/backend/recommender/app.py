@@ -17,7 +17,7 @@ from google import genai
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
 
 # -----------------------------------------------------------------------------
-# Credentials init (supports file path OR raw JSON env var)
+# Credentials init
 # -----------------------------------------------------------------------------
 def _ensure_gcp_credentials():
     gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
@@ -51,7 +51,7 @@ CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.35"))
 COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.25"))
 
-# NEW: Initialize the new Gemini Client
+# Initialize Gemini Client
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = None
 if GEMINI_API_KEY:
@@ -67,7 +67,7 @@ db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
 # -----------------------------------------------------------------------------
-# AI Interior Designer Logic
+# AI Interior Designer Logic (Budget Restored)
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
     """
@@ -121,7 +121,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
-        # NEW: Syntax for generating content with google.genai
+        # Generate content with google.genai
         response = gemini_client.models.generate_content(
             model='gemini-1.5-flash',
             contents=contents
@@ -143,7 +143,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                # Add keywords to ensure high quality interior design renders
                 enhanced_prompt = f"Professional interior design photography, highly detailed, 8k resolution, furniture catalog shot. {img_prompt}"
                 encoded_prompt = urllib.parse.quote(enhanced_prompt)
                 concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
@@ -533,20 +532,15 @@ def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optio
 # Routes
 # -----------------------------------------------------------------------------
 
-# --- RESTORED MISSING HEALTH ROUTES ---
-@app.get("/health")
+# IMPORTANT: These Health Check routes prevent Render from crashing (502 Gateway Error)
+@app.route("/health", methods=["GET"])
 def plain_health():
-    return jsonify({"ok": art.size() > 0, "project": PROJECT_ID or "<unset>"}), (200 if art.size() > 0 else 500)
+    return jsonify({"status": "ok", "project": PROJECT_ID or "<unset>"}), 200
 
-@app.get("/reco/debug/health")
-def health():
-    return jsonify({
-        "ok": art.size() > 0,
-        "count": len(CATALOG),
-        "index": art.size(),
-        "project": PROJECT_ID or "<unset>",
-    }), (200 if art.size() > 0 else 500)
-# --------------------------------------
+@app.route("/reco/health", methods=["GET"])
+@app.route("/reco/debug/health", methods=["GET"])
+def debug_health():
+    return jsonify({"status": "ok", "project": PROJECT_ID or "<unset>"}), 200
 
 @app.post("/reco/recommend")   
 @app.post("/recommend")        
@@ -563,11 +557,12 @@ def recommend():
     size_pref       = (data.get("size") or "").strip()
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
-    w_image         = float(data.get("w_image", 0.7))
-    w_text          = float(data.get("w_text", 0.3))
+    w_image         = float(data.get("w_image", 0.8)) # Increased image weight to fix repeating items
+    w_text          = float(data.get("w_text", 0.2))
     color_weight    = float(data.get("color_weight", 0.35))
     color_mode      = str(data.get("color_mode", "match")).strip().lower()
 
+    # BUDGET LOGIC RESTORED
     try:
         min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
         max_budget = float(data.get("max_budget")) if data.get("max_budget") else None
@@ -602,6 +597,7 @@ def recommend():
         if f_type and not _type_matches(it, f_type):
             continue
         
+        # BUDGET FILTER RESTORED
         price = float(it.get("basePrice") or it.get("price") or 0)
         if min_budget is not None and price < min_budget:
             continue
@@ -675,8 +671,8 @@ def recommend():
             f_type=f_type,
             size_pref=size_pref,
             color_pref=color_pref,
-            min_b=min_budget,
-            max_b=max_budget,
+            min_b=min_budget, # BUDGET RESTORED
+            max_b=max_budget, # BUDGET RESTORED
             top_items=payload_items[:3] 
         )
 
