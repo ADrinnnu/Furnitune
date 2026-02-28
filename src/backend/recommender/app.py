@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io, json, tempfile
+import os, re, base64, io, json, tempfile, urllib.parse
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -11,20 +11,17 @@ from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
 
+# NEW: Import the updated Google GenAI SDK
+from google import genai
+
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
 
 # -----------------------------------------------------------------------------
 # Credentials init (supports file path OR raw JSON env var)
 # -----------------------------------------------------------------------------
 def _ensure_gcp_credentials():
-  """
-  Prefer GOOGLE_APPLICATION_CREDENTIALS (file path).
-  If FIREBASE_ADMIN_JSON is set, write it to a temp file and point GAC to it.
-  Do NOT hardcode repo paths.
-  """
   gac = os.getenv("GOOGLE_APPLICATION_CREDENTIALS")
   if gac and os.path.exists(gac):
-    # File path provided and exists – good to go
     return
 
   raw = os.getenv("FIREBASE_ADMIN_JSON")
@@ -38,7 +35,6 @@ def _ensure_gcp_credentials():
       return
     except Exception:
       pass
-  # else: rely on default ADC (unlikely on Render). No raise here.
 
 _ensure_gcp_credentials()
 
@@ -52,9 +48,14 @@ PORT = int(os.getenv("PORT", "5000"))
 BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-# explicit boosts for explicit user prefs
 SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.35"))
 COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.25"))
+
+# NEW: Initialize the new Gemini Client
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
+gemini_client = None
+if GEMINI_API_KEY:
+    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
 # -----------------------------------------------------------------------------
 # App + Clients
@@ -62,9 +63,95 @@ COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.25"))
 app = Flask(__name__)
 CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
 
-# Use Application Default Credentials resolved above
 db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
+
+# -----------------------------------------------------------------------------
+# AI Interior Designer Logic
+# -----------------------------------------------------------------------------
+def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
+    """
+    Passes the room image and user parameters to Gemini to generate
+    an interior design analysis and 2 custom out-of-catalog concepts.
+    """
+    try:
+        if not gemini_client:
+            return None
+
+        contents = []
+
+        prompt = f"""
+        You are an expert interior designer working for a custom furniture shop.
+        The user is looking for furniture with these preferences:
+        - Type: {f_type or 'Not specified'}
+        - Size: {size_pref or 'Not specified'}
+        - Color: {color_pref or 'Not specified'}
+        - Budget: {min_b or 0} to {max_b or 'Any'} PHP
+        - Extra Text: {text}
+
+        Top matching items from our ready-to-ship catalog:
+        """
+        for i, item in enumerate(top_items):
+            prompt += f"\n{i+1}. {item.get('title')} (Price: {item.get('price')} PHP)"
+
+        prompt += """
+        Analyze the room image (if provided) and the user's preferences.
+        Output ONLY valid JSON with no markdown formatting or code blocks. Do not use ```json.
+        Structure exactly like this:
+        {
+          "room_analysis": "A warm, personalized 2-3 sentence paragraph analyzing their room's interior design style and explaining why the ready-to-ship catalog items match their aesthetic.",
+          "custom_concepts": [
+            {
+              "title": "Name of a custom furniture piece NOT in our catalog",
+              "description": "Why this specific custom piece would look amazing in their room.",
+              "category": "The general category of the item (e.g., Sofa, Bed, Chair)",
+              "suggested_color": "The recommended color",
+              "image_prompt": "A highly detailed, photorealistic prompt for an AI image generator to draw this specific furniture piece isolated in a beautiful matching room setting."
+            }
+          ]
+        }
+        Provide exactly 2 custom concepts.
+        """
+        
+        # Attach the user's room image if they uploaded one
+        if img_b64:
+            img_data = base64.b64decode(img_b64)
+            img = Image.open(io.BytesIO(img_data))
+            contents.append(img)
+
+        contents.append(prompt)
+
+        # NEW: Syntax for generating content with google.genai
+        response = gemini_client.models.generate_content(
+            model='gemini-1.5-flash',
+            contents=contents
+        )
+        
+        resp_text = response.text.strip()
+        
+        # Clean markdown if Gemini hallucinates it
+        if resp_text.startswith("```json"):
+            resp_text = resp_text[7:]
+        if resp_text.startswith("```"):
+            resp_text = resp_text[3:]
+        if resp_text.endswith("```"):
+            resp_text = resp_text[:-3]
+
+        parsed = json.loads(resp_text.strip())
+
+        # Generate actual image URLs using Pollinations AI based on Gemini's prompt
+        for concept in parsed.get("custom_concepts", []):
+            img_prompt = concept.get("image_prompt", "")
+            if img_prompt:
+                # Add keywords to ensure high quality interior design renders
+                enhanced_prompt = f"Professional interior design photography, highly detailed, 8k resolution, furniture catalog shot. {img_prompt}"
+                encoded_prompt = urllib.parse.quote(enhanced_prompt)
+                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
+
+        return parsed
+    except Exception as e:
+        print(f"Gemini Error: {e}")
+        return None
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -73,7 +160,6 @@ def _is_valid_bucket(name: str) -> bool:
   return bool(name and re.match(r"^[a-z0-9][a-z0-9._-]{1,61}[a-z0-9]$", name))
 
 def _sign_gs_url(gs_url: str, expiry_seconds: int = SIGNED_URL_EXPIRY) -> Optional[str]:
-  """gs://bucket/path -> signed https (v4)."""
   try:
     if not isinstance(gs_url, str) or not gs_url.startswith("gs://"):
       return None
@@ -89,7 +175,6 @@ def _sign_gs_url(gs_url: str, expiry_seconds: int = SIGNED_URL_EXPIRY) -> Option
     return None
 
 def _coerce_https(u: Optional[str]) -> Optional[str]:
-  """Return https from gs:// or http(s) string; skip placeholders."""
   if not isinstance(u, str) or not u:
     return None
   if u.endswith("/.keep") or "/.keep" in u:
@@ -163,7 +248,6 @@ def _type_matches(item: dict, f_type: str) -> bool:
 # -- size/color helpers -------------------------------------------------------
 
 def _norm_token(s: str) -> str:
-  """Lowercase and remove non-alphanumeric for rough matching."""
   return re.sub(r"[^a-z0-9]+", "", (s or "").lower())
 
 def _collect_size_tokens(meta: dict) -> List[str]:
@@ -178,7 +262,6 @@ def _collect_size_tokens(meta: dict) -> List[str]:
             tokens.append(v.lower())
       elif isinstance(s, str):
         tokens.append(s.lower())
-  # fall back to seatCount if present
   sc = meta.get("seatCount")
   if sc:
     try:
@@ -201,7 +284,6 @@ def _collect_color_tokens(meta: dict) -> List[str]:
             tokens.append(v.lower())
       elif isinstance(c, str):
         tokens.append(c.lower())
-  # also tags might contain color-ish words
   tags = meta.get("tags") or []
   if isinstance(tags, list):
     tokens.extend(str(t).lower() for t in tags)
@@ -230,17 +312,7 @@ def _color_match_score(meta: dict, pref: str) -> float:
   return 0.0
 
 # ---- Firestore hydration (images) -------------------------------------------
-def _hydrate_images_from_firestore(
-  pid: str,
-  color_pref: Optional[str] = None,
-  size_pref: Optional[str] = None
-) -> List[str]:
-  """
-  If mapping lacks images, pull from Firestore and sign to https.
-
-  If color_pref / size_pref are given, try to put the image for
-  imagesByOption[color][size] first.
-  """
+def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, size_pref: Optional[str] = None) -> List[str]:
   try:
     snap = db.collection("products").document(pid).get()
     if not snap.exists:
@@ -249,7 +321,6 @@ def _hydrate_images_from_firestore(
     d = snap.to_dict() or {}
     candidates: List[str] = []
 
-    # 1) Variant images from imagesByOption (color + size first)
     ibo = d.get("imagesByOption")
     if isinstance(ibo, dict) and (color_pref or size_pref):
       color_key = None
@@ -270,18 +341,15 @@ def _hydrate_images_from_firestore(
               size_key = sk
               break
 
-        # exact color + size
         if size_key and isinstance(size_map.get(size_key), list):
           for u in size_map[size_key]:
             if isinstance(u, str):
               candidates.append(u)
         else:
-          # color match but no exact size ⇒ use all sizes for that color
           for arr in size_map.values():
             if isinstance(arr, list):
               candidates.extend([u for u in arr if isinstance(u, str)])
 
-    # 2) fallback: other imagesByOption entries (any color/size)
     if isinstance(ibo, dict):
       for color_map in ibo.values():
         if isinstance(color_map, dict):
@@ -289,7 +357,6 @@ def _hydrate_images_from_firestore(
             if isinstance(arr, list):
               candidates.extend([u for u in arr if isinstance(u, str)])
 
-    # 3) legacy fields: defaultImagePath / thumbnail / image / images[]
     for k in ("thumbnail","imageUrl","image","defaultImagePath","heroImage"):
       v = d.get(k)
       if isinstance(v, str):
@@ -409,12 +476,6 @@ ADDITIONAL_TO_FIELD: Dict[str, str] = {
   "With storage": "hasStorage",
   "Throw Pillow": "hasThrowPillow",
   "Decorative Tray": "hasDecorativeTray",
-  # Aliases / legacy
-  "Cushions": "hasCushions",
-  "Pillows": "hasCushions",
-  "With or without armrest": "hasArmrest",
-  "Armrest": "hasArmrest",
-  "Pull-out Bed": "hasPullOutBed",
 }
 
 def _extract_additionals(data: dict, text: str) -> List[str]:
@@ -444,27 +505,16 @@ def _map_additionals_to_fields(additionals_in: List[str]) -> List[str]:
       fields.append(key)
   return fields
 
-def _to_ui(
-  items: List[dict],
-  size_pref: Optional[str] = None,
-  color_pref: Optional[str] = None
-) -> List[dict]:
+def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optional[str] = None) -> List[dict]:
   out: List[dict] = []
   for it in items:
     pid = it.get("id")
     title = it.get("name") or it.get("title") or pid
     price = it.get("basePrice") or it.get("price") or 0
 
-    # initial images from mapping (thumbnail/image/etc)
     images = _normalize_images(it)
-
-    # Firestore images (variant-first)
     if pid:
-      fs_imgs = _hydrate_images_from_firestore(
-        pid,
-        color_pref=color_pref,
-        size_pref=size_pref
-      )
+      fs_imgs = _hydrate_images_from_firestore(pid, color_pref=color_pref, size_pref=size_pref)
       if fs_imgs:
         images = fs_imgs
 
@@ -482,64 +532,9 @@ def _to_ui(
 # -----------------------------------------------------------------------------
 # Routes
 # -----------------------------------------------------------------------------
-@app.get("/health")
-def plain_health():
-  return jsonify({"ok": art.size() > 0, "project": PROJECT_ID or "<unset>"}), (200 if art.size() > 0 else 500)
-
-@app.get("/reco/debug/health")
-def health():
-  return jsonify({
-    "ok": art.size() > 0,
-    "count": len(CATALOG),
-    "index": art.size(),
-    "project": PROJECT_ID or "<unset>",
-  }), (200 if art.size() > 0 else 500)
-
-@app.get("/reco/debug/colors")
-def debug_colors():
-  total = len(art.mapping_list)
-  with_lab = sum(1 for m in art.mapping_list if m.get("avg_lab"))
-  return jsonify({
-    "total": total,
-    "with_avg_lab": with_lab,
-    "ratio": with_lab / max(1, total),
-  })
-
-@app.get("/reco/debug/item/<pid>")
-def debug_item(pid):
-  doc = db.collection("products").document(pid).get()
-  flags = {}
-  if doc.exists:
-    d = doc.to_dict() or {}
-    flags = {k: bool(d.get(k)) for k in ADDITIONAL_TO_FIELD.values()}
-  meta = next((m for m in art.mapping_list if m.get("id") == pid), None)
-  return jsonify({
-    "id": pid,
-    "flags": flags,
-    "avg_lab": (meta or {}).get("avg_lab"),
-    "image": (meta or {}).get("image"),
-  })
-
-@app.post("/reco/recommend")   # keep this for direct calls
-@app.post("/recommend")        # add this for Vercel rewrite
+@app.post("/reco/recommend")   
+@app.post("/recommend")        
 def recommend():
-  """
-  Accepts JSON:
-    {
-      k?: int=24,
-      text?: str,
-      image_b64?: str | null,
-      type?: str,
-      size?: str,
-      color?: str,
-      additionals?: [str],
-      strict?: bool,
-      w_image?: float=0.7,
-      w_text?: float=0.3,
-      color_weight?: float=0.35,
-      color_mode?: "match"|"contrast"
-    }
-  """
   try:
     data = request.get_json(force=True) or {}
   except Exception:
@@ -557,7 +552,12 @@ def recommend():
   color_weight    = float(data.get("color_weight", 0.35))
   color_mode      = str(data.get("color_mode", "match")).strip().lower()
 
-  # Handle "None" → no filters, non-strict
+  try:
+      min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
+      max_budget = float(data.get("max_budget")) if data.get("max_budget") else None
+  except ValueError:
+      min_budget, max_budget = None, None
+
   if any(a.strip().lower() == "none" for a in additionals_in):
     additionals_in = []
     strict_mode = False
@@ -570,16 +570,13 @@ def recommend():
 
   flags_cache = _load_flags_cache()
 
-  # 1) Embed query
   qvec = encoder.embed_query(text=text, image_b64=img_b64, w_image=w_image, w_text=w_text)
 
-  # 2) Search
   rows, scores = searcher.search(qvec, k=max(k, 60))
 
   faiss_top_rows   = rows[:k]
   faiss_top_scores = [float(s) for s in scores[:k]]
 
-  # 3) map + type filter
   ranked: List[dict] = []
   for row, sc in zip(rows, scores):
     it = dict(art.row_to_item(row))
@@ -588,10 +585,16 @@ def recommend():
       continue
     if f_type and not _type_matches(it, f_type):
       continue
+    
+    price = float(it.get("basePrice") or it.get("price") or 0)
+    if min_budget is not None and price < min_budget:
+        continue
+    if max_budget is not None and price > max_budget:
+        continue
+
     it["score"] = float(sc)
     ranked.append(it)
 
-  # 4) additionals strict/soft
   def pass_all_flags(item: dict) -> bool:
     if not fields_wanted:
       return True
@@ -618,48 +621,15 @@ def recommend():
       ranked = strict_items
     else:
       fallback_reason = "no_strict_additional_match"
-      related_soft = soft_boost(ranked)
-      related_soft.sort(key=lambda x: x["score"], reverse=True)
-      related_soft = related_soft[:k]
-      return jsonify({
-        "items": [], "products": [], "results": [],
-        "related": _to_ui(related_soft, size_pref=size_pref, color_pref=color_pref),
-        "from": "catalog",
-        "count": 0,
-        "fallback": fallback_reason,
-        "debug": {
-          "received_additionals": additionals_in,
-          "fields_wanted": fields_wanted,
-          "strict": True,
-          "after_strict_count": 0,
-          "faiss_top_rows": faiss_top_rows,
-          "faiss_top_scores": faiss_top_scores,
-          "w_image": w_image,
-          "w_text": w_text,
-          "color_mode": color_mode,
-          "color_weight": color_weight,
-          "size_pref": size_pref,
-          "color_pref": color_pref,
-        },
-      })
+      ranked = soft_boost(ranked)
   else:
     ranked = soft_boost(ranked)
 
-  # 4.2) size + color preference boosting / filtering
-  size_matches = 0
-  color_matches = 0
   boosted: List[dict] = []
-  size_pref_norm = size_pref
-  color_pref_norm = color_pref
-
   for it in ranked:
     it2 = {**it}
-    s_score = _size_match_score(it2, size_pref_norm)
-    c_score = _color_match_score(it2, color_pref_norm)
-    if s_score > 0:
-      size_matches += 1
-    if c_score > 0:
-      color_matches += 1
+    s_score = _size_match_score(it2, size_pref)
+    c_score = _color_match_score(it2, color_pref)
     it2["size_match"] = s_score
     it2["color_match"] = c_score
     it2["score"] = it2["score"] + s_score * SIZE_PREF_BOOST + c_score * COLOR_PREF_BOOST
@@ -670,94 +640,38 @@ def recommend():
   else:
     ranked = boosted
 
-  # Ensure items have avg_lab (lazy) BEFORE color
   ranked = [_ensure_item_avg_lab(it) for it in ranked]
 
-  # 4.5) color rerank (room photo)
   room_lab_used = None
   if img_b64:
     ranked, room_lab_used = _rerank_by_color(ranked, img_b64, weight=color_weight, mode=color_mode)
 
-  # 5) sort + cap
   ranked.sort(key=lambda x: x["score"], reverse=True)
   ranked = ranked[:k]
 
-  # 6) normalize for UI (with image hydration fallback)
   payload_items = _to_ui(ranked, size_pref=size_pref, color_pref=color_pref)
+
+  ai_designer_data = None
+  if GEMINI_API_KEY:
+      ai_designer_data = analyze_with_gemini(
+          img_b64=img_b64,
+          text=text,
+          f_type=f_type,
+          size_pref=size_pref,
+          color_pref=color_pref,
+          min_b=min_budget,
+          max_b=max_budget,
+          top_items=payload_items[:3] 
+      )
 
   return jsonify({
     "items": payload_items,
     "products": payload_items,
     "results": payload_items,
+    "ai_designer": ai_designer_data,
     "from": "catalog",
     "count": len(payload_items),
     "fallback": fallback_reason,
-    "debug": {
-      "received_additionals": additionals_in,
-      "fields_wanted": fields_wanted,
-      "strict": bool(fields_wanted) if additionals_in else False,
-      "after_strict_count": len(payload_items),
-      "faiss_top_rows": faiss_top_rows,
-      "faiss_top_scores": faiss_top_scores,
-      "w_image": w_image,
-      "w_text": w_text,
-      "color_mode": color_mode,
-      "color_weight": color_weight,
-      "room_avg_lab": room_lab_used,
-      "items_with_avg_lab": sum(1 for it in ranked if it.get("avg_lab")),
-      "top_item_deltaE": payload_items[0].get("color_deltaE") if payload_items else None,
-      "top_item_boost": payload_items[0].get("color_boost") if payload_items else None,
-      "size_pref": size_pref,
-      "color_pref": color_pref,
-      "size_match_count": size_matches,
-      "color_match_count": color_matches,
-    },
-  })
-
-# Optional: self-check
-@app.get("/reco/debug/selfcheck")
-def selfcheck():
-  try:
-    k = int(request.args.get("k", 5))
-    sample = int(request.args.get("n", 50))
-  except Exception:
-    k, sample = 5, 50
-
-  hits = 0
-  tried = 0
-  examples = []
-
-  for m in art.mapping_list[:sample]:
-    img = m.get("image")
-    if not img:
-      continue
-    img_https = _coerce_https(img)
-    if not img_https:
-      continue
-    try:
-      b = requests.get(img_https, timeout=10).content
-    except Exception:
-      continue
-    b64 = base64.b64encode(b).decode("utf-8")
-    q = encoder.embed_query(text="", image_b64=b64)
-    rows, scores = searcher.search(q, k=k)
-    tried += 1
-    top_row = rows[0] if rows else -1
-    top_id = art.row_to_item(top_row).get("id") if top_row >= 0 else None
-    hit = (top_id == m["id"])
-    hits += int(hit)
-    if len(examples) < 10:
-      examples.append({
-        "query_id": m["id"],
-        "top_id": top_id,
-        "hit": hit,
-        "score": float(scores[0]) if scores else None
-      })
-
-  return jsonify({
-    "tested": tried,
-    "r_at_1": hits / max(tried, 1),
-    "examples": examples
   })
 
 if __name__ == "__main__":

@@ -17,3 +17,6 @@ torch==2.2.2+cpu
 torchvision==0.17.2+cpu
 faiss-cpu==1.7.4
 git+https://github.com/openai/CLIP.git@main
+google-genai
+setuptools==69.5.1
+packaging
