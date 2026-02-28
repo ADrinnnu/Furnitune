@@ -1,5 +1,5 @@
 // src/pages/Repair.jsx
-import React, { useMemo, useRef, useState } from "react";
+import React, { useMemo, useRef, useState, useEffect } from "react";
 import { useNavigate } from "react-router-dom";
 import "../Repair.css";
 
@@ -20,14 +20,80 @@ import {
 
 const MAX_UPLOADS = 5;
 
+// Added specific sizes and price modifiers for each furniture type
 const FURNITURE_TYPES = [
-  { id: "bed",          label: "Bed",          price: 3200 },
-  { id: "chair",        label: "Chair",        price: 1200 },
-  { id: "dining_table", label: "Dining Table", price: 2800 },
-  { id: "ottoman",      label: "Ottoman",      price: 1400 },
-  { id: "sofa",         label: "sofa",         price: 1600 },
-  { id: "sectionals",   label: "Sectionals",   price: 3600 },
+  { 
+    id: "bed", 
+    label: "Bed", 
+    price: 3200,
+    sizes: [
+      { id: "single", label: "Single", priceAdd: 0 },
+      { id: "double", label: "Double", priceAdd: 500 },
+      { id: "queen", label: "Queen", priceAdd: 1000 },
+      { id: "king", label: "King", priceAdd: 1500 },
+      { id: "custom", label: "Custom", priceAdd: 2000 }
+    ]
+  },
+  { 
+    id: "chair", 
+    label: "Chair", 
+    price: 1200,
+    sizes: [
+      { id: "standard", label: "Standard", priceAdd: 0 },
+      { id: "counter", label: "Counter", priceAdd: 300 },
+      { id: "bar", label: "Bar", priceAdd: 500 },
+      { id: "custom", label: "Custom", priceAdd: 800 }
+    ]
+  },
+  { 
+    id: "dining_table", 
+    label: "Dining Table", 
+    price: 2800,
+    sizes: [
+      { id: "2_people", label: "2 people", priceAdd: 0 },
+      { id: "4_people", label: "4 people", priceAdd: 600 },
+      { id: "6_people", label: "6 people", priceAdd: 1200 },
+      { id: "8_people", label: "8 people", priceAdd: 1800 },
+      { id: "custom", label: "Custom", priceAdd: 2500 }
+    ]
+  },
+  { 
+    id: "ottoman", 
+    label: "Ottoman", 
+    price: 1400,
+    sizes: [
+      { id: "standard", label: "Standard", priceAdd: 0 },
+      { id: "cube", label: "Cube", priceAdd: 200 },
+      { id: "footstool", label: "Footstool", priceAdd: 100 },
+      { id: "cocktail", label: "Cocktail", priceAdd: 500 },
+      { id: "custom", label: "Custom", priceAdd: 600 }
+    ]
+  },
+  { 
+    id: "sofa", 
+    label: "Sofa", 
+    price: 1600,
+    sizes: [
+      { id: "2_seater", label: "2 Seater", priceAdd: 0 },
+      { id: "3_seater", label: "3 Seater", priceAdd: 800 },
+      { id: "4_seater", label: "4 Seater", priceAdd: 1500 },
+      { id: "custom", label: "Custom", priceAdd: 2000 }
+    ]
+  },
+  { 
+    id: "sectionals", 
+    label: "Sectionals", 
+    price: 3600,
+    sizes: [
+      { id: "3_seater", label: "3 Seater", priceAdd: 0 },
+      { id: "5_seater", label: "5 Seater", priceAdd: 1500 },
+      { id: "6_seater", label: "6 Seater", priceAdd: 2200 },
+      { id: "7_seater", label: "7 Seater", priceAdd: 2900 },
+      { id: "custom", label: "Custom", priceAdd: 3500 }
+    ]
+  },
 ];
+
 const COVER_MATERIALS = [
   { id: "fabric",  label: "Fabrics", price: 800 },
   { id: "leather", label: "Leather", price: 1500 },
@@ -55,6 +121,7 @@ export default function Repair() {
   const storage = useMemo(() => getStorage(), []);
 
   const [typeId, setTypeId] = useState(FURNITURE_TYPES[0].id);
+  const [sizeId, setSizeId] = useState(FURNITURE_TYPES[0].sizes[0].id);
   const [coverId, setCoverId] = useState(COVER_MATERIALS[0].id);
   const [frameId, setFrameId] = useState(FRAME_MATERIALS[0].id);
 
@@ -65,11 +132,20 @@ export default function Repair() {
   const inputRef = useRef(null);
 
   const selectedType  = FURNITURE_TYPES.find(t => t.id === typeId);
+  const selectedSize  = selectedType?.sizes.find(s => s.id === sizeId) || selectedType?.sizes[0];
   const selectedCover = COVER_MATERIALS.find(c => c.id === coverId);
   const selectedFrame = FRAME_MATERIALS.find(f => f.id === frameId);
 
+  // Automatically select the first size whenever the furniture type changes
+  useEffect(() => {
+      if (selectedType && selectedType.sizes.length > 0) {
+          setSizeId(selectedType.sizes[0].id);
+      }
+  }, [typeId]);
+
   const total =
     (selectedType?.price || 0) +
+    (selectedSize?.priceAdd || 0) +
     (selectedCover?.price || 0) +
     (selectedFrame?.price || 0);
 
@@ -133,11 +209,18 @@ export default function Repair() {
       // upload images
       const imageUrls = await uploadAllImages(uid, docRef.id);
 
+      // We combine the type and size string together so admin easily reads "Bed (Queen)"
+      const formattedTypeLabel = `${selectedType?.label || ""} (${selectedSize?.label || ""})`;
+
       // write repair doc
       await setDoc(docRef, {
         typeId,
-        typeLabel: selectedType?.label || "",
+        typeLabel: formattedTypeLabel,
         typePrice: selectedType?.price ?? 0,
+
+        sizeId: selectedSize?.id || "",
+        sizeLabel: selectedSize?.label || "",
+        sizePriceAdd: selectedSize?.priceAdd ?? 0,
 
         coverMaterialId: coverId,
         coverMaterialLabel: selectedCover?.label || "",
@@ -158,7 +241,7 @@ export default function Repair() {
         createdAt: serverTimestamp(),
       });
 
-      // ➜ jump straight to Checkout (no notifications here)
+      // ➜ jump straight to Checkout
       navigate(`/Checkout?repairId=${docRef.id}`);
 
       // cleanup state
@@ -238,6 +321,7 @@ export default function Repair() {
             <h4>Steps</h4>
             <ol>
               <li>Upload 1–{MAX_UPLOADS} photos.</li>
+              <li>Select furniture type & size.</li>
               <li>Choose cover & frame materials.</li>
               <li>Describe issue & special instructions.</li>
               <li>Submit request, we’ll assess & schedule.</li>
@@ -248,7 +332,7 @@ export default function Repair() {
         {/* RIGHT */}
         <aside className="repair-right">
           <div className="card1">
-            <div className="card-title">0 - Furniture Type</div>
+            <div className="card-title">1 - Furniture Type</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {FURNITURE_TYPES.map((t) => (
                 <button
@@ -266,7 +350,26 @@ export default function Repair() {
 
             <hr />
 
-            <div className="card-title">1 - Cover Material</div>
+            {/* DYNAMIC SIZE SECTION */}
+            <div className="card-title">2 - Select Size</div>
+            <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+              {selectedType?.sizes.map((s) => (
+                <button
+                  key={s.id}
+                  className={`btn ${sizeId === s.id ? "" : "ghost"}`}
+                  onClick={() => setSizeId(s.id)}
+                  type="button"
+                  title={`${s.label} ${s.priceAdd ? `(+${fmtPHP(s.priceAdd)})` : ""}`}
+                >
+                  {s.label}{s.priceAdd ? ` — +${fmtPHP(s.priceAdd)}` : ""}
+                </button>
+              ))}
+            </div>
+            <small className="muted1">Selected: {selectedSize?.label}</small>
+
+            <hr />
+
+            <div className="card-title">3 - Cover Material</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {COVER_MATERIALS.map((c) => (
                 <button
@@ -284,7 +387,7 @@ export default function Repair() {
 
             <hr />
 
-            <div className="card-title">2 - Frame Material</div>
+            <div className="card-title">4 - Frame Material</div>
             <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
               {FRAME_MATERIALS.map((f) => (
                 <button
@@ -302,7 +405,7 @@ export default function Repair() {
 
             <hr />
 
-            <div className="card-title">3 - Additional Notes</div>
+            <div className="card-title">5 - Additional Notes</div>
             <textarea
               placeholder="Describe the issue, preferred schedule, pickup address, etc."
               value={notes}
@@ -313,7 +416,7 @@ export default function Repair() {
             <hr />
 
             <div className="kv" style={{ marginBottom: 8 }}>
-              <label>Total</label>
+              <label>Total Estimate</label>
               <div className="mono strong">{fmtPHP(total)}</div>
             </div>
 
@@ -323,8 +426,8 @@ export default function Repair() {
                 : "PLACE ORDER"}
             </button>
 
-            <small className="muted1">
-              Upload 1–{MAX_UPLOADS} photos. This order will be reviewed before processing.
+            <small className="muted1" style={{display: 'block', marginTop: 8}}>
+              *Final price subject to review. This order will be assessed before processing.
             </small>
           </div>
 

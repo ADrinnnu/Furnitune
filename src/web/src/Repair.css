@@ -121,5 +121,28 @@ textarea {
     min-height: 100px;
   }
 }
+/* Add styles for the Need Assistance card */
+.card {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 12px;
+  padding: 14px;
+}
+
+/* Align the list items and remove default bullet padding */
+.card ul {
+  list-style: none; /* Removes default bullets */
+  padding: 0;       /* Removes the huge left indent */
+  margin: 0;        /* Removes default margin */
+}
+
+.card ul li {
+  margin-bottom: 10px; /* Adds breathing room between the lines */
+  font-size: 14px;
+  color: #333;
+  display: flex;
+  align-items: center;
+  gap: 8px; /* Adds space between the emoji and the text */
+}
 
 
