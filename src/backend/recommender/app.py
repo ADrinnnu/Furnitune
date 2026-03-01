@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io, json, tempfile, urllib.parse, random
+import os, re, base64, io, json, tempfile, urllib.parse
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -46,10 +46,6 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
-
-# Decreased these boosts so the IMAGE AI score matters more!
-SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.10"))
-COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.10"))
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = None
@@ -137,15 +133,16 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                # NEW POLLINATIONS FIX: Cleaner text, shorter length, and the new stable URL endpoint
+                # 1. Clean the text perfectly
                 clean_prompt = re.sub(r'[^a-zA-Z0-9\s]', '', img_prompt)
-                short_prompt = clean_prompt[:150].strip()
                 
-                encoded_prompt = urllib.parse.quote(f"interior design photo, {short_prompt}")
-                seed = random.randint(1, 999999)
+                # 2. Limit to 15 words max so the URL never breaks
+                words = clean_prompt.split()[:15]
+                short_prompt = " ".join(words)
                 
-                # Using the newest, most stable pollinations endpoint (/p/)
-                concept["image_url"] = f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed={seed}"
+                # 3. HIGH SPEED CDN FIX: Removed the random seed so it loads instantly!
+                encoded_prompt = urllib.parse.quote(f"beautiful furniture, {short_prompt}")
+                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=600&height=400&nologo=true"
 
         return parsed
     except Exception as e:
@@ -541,9 +538,9 @@ def recommend():
     size_pref       = (data.get("size") or "").strip()
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
+    
     w_image         = float(data.get("w_image", 0.9)) 
     w_text          = float(data.get("w_text", 0.1))
-    color_weight    = float(data.get("color_weight", 0.6))
     color_mode      = str(data.get("color_mode", "match")).strip().lower()
 
     try:
@@ -575,7 +572,6 @@ def recommend():
         if not pid:
             continue
         
-        # We still filter by Furniture TYPE (so if they want a bed, they get a bed)
         if f_type and not _type_matches(it, f_type):
             continue
         
@@ -584,6 +580,17 @@ def recommend():
             continue
         if max_budget is not None and price > max_budget:
             continue
+            
+        # 🚨 THE NEW STRICT FILTERS 🚨
+        # If the user asks for a color, delete items that don't have it!
+        if color_pref and color_pref.lower() != "none":
+            if _color_match_score(it, color_pref) == 0.0:
+                continue
+                
+        # If the user asks for a size, delete items that don't have it!
+        if size_pref and size_pref.lower() != "none":
+            if _size_match_score(it, size_pref) == 0.0:
+                continue
 
         it["score"] = float(sc)
         ranked.append(it)
@@ -602,7 +609,7 @@ def recommend():
             item_flags = flags_cache.get(it["id"], {})
             matches = sum(1 for f in fields_wanted if item_flags.get(f))
             it2 = {**it}
-            it2["score"] = it["score"] + matches * BOOST_PER_MATCH
+            it2["score"] = it["score"] + matches * 0.18
             out.append(it2)
         return out
 
@@ -618,29 +625,9 @@ def recommend():
     else:
         ranked = soft_boost(ranked)
 
-    boosted: List[dict] = []
-    for it in ranked:
-        it2 = {**it}
-        s_score = _size_match_score(it2, size_pref)
-        c_score = _color_match_score(it2, color_pref)
-        it2["size_match"] = s_score
-        it2["color_match"] = c_score
-        
-        # Add a tiny score boost for text matches, so it helps sorting 
-        # BUT DOES NOT delete non-matching items from the visual search!
-        it2["score"] = it2["score"] + s_score * SIZE_PREF_BOOST + c_score * COLOR_PREF_BOOST
-        boosted.append(it2)
-
-    # REMOVED THE HARD FILTER! Now 'ranked' just uses the AI boosted scores.
-    ranked = boosted
-
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
 
-    room_lab_used = None
-    if img_b64:
-        ranked, room_lab_used = _rerank_by_color(ranked, img_b64, weight=color_weight, mode=color_mode)
-
-    # Sort the final list by the AI visual score!
+    # Only sort by score (visual AI match) now!
     ranked.sort(key=lambda x: x["score"], reverse=True)
     ranked = ranked[:k]
 
