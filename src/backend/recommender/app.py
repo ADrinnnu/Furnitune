@@ -11,7 +11,6 @@ from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
 
-# Import the updated Google GenAI SDK
 from google import genai
 
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
@@ -52,7 +51,6 @@ CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 SIZE_PREF_BOOST = float(os.getenv("SIZE_PREF_BOOST", "0.10"))
 COLOR_PREF_BOOST = float(os.getenv("COLOR_PREF_BOOST", "0.10"))
 
-# Initialize Gemini Client
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = None
 if GEMINI_API_KEY:
@@ -139,14 +137,15 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             img_prompt = concept.get("image_prompt", "")
             if img_prompt:
-                # ULTRA SAFE PROMPT CLEANER: Only letters, max 100 chars, so Pollinations NEVER breaks!
-                clean_prompt = re.sub(r'[^a-zA-Z\s]', '', img_prompt)
-                short_prompt = clean_prompt[:100] 
+                # NEW POLLINATIONS FIX: Cleaner text, shorter length, and the new stable URL endpoint
+                clean_prompt = re.sub(r'[^a-zA-Z0-9\s]', '', img_prompt)
+                short_prompt = clean_prompt[:150].strip()
                 
-                encoded_prompt = urllib.parse.quote(f"beautiful modern furniture, {short_prompt}")
-                seed = random.randint(1, 100000)
+                encoded_prompt = urllib.parse.quote(f"interior design photo, {short_prompt}")
+                seed = random.randint(1, 999999)
                 
-                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&seed={seed}"
+                # Using the newest, most stable pollinations endpoint (/p/)
+                concept["image_url"] = f"https://pollinations.ai/p/{encoded_prompt}?width=800&height=600&seed={seed}"
 
         return parsed
     except Exception as e:
@@ -542,7 +541,7 @@ def recommend():
     size_pref       = (data.get("size") or "").strip()
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
-    w_image         = float(data.get("w_image", 0.9)) # VERY HIGH to favor images!
+    w_image         = float(data.get("w_image", 0.9)) 
     w_text          = float(data.get("w_text", 0.1))
     color_weight    = float(data.get("color_weight", 0.6))
     color_mode      = str(data.get("color_mode", "match")).strip().lower()
@@ -569,16 +568,14 @@ def recommend():
 
     rows, scores = searcher.search(qvec, k=max(k, 60))
 
-    faiss_top_rows   = rows[:k]
-    faiss_top_scores = [float(s) for s in scores[:k]]
-
     ranked: List[dict] = []
     for row, sc in zip(rows, scores):
         it = dict(art.row_to_item(row))
         pid = it.get("id")
         if not pid:
             continue
-        # We still want them to get a Sofa if they ask for a Sofa
+        
+        # We still filter by Furniture TYPE (so if they want a bed, they get a bed)
         if f_type and not _type_matches(it, f_type):
             continue
         
@@ -628,11 +625,13 @@ def recommend():
         c_score = _color_match_score(it2, color_pref)
         it2["size_match"] = s_score
         it2["color_match"] = c_score
-        # Add a tiny boost so matching sizes rise, but they don't overpower the image search
+        
+        # Add a tiny score boost for text matches, so it helps sorting 
+        # BUT DOES NOT delete non-matching items from the visual search!
         it2["score"] = it2["score"] + s_score * SIZE_PREF_BOOST + c_score * COLOR_PREF_BOOST
         boosted.append(it2)
 
-    # REMOVED: The strict array filter that was deleting all your other furniture!
+    # REMOVED THE HARD FILTER! Now 'ranked' just uses the AI boosted scores.
     ranked = boosted
 
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
@@ -641,6 +640,7 @@ def recommend():
     if img_b64:
         ranked, room_lab_used = _rerank_by_color(ranked, img_b64, weight=color_weight, mode=color_mode)
 
+    # Sort the final list by the AI visual score!
     ranked.sort(key=lambda x: x["score"], reverse=True)
     ranked = ranked[:k]
 
