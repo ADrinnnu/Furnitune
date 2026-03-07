@@ -50,13 +50,15 @@ const PANEL_CSS = `
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
-// 🚨 NEW PROXY LOADER: Bypasses AdBlock by grabbing the image from your own Python server! 🚨
 function ImageWithLoader({ rawPrompt }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
 
-  // Use the new Python proxy route!
+  // Calls the Render Python server
   const proxyUrl = `${API_BASE}/ai-image?prompt=${encodeURIComponent(rawPrompt)}`;
+  
+  // The ultimate fallback: Direct to Pollinations AI
+  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=800&height=600&model=flux&nologo=true`;
 
   return (
     <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
@@ -68,8 +70,8 @@ function ImageWithLoader({ rawPrompt }) {
       )}
       {error && (
         <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10, position: "absolute", zIndex: 1 }}>
-            Image failed to load.<br/>
-            <a href={proxyUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to view it directly</a>
+            Proxy blocked by server.<br/>
+            <a href={directUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline", fontWeight: "bold"}}>Click here to view AI Image</a>
         </div>
       )}
       <img
@@ -287,8 +289,8 @@ export default function FloatingRobot() {
         strict: !Array.isArray(allAnswers.additionals)
           ? false
           : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
-        w_image: 0.85, 
-        w_text: 0.15,  
+        w_image: 1.0, 
+        w_text: 0.0,  
         force_ai: force_ai
       };
       if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
@@ -582,13 +584,12 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
-                          // The Proxy URL is passed perfectly to the customization page!
-                          const proxyUrl = `${API_BASE}/ai-image?prompt=${encodeURIComponent(m.customConcept.image_prompt_raw)}`;
+                          const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(m.customConcept.image_prompt_raw)}?width=800&height=600&model=flux&nologo=true`;
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
                               ai_desc: m.customConcept.description,
-                              ai_img: proxyUrl
+                              ai_img: directUrl
                           });
                           window.location.href = `/customization?${params.toString()}`;
                       }}>
