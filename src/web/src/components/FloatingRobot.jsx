@@ -50,44 +50,31 @@ const PANEL_CSS = `
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
-// 🚨 THE MAGIC FIX: Auto-Retry Image Loader 🚨
-function ImageWithLoader({ src, alt }) {
+// 🚨 NEW PROXY LOADER: Bypasses AdBlock by grabbing the image from your own Python server! 🚨
+function ImageWithLoader({ rawPrompt }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
-  const [retryCount, setRetryCount] = useState(0);
 
-  useEffect(() => {
-    // If the browser gives up, we automatically wait 3 seconds and force it to try again!
-    if (error && retryCount < 4) {
-      const timer = setTimeout(() => {
-        setError(false);
-        setLoaded(false);
-        setRetryCount(prev => prev + 1);
-      }, 3000);
-      return () => clearTimeout(timer);
-    }
-  }, [error, retryCount]);
-
-  // Appending &retry=X forces the browser to actually make a new request instead of giving up
-  const imageSrc = retryCount > 0 ? `${src}&retry=${retryCount}` : src;
+  // Use the new Python proxy route!
+  const proxyUrl = `${API_BASE}/ai-image?prompt=${encodeURIComponent(rawPrompt)}`;
 
   return (
     <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       {!loaded && !error && (
-        <span className="loading-text" style={{ position: "absolute", zIndex: 1 }}>
-          {retryCount > 0 ? "✨ Applying finishing touches..." : "✨ AI is drawing your design..."}
-        </span>
+        <div style={{ position: "absolute", zIndex: 1, textAlign: "center", padding: "0 10px" }}>
+            <span className="loading-text">✨ AI is drawing your design...</span>
+            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This takes about 8 seconds)</div>
+        </div>
       )}
-      {error && retryCount >= 4 && (
+      {error && (
         <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10, position: "absolute", zIndex: 1 }}>
-            Image took too long.<br/>
-            <a href={src} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to open it directly</a>
+            Image failed to load.<br/>
+            <a href={proxyUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to view it directly</a>
         </div>
       )}
       <img
-        key={retryCount}
-        src={imageSrc}
-        alt={alt}
+        src={proxyUrl}
+        alt="Custom AI Design"
         onLoad={() => { setLoaded(true); setError(false); }}
         onError={() => { setLoaded(true); setError(true); }}
         style={{
@@ -95,7 +82,7 @@ function ImageWithLoader({ src, alt }) {
           height: "100%",
           objectFit: "cover",
           opacity: loaded && !error ? 1 : 0, 
-          transition: "opacity 0.4s ease-in-out",
+          transition: "opacity 0.5s ease-in-out",
           position: "relative",
           zIndex: 2
         }}
@@ -582,8 +569,8 @@ export default function FloatingRobot() {
                   <div className="card ai-concept">
                     <div className="ai-badge">AI CONCEPT</div>
                     
-                    {m.customConcept.image_url && (
-                        <ImageWithLoader src={m.customConcept.image_url} alt={m.customConcept.title} />
+                    {m.customConcept.image_prompt_raw && (
+                        <ImageWithLoader rawPrompt={m.customConcept.image_prompt_raw} />
                     )}
                     
                     <div className="body">
@@ -595,11 +582,13 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
+                          // The Proxy URL is passed perfectly to the customization page!
+                          const proxyUrl = `${API_BASE}/ai-image?prompt=${encodeURIComponent(m.customConcept.image_prompt_raw)}`;
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
                               ai_desc: m.customConcept.description,
-                              ai_img: m.customConcept.image_url
+                              ai_img: proxyUrl
                           });
                           window.location.href = `/customization?${params.toString()}`;
                       }}>

@@ -6,7 +6,8 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from PIL import Image
-from flask import Flask, jsonify, request
+# 🚨 ADDED Response and redirect for the Proxy Route! 🚨
+from flask import Flask, jsonify, request, Response, redirect
 from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
@@ -46,7 +47,7 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-# 🚨 THE NEW THRESHOLD: Will confidently clear the catalog if the room doesn't match!
+# Threshold to force AI if catalog doesn't match
 SUITABILITY_THRESHOLD = 0.68
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -59,6 +60,25 @@ CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
 
 db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
+
+# -----------------------------------------------------------------------------
+# 🛡️ THE NEW ANTI-ADBLOCK IMAGE PROXY ROUTE 🛡️
+# -----------------------------------------------------------------------------
+@app.route("/reco/ai-image", methods=["GET"])
+@app.route("/ai-image", methods=["GET"])
+def proxy_ai_image():
+    prompt = request.args.get("prompt", "beautiful furniture")
+    
+    # We ask Pollinations for the image Server-to-Server, bypassing the browser!
+    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=800&height=600&model=flux&nologo=true"
+    
+    try:
+        r = requests.get(url, timeout=20)
+        r.raise_for_status()
+        return Response(r.content, mimetype=r.headers.get("content-type", "image/jpeg"))
+    except Exception as e:
+        print("Image Proxy Error:", e)
+        return redirect("https://placehold.co/800x600/eeeeee/999999?text=AI+Server+Busy")
 
 # -----------------------------------------------------------------------------
 # AI Interior Designer Logic
@@ -87,7 +107,8 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
               "title": "Short Creative Name of Furniture",
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
-              "suggested_color": "The recommended color."
+              "suggested_color": "The recommended color.",
+              "background_vibe": "A 4-word description of the exact lighting and aesthetic of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo, write 'bright minimal room'."
             }}
           ]
         }}
@@ -119,16 +140,17 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
             c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
+            c_vibe = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("background_vibe", "bright minimal room"))).strip()
             
             c_color_short = " ".join(c_color.split()[:2])
             c_title_short = " ".join(c_title.split()[:3])
             
-            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated"
-            encoded_prompt = urllib.parse.quote(img_prompt_str)
-            seed = random.randint(1, 999999)
+            # The prompt includes the user's room vibe!
+            img_prompt_str = f"photorealistic {c_color_short} {c_title_short} placed inside a {c_vibe}"
             
-            # 🚨 THE NEW AI SPEED HACK: Using model=flux for instant generation! 🚨
-            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=flux&nologo=true&seed={seed}"
+            # We pass the raw text to React, so React can use our invisible Proxy Route
+            concept["image_prompt_raw"] = img_prompt_str
+            concept["image_url"] = "" # Left blank so React knows to use the Proxy
 
         return parsed
     except Exception as e:
@@ -450,12 +472,10 @@ def recommend():
     
     force_ai_fallback = force_ai
 
-    # 🚨 SUITABILITY CHECK WITH 0.68 THRESHOLD 🚨
+    # 🚨 SUITABILITY CHECK 🚨
     if img_b64 and len(top_matches) > 0:
         best_score = top_matches[0]["score"]
-        print(f"DEBUG: Best visual match score is {best_score}")
         if best_score < SUITABILITY_THRESHOLD:
-            print("DEBUG: Visual match too poor. Forcing AI Fallback.")
             force_ai_fallback = True
 
     if force_ai_fallback:
@@ -465,7 +485,6 @@ def recommend():
 
     ai_designer_data = None
     if len(payload_items) == 0 and GEMINI_API_KEY:
-        print("DEBUG: Triggering Gemini AI Designer.")
         ai_designer_data = analyze_with_gemini(
             img_b64=img_b64, text=text, f_type=f_type, size_pref=size_pref, color_pref=color_pref, min_b=min_budget, max_b=max_budget
         )
