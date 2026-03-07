@@ -6,7 +6,7 @@ from typing import Dict, List, Optional
 
 import numpy as np
 from PIL import Image
-from flask import Flask, jsonify, request, Response, redirect
+from flask import Flask, jsonify, request
 from flask_cors import CORS
 from google.cloud import firestore, storage
 import requests
@@ -61,30 +61,6 @@ db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
 # -----------------------------------------------------------------------------
-# 🛡️ THE NEW ANTI-BOT IMAGE PROXY ROUTE 🛡️
-# -----------------------------------------------------------------------------
-@app.route("/reco/ai-image", methods=["GET"])
-@app.route("/ai-image", methods=["GET"])
-def proxy_ai_image():
-    prompt = request.args.get("prompt", "beautiful furniture")
-    
-    url = f"https://image.pollinations.ai/prompt/{urllib.parse.quote(prompt)}?width=800&height=600&model=flux&nologo=true"
-    
-    # 🚨 THE FIX: Disguise the Python request as a normal Google Chrome browser! 🚨
-    headers = {
-        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36"
-    }
-    
-    try:
-        r = requests.get(url, headers=headers, timeout=25)
-        r.raise_for_status()
-        return Response(r.content, mimetype=r.headers.get("content-type", "image/jpeg"))
-    except Exception as e:
-        print("Image Proxy Error:", e)
-        # If Render is still blocked, instantly redirect to the direct URL so the user's browser downloads it!
-        return redirect(url)
-
-# -----------------------------------------------------------------------------
 # AI Interior Designer Logic
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b):
@@ -111,8 +87,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
               "title": "Short Creative Name of Furniture",
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
-              "suggested_color": "The recommended color.",
-              "background_vibe": "A 4-word description of the exact lighting and aesthetic of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo, write 'bright minimal room'."
+              "suggested_color": "The recommended color."
             }}
           ]
         }}
@@ -142,19 +117,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
-            c_title = re.sub(r'[^a-zA-Z0-9\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
-            c_color = re.sub(r'[^a-zA-Z0-9\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
-            c_vibe = re.sub(r'[^a-zA-Z0-9\s]', '', str(concept.get("background_vibe", "bright minimal room"))).strip()
+            # Extremely clean text
+            c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
+            c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
             
             c_color_short = " ".join(c_color.split()[:2])
             c_title_short = " ".join(c_title.split()[:3])
-            c_vibe_short = " ".join(c_vibe.split()[:4])
             
-            # Pure, clean text prompt
-            img_prompt_str = f"photorealistic {c_color_short} {c_title_short} placed inside a {c_vibe_short}"
+            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated on white background"
+            encoded_prompt = urllib.parse.quote(img_prompt_str)
             
-            concept["image_prompt_raw"] = img_prompt_str
-            concept["image_url"] = "" 
+            # 🚨 THE FIX: Using the newest, official pollinations.ai endpoint so it loads perfectly.
+            concept["image_url"] = f"https://pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
 
         return parsed
     except Exception as e:

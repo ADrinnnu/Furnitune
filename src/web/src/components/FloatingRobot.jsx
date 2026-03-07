@@ -50,37 +50,28 @@ const PANEL_CSS = `
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
-function ImageWithLoader({ rawPrompt }) {
+// 🚨 THE FIX: Patient Loader that never gives up! 🚨
+function ImageWithLoader({ src, alt }) {
   const [loaded, setLoaded] = useState(false);
-  const [error, setError] = useState(false);
-
-  // 🚨 DIRECT URL: Bypasses Render, goes straight from Browser to Pollinations
-  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=800&height=600&nologo=true`;
 
   return (
     <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
-      {!loaded && !error && (
+      {!loaded && (
         <div style={{ position: "absolute", zIndex: 1, textAlign: "center", padding: "0 10px" }}>
             <span className="loading-text">✨ AI is drawing your design...</span>
-            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This takes a few seconds)</div>
-        </div>
-      )}
-      {error && (
-        <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10, position: "absolute", zIndex: 1 }}>
-            Image blocked by AdBlocker.<br/>
-            <a href={directUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline", fontWeight: "bold"}}>Click to view AI Image</a>
+            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This may take 15-30 seconds)</div>
         </div>
       )}
       <img
-        src={directUrl}
-        alt="Custom AI Design"
-        onLoad={() => { setLoaded(true); setError(false); }}
-        onError={() => { setLoaded(true); setError(true); }}
+        src={src}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        // REMOVED onError completely so the browser patiently waits for the image!
         style={{
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          opacity: loaded && !error ? 1 : 0, 
+          opacity: loaded ? 1 : 0, 
           transition: "opacity 0.5s ease-in-out",
           position: "relative",
           zIndex: 2
@@ -568,8 +559,8 @@ export default function FloatingRobot() {
                   <div className="card ai-concept">
                     <div className="ai-badge">AI CONCEPT</div>
                     
-                    {m.customConcept.image_prompt_raw && (
-                        <ImageWithLoader rawPrompt={m.customConcept.image_prompt_raw} />
+                    {m.customConcept.image_url && (
+                        <ImageWithLoader src={m.customConcept.image_url} alt={m.customConcept.title} />
                     )}
                     
                     <div className="body">
@@ -581,12 +572,11 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
-                          const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(m.customConcept.image_prompt_raw)}?width=800&height=600&nologo=true`;
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
                               ai_desc: m.customConcept.description,
-                              ai_img: directUrl
+                              ai_img: m.customConcept.image_url
                           });
                           window.location.href = `/customization?${params.toString()}`;
                       }}>
