@@ -54,28 +54,25 @@ function ImageWithLoader({ rawPrompt }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
 
-  // Calls the Render Python server
-  const proxyUrl = `${API_BASE}/ai-image?prompt=${encodeURIComponent(rawPrompt)}`;
-  
-  // The ultimate fallback: Direct to Pollinations AI
-  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=800&height=600&model=flux&nologo=true`;
+  // 🚨 DIRECT URL: Bypasses Render, goes straight from Browser to Pollinations
+  const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(rawPrompt)}?width=800&height=600&nologo=true`;
 
   return (
     <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       {!loaded && !error && (
         <div style={{ position: "absolute", zIndex: 1, textAlign: "center", padding: "0 10px" }}>
             <span className="loading-text">✨ AI is drawing your design...</span>
-            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This takes about 8 seconds)</div>
+            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This takes a few seconds)</div>
         </div>
       )}
       {error && (
         <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10, position: "absolute", zIndex: 1 }}>
-            Proxy blocked by server.<br/>
-            <a href={directUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline", fontWeight: "bold"}}>Click here to view AI Image</a>
+            Image blocked by AdBlocker.<br/>
+            <a href={directUrl} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline", fontWeight: "bold"}}>Click to view AI Image</a>
         </div>
       )}
       <img
-        src={proxyUrl}
+        src={directUrl}
         alt="Custom AI Design"
         onLoad={() => { setLoaded(true); setError(false); }}
         onError={() => { setLoaded(true); setError(true); }}
@@ -584,7 +581,7 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
-                          const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(m.customConcept.image_prompt_raw)}?width=800&height=600&model=flux&nologo=true`;
+                          const directUrl = `https://image.pollinations.ai/prompt/${encodeURIComponent(m.customConcept.image_prompt_raw)}?width=800&height=600&nologo=true`;
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
