@@ -1,8 +1,7 @@
-// src/pages/Customization.jsx
 import React, { useEffect, useMemo, useState } from "react";
 import "../Customization.css";
 import "../AllFurnitures.css";
-import { useNavigate } from "react-router-dom";
+import { useNavigate, useLocation } from "react-router-dom";
 
 import {
   firestore,
@@ -18,7 +17,7 @@ import {
 
 import { query, where } from "firebase/firestore";
 
-/* ───────────────────────── CONFIGURATION (GAME-STYLE CHARACTER CREATOR) ───────────────────────── */
+/* ───────────────────────── CONFIGURATION ───────────────────────── */
 
 const CATEGORY_OPTIONS = {
   "Beds": {
@@ -354,14 +353,14 @@ export default function Customization() {
   const [size, setSize] = useState("S");
   const [customSizeDetails, setCustomSizeDetails] = useState("");
 
-  // 2. Dynamic Features (The Character Creator Engine)
+  // 2. Dynamic Features
   const [featureSelections, setFeatureSelections] = useState({});
   const [customFeatureInputs, setCustomFeatureInputs] = useState({}); 
   const [foamDensity, setFoamDensity] = useState("");
 
-  // 3. Upholstery & Color (RESTORED COLOR PALETTE)
+  // 3. Upholstery & Color 
   const [coverMaterialType, setCoverMaterialType] = useState("");
-  const [coverColor, setCoverColor] = useState(""); // Restored this!
+  const [coverColor, setCoverColor] = useState(""); 
   const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
 
@@ -402,6 +401,49 @@ export default function Customization() {
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
     return () => { document.body.style.overflow = prev; };
   }, [catalogOpen]);
+  
+  const loc = useLocation();
+
+  // 🚨 NEW LOGIC: INSTANTLY LOAD THE AI IMAGE AND PREFILL 🚨
+  useEffect(() => {
+    const query = new URLSearchParams(loc.search);
+    const title = query.get("ai_title");
+    const color = query.get("ai_color");
+    const desc = query.get("ai_desc");
+    const imgUrl = query.get("ai_img");
+
+    if (title && imgUrl) {
+      // 1. Guess the category so the right structural options load
+      let cat = "Others";
+      const tLower = title.toLowerCase();
+      if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee")) cat = "Sofas";
+      else if (tLower.includes("bed")) cat = "Beds";
+      else if (tLower.includes("chair")) cat = "Chairs";
+      else if (tLower.includes("table")) cat = "Tables";
+      else if (tLower.includes("sectional")) cat = "Sectionals";
+      else if (tLower.includes("ottoman")) cat = "Ottomans";
+
+      // 2. Create a "Fake" Base Product using the AI Image!
+      const aiProduct = {
+        id: "ai-custom-concept",
+        title: title,
+        name: title,
+        category: cat,
+        image: imgUrl, // The AI Image will show up in the preview box!
+        basePrice: 0 
+      };
+
+      // 3. Pre-fill all the options
+      setSelectedProduct(aiProduct);
+      setSelectedCategory(cat);
+      setSize("Custom");
+      
+      // 4. Inject the AI's complex design notes directly for the upholsterer
+      const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
+      setNotes(aiBlueprint);
+    }
+  }, [loc.search]);
+
 
   // Construct dynamic description for admins and preview
   const descriptionText = useMemo(() => {
@@ -443,7 +485,6 @@ export default function Customization() {
       finalDesc += `• Foam / Padding: ${foamDensity || "Standard Factory Foam"}\n`;
     }
     if (catConfig.hasCover && coverEnabled) {
-      // Restored showing the cover color in the admin spec sheet
       finalDesc += `• Upholstery Used: ${coverMaterialType || "Standard Material"} (Color: ${coverColor || "Default Color"})\n`;
     }
 
@@ -556,6 +597,7 @@ export default function Customization() {
 
   const priceBreakdown = useMemo(() => {
     if (!selectedProduct) return null;
+    if (selectedProduct.id === "ai-custom-concept") return null; // AI Concept price is TBD!
 
     const base = selectedProduct.basePriceCents != null ? selectedProduct.basePriceCents : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
     const sizeForPricing = canonicalSize(selectedCategory, size);
@@ -583,7 +625,6 @@ export default function Customization() {
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
 
-    // Pull the color palette specifically for the Upholstery Cover Color
     const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
     const palette = raw.map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" })).filter((c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex));
     
@@ -595,7 +636,6 @@ export default function Customization() {
     setCatalogOpen(false);
   }
 
-  // choose reference images 
   async function onPickReferenceFiles(e) {
     const files = Array.from(e.target.files || []);
     if (!files.length) return;
@@ -623,7 +663,6 @@ export default function Customization() {
     setReferenceImages((prev) => prev.filter((_, idx) => idx !== i));
   }
 
-  // Helper for the Color Swatches UI
   const colorBoxStyle = (cHex, activeValue) => ({
     background: cHex,
     outline: activeValue === cHex ? "2px solid #111" : "1px solid #ccc",
@@ -686,7 +725,7 @@ export default function Customization() {
               currency,
             }
           : null,
-        images: Array.isArray(selectedProduct?.images) ? selectedProduct.images : Array.isArray(selectedProduct?.imageUrls) ? selectedProduct.imageUrls : [],
+        images: Array.isArray(selectedProduct?.images) ? selectedProduct.images : Array.isArray(selectedProduct?.imageUrls) ? selectedProduct.imageUrls : [selectedProduct.image],
       };
 
       sessionStorage.setItem("custom_draft", JSON.stringify(draft));
@@ -820,7 +859,6 @@ export default function Customization() {
                             key={choice} 
                             active={featureSelections[feat.id] === choice} 
                             onClick={() => {
-                              // If unpicking, remove the choice 
                               if (featureSelections[feat.id] === choice) {
                                 setFeatureSelections(prev => ({...prev, [feat.id]: ""}));
                               } else {
@@ -833,15 +871,14 @@ export default function Customization() {
                       ))}
                       </div>
 
-                      {/* Render text box if they chose a custom option for this specific feature */}
                       {isCustomSelected && (
                         <div style={{ marginTop: 8 }}>
-                           <textarea 
-                             style={{ height: 40, width: "100%", fontSize: 12, padding: 8 }}
-                             placeholder={`Specify your custom ${feat.label.toLowerCase()} details...`}
-                             value={customFeatureInputs[feat.id] || ""}
-                             onChange={e => setCustomFeatureInputs(prev => ({...prev, [feat.id]: e.target.value}))}
-                           />
+                            <textarea 
+                              style={{ height: 40, width: "100%", fontSize: 12, padding: 8 }}
+                              placeholder={`Specify your custom ${feat.label.toLowerCase()} details...`}
+                              value={customFeatureInputs[feat.id] || ""}
+                              onChange={e => setCustomFeatureInputs(prev => ({...prev, [feat.id]: e.target.value}))}
+                            />
                         </div>
                       )}
                   </div>
@@ -865,7 +902,7 @@ export default function Customization() {
           )}
           {catConfig.hasFoam && <hr />}
 
-          {/* 4 COVER MATERIAL & COLOR (RESTORED) */}
+          {/* 4 COVER MATERIAL & COLOR */}
           {catConfig.hasCover && coverEnabled && (
             <div className="option">
                 <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
@@ -961,7 +998,13 @@ export default function Customization() {
           <hr />
           <div className="option">
             <h3 className="option-title">ESTIMATED PRICE</h3>
-            {priceBreakdown ? (
+            {/* 🚨 AI PRICE HANDLING 🚨 */}
+            {selectedProduct?.id === "ai-custom-concept" ? (
+              <div className="text" style={{ padding: "16px", background: "#eef8e9", borderRadius: "8px", border: "1px solid #2F6F62", color: "#1E2C2B" }}>
+                <strong>🛠️ Fully Custom AI Build</strong><br/>
+                Since this is a 100% unique design generated by AI, our master upholsterers will review your blueprints and provide a custom price quote after you submit this request!
+              </div>
+            ) : priceBreakdown ? (
               <div className="text">
                 <div style={{ display: "flex", justifyContent: "space-between" }}>
                   <span>Base Model</span>

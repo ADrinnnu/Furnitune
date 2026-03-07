@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io, json, tempfile, urllib.parse
+import os, re, base64, io, json, tempfile, urllib.parse, random
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -64,7 +64,7 @@ gcs = storage.Client(project=PROJECT_ID or None)
 # -----------------------------------------------------------------------------
 # AI Interior Designer Logic
 # -----------------------------------------------------------------------------
-def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b, top_items):
+def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b):
     try:
         if not gemini_client:
             return {
@@ -75,36 +75,29 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         contents = []
 
         prompt = f"""
-        You are an expert interior designer working for a custom furniture shop.
-        The user is looking for furniture with these preferences:
+        You are an expert interior designer. The customer wants a custom piece of furniture.
+        
+        Customer Requirements:
         - Type: {f_type or 'Not specified'}
         - Size: {size_pref or 'Not specified'}
         - Color: {color_pref or 'Not specified'}
         - Budget: {min_b or 0} to {max_b or 'Any'} PHP
-        - Extra Text: {text}
+        - Extra text: {text}
 
-        Top matching items from our ready-to-ship catalog:
-        """
-        for i, item in enumerate(top_items):
-            prompt += f"\n{i+1}. {item.get('title')} (Price: {item.get('price')} PHP)"
+        Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements and matches their room's aesthetic.
 
-        prompt += """
-        Analyze the room image (if provided) and the user's preferences.
-        Output ONLY valid JSON.
-        Structure exactly like this:
-        {
-          "room_analysis": "A warm, personalized 2-3 sentence paragraph analyzing their room's interior design style and explaining why the ready-to-ship catalog items match their aesthetic.",
+        Output ONLY valid JSON. Structure exactly like this:
+        {{
+          "room_analysis": "A warm, personalized 2-sentence paragraph analyzing their room and introducing the custom concept you designed for them.",
           "custom_concepts": [
-            {
-              "title": "Name of a custom furniture piece NOT in our catalog",
+            {{
+              "title": "Creative Name of the Custom Furniture Piece",
               "description": "Why this specific custom piece would look amazing in their room.",
-              "category": "The general category of the item (e.g., Sofa, Bed, Chair)",
-              "suggested_color": "The recommended color",
-              "image_prompt": "A highly detailed, photorealistic prompt for an AI image generator to draw this specific furniture piece isolated in a beautiful matching room setting."
-            }
+              "category": "The category (e.g., Sofa, Bed, Chair)",
+              "suggested_color": "The recommended color (perfectly matching their requested color if they provided one)."
+            }}
           ]
-        }
-        Provide exactly 2 custom concepts.
+        }}
         """
         
         if img_b64:
@@ -131,18 +124,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
-            img_prompt = concept.get("image_prompt", "")
-            if img_prompt:
-                # 1. Clean the text perfectly
-                clean_prompt = re.sub(r'[^a-zA-Z0-9\s]', '', img_prompt)
-                
-                # 2. Limit to 15 words max so the URL never breaks
-                words = clean_prompt.split()[:15]
-                short_prompt = " ".join(words)
-                
-                # 3. HIGH SPEED CDN FIX: Removed the random seed so it loads instantly!
-                encoded_prompt = urllib.parse.quote(f"beautiful furniture, {short_prompt}")
-                concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=600&height=400&nologo=true"
+            # 🚨 BULLETPROOF PROMPT CLEANER 🚨
+            clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("title", f_type or "Furniture"))
+            clean_color = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("suggested_color", color_pref or "Neutral"))
+            
+            # Simple prompt so Pollinations NEVER breaks
+            img_prompt_str = f"Professional product photography of a {clean_color} {clean_title} modern furniture, white background"
+            
+            encoded_prompt = urllib.parse.quote(img_prompt_str)
+            seed = random.randint(1, 999999)
+            
+            # 🚨 STABLE IMAGE URL ENDPOINT 🚨
+            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true&seed={seed}"
 
         return parsed
     except Exception as e:
@@ -382,32 +375,6 @@ def _room_avg_lab_from_b64(b64: str):
 def _delta_e_lab(lab1, lab2):
     return float(np.linalg.norm(np.array(lab1, dtype=np.float32) - np.array(lab2, dtype=np.float32)))
 
-def _rerank_by_color(items: List[dict], room_b64: Optional[str], weight: float = 0.35, mode: str = "match"):
-    if not room_b64 or not items:
-        return items, None
-    room_lab = _room_avg_lab_from_b64(room_b64)
-    if not room_lab:
-        return items, None
-    out: List[dict] = []
-    for it in items:
-        it2 = {**it}
-        lab = it.get("avg_lab") or it.get("metadata", {}).get("avg_lab")
-        if lab:
-            d = _delta_e_lab(room_lab, lab)
-            if mode == "match":
-                sim = float(np.exp(-d / 20.0))
-            else:
-                sim = float(np.tanh(d / 60.0))
-            boost = weight * sim
-            it2["color_deltaE"] = d
-            it2["color_boost"] = boost
-            it2["score"] = it["score"] + boost
-        else:
-            it2["color_deltaE"] = None
-            it2["color_boost"] = 0.0
-        out.append(it2)
-    return out, room_lab
-
 _avg_lab_cache: Dict[str, List[float]] = {}
 
 def _compute_avg_lab_from_url(url: str) -> Optional[List[float]]:
@@ -539,9 +506,12 @@ def recommend():
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
     
-    w_image         = float(data.get("w_image", 0.9)) 
-    w_text          = float(data.get("w_text", 0.1))
-    color_mode      = str(data.get("color_mode", "match")).strip().lower()
+    # 🚨 THE NEW LOGIC 🚨
+    # React passes force_ai=true when the user clicks the "Design Custom AI" button!
+    force_ai        = bool(data.get("force_ai", False))
+    
+    w_image         = float(data.get("w_image", 1.0)) 
+    w_text          = float(data.get("w_text", 0.0))
 
     try:
         min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
@@ -580,17 +550,6 @@ def recommend():
             continue
         if max_budget is not None and price > max_budget:
             continue
-            
-        # 🚨 THE NEW STRICT FILTERS 🚨
-        # If the user asks for a color, delete items that don't have it!
-        if color_pref and color_pref.lower() != "none":
-            if _color_match_score(it, color_pref) == 0.0:
-                continue
-                
-        # If the user asks for a size, delete items that don't have it!
-        if size_pref and size_pref.lower() != "none":
-            if _size_match_score(it, size_pref) == 0.0:
-                continue
 
         it["score"] = float(sc)
         ranked.append(it)
@@ -601,40 +560,25 @@ def recommend():
         item_flags = flags_cache.get(item["id"], {})
         return all(item_flags.get(f) for f in fields_wanted)
 
-    def soft_boost(items: List[dict]) -> List[dict]:
-        if not fields_wanted:
-            return items
-        out = []
-        for it in items:
-            item_flags = flags_cache.get(it["id"], {})
-            matches = sum(1 for f in fields_wanted if item_flags.get(f))
-            it2 = {**it}
-            it2["score"] = it["score"] + matches * 0.18
-            out.append(it2)
-        return out
-
     fallback_reason = None
-
     if fields_wanted and strict_mode:
         strict_items = [it for it in ranked if pass_all_flags(it)]
         if strict_items:
             ranked = strict_items
         else:
             fallback_reason = "no_strict_additional_match"
-            ranked = soft_boost(ranked)
-    else:
-        ranked = soft_boost(ranked)
 
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
-
-    # Only sort by score (visual AI match) now!
+    
+    # 🚨 PURE VISUAL MATCHING SORT 🚨
     ranked.sort(key=lambda x: x["score"], reverse=True)
     ranked = ranked[:k]
 
     payload_items = _to_ui(ranked, size_pref=size_pref, color_pref=color_pref)
 
+    # 🚨 AI RUNS ONLY IF CATALOG IS EMPTY **OR** IF THE USER CLICKED THE CUSTOM BUTTON 🚨
     ai_designer_data = None
-    if GEMINI_API_KEY:
+    if (len(payload_items) == 0 or force_ai) and GEMINI_API_KEY:
         ai_designer_data = analyze_with_gemini(
             img_b64=img_b64,
             text=text,
@@ -642,16 +586,19 @@ def recommend():
             size_pref=size_pref,
             color_pref=color_pref,
             min_b=min_budget,
-            max_b=max_budget,
-            top_items=payload_items[:3] 
+            max_b=max_budget
         )
+        
+        # If AI was forced, clear the catalog items so ONLY the AI concept shows
+        if force_ai:
+            payload_items = []
 
     return jsonify({
         "items": payload_items,
         "products": payload_items,
         "results": payload_items,
         "ai_designer": ai_designer_data,
-        "from": "catalog",
+        "from": "catalog" if len(payload_items) > 0 else "ai_fallback",
         "count": len(payload_items),
         "fallback": fallback_reason,
     })

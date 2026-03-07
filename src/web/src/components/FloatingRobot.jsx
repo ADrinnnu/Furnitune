@@ -10,7 +10,6 @@ const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
 const RECO_URL = (import.meta.env.VITE_RECO_URL || "/recommender").replace(/\/+$/, "");
 
-// how many recommendations to show
 const RECO_K = 2;
 
 // ---- panel styles ----
@@ -51,7 +50,6 @@ const PANEL_CSS = `
 .muted{color:#5c6a64;font-size:.85rem}
 `;
 
-// ---- Questions per type (color options include "None") ----
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 
 const TYPE_QUESTIONS = {
@@ -83,7 +81,6 @@ const TYPE_QUESTIONS = {
   ],
 };
 
-// quick type check for filtering
 const TYPE_ALIASES = {
   bed: ["bed","beds"],
   sofa: ["sofa","sofas","couch","couches"],
@@ -102,7 +99,6 @@ function itemLooksLikeType(item, type) {
   return want.some(w => hay.includes(w));
 }
 
-// Prefer thumbnail first (backend signs gs:// → https)
 const getPrimaryImage = (it) => {
   if (!it) return "";
   if (it.thumbnail) return String(it.thumbnail);
@@ -114,7 +110,6 @@ const getPrimaryImage = (it) => {
 };
 
 export default function FloatingRobot() {
-  // FAB and panel toggles
   const [open, setOpen] = useState(false);
   const [offset, setOffset] = useState(0);
   const wrapRef = useRef(null);
@@ -140,7 +135,6 @@ export default function FloatingRobot() {
     };
   }, [open]);
 
-  // auth
   const [meName, setMeName] = useState("Guest");
   useEffect(() => {
     const unsub = onAuthStateChanged(auth, (u) => {
@@ -151,7 +145,6 @@ export default function FloatingRobot() {
     return () => unsub();
   }, []);
 
-  // Reco state
   const [recoOpen, setRecoOpen] = useState(false);
   const [recoInitialized, setRecoInitialized] = useState(false);
   const [recoHealth, setRecoHealth] = useState(null);
@@ -165,7 +158,6 @@ export default function FloatingRobot() {
   const recoFileRef = useRef(null);
   const recoScrollRef = useRef(null);
 
-  // FAQ
   const [faqOpen, setFaqOpen] = useState(false);
   const [faqMessages, setFaqMessages] = useState([]);
   const [faqInput, setFaqInput] = useState("");
@@ -173,30 +165,22 @@ export default function FloatingRobot() {
   const [faqError, setFaqError] = useState("");
   const faqScrollRef = useRef(null);
 
-  // public APIs on window
   useEffect(() => {
-    window.FurnituneFAQ = {
-      open: () => setFaqOpen(true),
-      close: () => setFaqOpen(false),
-      toggle: () => setFaqOpen(v => !v),
-    };
+    window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v => !v) };
     return () => { delete window.FurnituneFAQ; };
   }, []);
   useEffect(() => {
     window.FurnituneReco = {
       open: () => {
-        setRecoOpen(true);
-        setRecoInitialized(false);
+        setRecoOpen(true); setRecoInitialized(false);
         setRecoType(""); setRecoAnswers({}); setRecoQIndex(0);
         setRecoImage(null); setRecoMessages([]);
       },
-      close: () => setRecoOpen(false),
-      toggle: () => setRecoOpen(v => !v)
+      close: () => setRecoOpen(false), toggle: () => setRecoOpen(v => !v)
     };
     return () => { delete window.FurnituneReco; };
   }, []);
 
-  // health
   useEffect(() => {
     if (!recoOpen || recoHealth) return;
     (async () => {
@@ -205,7 +189,6 @@ export default function FloatingRobot() {
     })();
   }, [recoOpen, recoHealth]);
 
-  // boot convo
   useEffect(() => {
     if (!recoOpen || recoInitialized) return;
     setRecoInitialized(true);
@@ -215,7 +198,6 @@ export default function FloatingRobot() {
     ]);
   }, [recoOpen, recoInitialized]);
 
-  // autoscroll
   useEffect(() => { if (recoScrollRef.current) recoScrollRef.current.scrollTop = recoScrollRef.current.scrollHeight; }, [recoMessages, recoError, recoBusy]);
   useEffect(() => { if (faqScrollRef.current) faqScrollRef.current.scrollTop = faqScrollRef.current.scrollHeight; }, [faqMessages, faqBusy, faqError]);
 
@@ -232,20 +214,27 @@ export default function FloatingRobot() {
   const recoBuildQuery = (type, a) => {
     const parts = [type];
     if (a.size) parts.push(String(a.size));
-    if (a.color) parts.push(String(a.color));
-    if (Array.isArray(a.additionals) && a.additionals.length) parts.push(a.additionals.join(" "));
+    if (a.color && a.color !== "None") parts.push(String(a.color));
+    if (Array.isArray(a.additionals) && a.additionals.length && !a.additionals.includes("None")) {
+      parts.push(a.additionals.join(" "));
+    }
     return parts.join(", ");
   };
 
   const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
-  async function recommendBest(type, allAnswers) {
+  // 🚨 FORCE AI TRIGGER ADDED HERE 🚨
+  async function recommendBest(type, allAnswers, force_ai = false) {
     if (recoHealth && recoHealth !== "ok") {
       addRecoMsg({ role:"bot", text:"Hmm, the recommender service looks offline right now. Please try again later." });
       return;
     }
     setRecoError(""); setRecoBusy(true);
-    addRecoMsg({ role:"bot", text:"Got it! Let me find the best match for you…" });
+    if(force_ai) {
+        addRecoMsg({ role:"bot", text:"Got it! I am designing a custom concept just for you..." });
+    } else {
+        addRecoMsg({ role:"bot", text:"Got it! Let me search our catalog..." });
+    }
 
     try {
       const body = {
@@ -253,15 +242,14 @@ export default function FloatingRobot() {
         text: `${recoBuildQuery(type, allAnswers)}`,
         type,
         size: allAnswers.size || "",
-        color: allAnswers.color || "",
+        color: allAnswers.color === "None" ? "" : (allAnswers.color || ""),
         additionals: Array.isArray(allAnswers.additionals) ? allAnswers.additionals : [],
         strict: !Array.isArray(allAnswers.additionals)
           ? false
           : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
-        w_image: 0.8, // <-- INCREASED to force the catalog to care about your room photo
-        w_text: 0.2,  // <-- DECREASED
-        color_weight: 0.35,
-        color_mode: "match",
+        w_image: 1.0, 
+        w_text: 0.0, 
+        force_ai: force_ai // PASSING THE TRIGGER TO PYTHON!
       };
       if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
 
@@ -278,44 +266,41 @@ export default function FloatingRobot() {
         addRecoMsg({ role: "bot", text: `🤖 ${data.ai_designer.room_analysis}` });
       }
 
-      // 2. SHOW CATALOG ITEMS
-      const sameType = items.filter(it => itemLooksLikeType(it, type));
-      const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
+      // 2. SHOW CATALOG ITEMS (If we didn't force AI)
+      if (!force_ai && items.length > 0) {
+        const sameType = items.filter(it => itemLooksLikeType(it, type));
+        const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
 
-      if (picks.length) {
         addRecoMsg({
           role: "bot",
-          text: "📦 Here are some ready-to-ship matches from our catalog:",
+          text: "📦 Here are the closest ready-to-ship matches from our catalog:",
         });
 
         picks.forEach(p => {
           addRecoMsg({ role: "bot", product: p });
         });
-      } else {
+        
+        // ADDED THE NEW BUTTON! If the catalog doesn't have exactly what they want, let them trigger the AI
         addRecoMsg({
-          role: "bot",
-          text: `I couldn’t find a perfect ${type.toLowerCase()} in our ready-to-ship catalog.`,
+          role:"bot",
+          text:"Are you looking for something completely unique?",
+          chips:["Design Custom AI Concept", "Change type", "Start over"],
         });
-      }
+      } 
 
       // 3. SHOW AI GENERATED CONCEPTS
       if (data.ai_designer && data.ai_designer.custom_concepts && data.ai_designer.custom_concepts.length > 0) {
-        addRecoMsg({
-          role: "bot",
-          text: "🎨 Don't see what you like? I designed these custom concepts based on your room. We can build them for you!"
-        });
-        
         data.ai_designer.custom_concepts.forEach(concept => {
           addRecoMsg({ role: "bot", customConcept: concept });
         });
+        
+        // Follow up after custom AI
+        addRecoMsg({
+          role:"bot",
+          text:"What would you like to do next?",
+          chips:["Change type", "Start over"],
+        });
       }
-
-      // 4. FOLLOW UP OPTIONS
-      addRecoMsg({
-        role:"bot",
-        text:"What would you like to do next?",
-        chips:["Yes, go to custom order", "Change type", "Start over"],
-      });
 
     } catch (e) {
       setRecoError(e.message || "Recommender failed");
@@ -326,20 +311,11 @@ export default function FloatingRobot() {
     }
   }
 
-  // chips flow (multi-select + YES/NO flow)
   function onRecoChipClick(label){
-    // YES → just go to customization, no prefill
-    if (label === "Yes, go to custom order") {
-      window.location.href = "/customization";
-      return;
-    }
-
-    if (label === "No, that's all for now") {
-      addRecoMsg({
-        role:"bot",
-        text:"Okay! If you’d like to tweak the recommendation, you can change the type or start over.",
-        chips:["Change type","Start over"],
-      });
+    // 🚨 TRIGGER CUSTOM AI HERE 🚨
+    if (label === "Design Custom AI Concept") {
+      addRecoMsg({ role: "user", text: label });
+      recommendBest(recoType, { ...recoAnswers }, true); // Force AI to True!
       return;
     }
 
@@ -389,7 +365,6 @@ export default function FloatingRobot() {
           else { recommendBest(recoType, { ...recoAnswers }); }
           return;
         }
-        // toggle selection
         setRecoAnswers(a=>{
           const cur = Array.isArray(a.additionals) ? a.additionals.slice() : [];
           const i = cur.indexOf(label);
@@ -416,7 +391,6 @@ export default function FloatingRobot() {
     recoAskType();
   }
 
-  // FAQ quick answers
   const CONTACT = { phone:"09650934957", email:"furnitunecp@gmail.com", live:"Offline now" };
   const FAQS = [
     { q:"What is Furnitune?", a:"Furnitune is an e-commerce platform for Santos Upholstery offering ready-made products, customization, repairs, an AI recommender, and an FAQ chatbot.", tags:["general"] },
@@ -579,7 +553,19 @@ export default function FloatingRobot() {
                       <div style={{fontSize: "0.75rem", background: "#f5f5f5", padding: "6px", borderRadius: "6px", marginTop: "8px"}}>
                         <strong>Color:</strong> {m.customConcept.suggested_color}
                       </div>
-                      <button className="btn" onClick={() => window.location.href="/customization"}>Build This Custom</button>
+                      
+                      {/* 🚨 PASSING PARAMETERS TO CUSTOMIZATION PAGE 🚨 */}
+                      <button className="btn" onClick={() => {
+                          const params = new URLSearchParams({
+                              ai_title: m.customConcept.title,
+                              ai_color: m.customConcept.suggested_color,
+                              ai_desc: m.customConcept.description,
+                              ai_img: m.customConcept.image_url // <--- ADD THIS LINE!
+                          });
+                          window.location.href = `/customization?${params.toString()}`;
+                      }}>
+                        Build This Custom
+                      </button>
                     </div>
                   </div>
                 )}
