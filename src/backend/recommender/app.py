@@ -46,7 +46,7 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-# Threshold to trigger AI when catalog doesn't perfectly match the room
+# 🚨 THE NEW THRESHOLD: Will confidently clear the catalog if the room doesn't match!
 SUITABILITY_THRESHOLD = 0.68
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -117,21 +117,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
-            # Clean prompt to completely prevent URL breakage
             c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
             c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
             
             c_color_short = " ".join(c_color.split()[:2])
             c_title_short = " ".join(c_title.split()[:3])
             
-            img_prompt_str = f"{c_color_short} {c_title_short} furniture isolated on white background"
+            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated"
             encoded_prompt = urllib.parse.quote(img_prompt_str)
+            seed = random.randint(1, 999999)
             
-            # 🚨 SPEED HACKS APPLIED HERE 🚨
-            # model=turbo (fastest AI generation)
-            # enhance=false (skips GPT prompt rewriting, saves 5 seconds)
-            # seed=12345 (caches the image on Pollinations' global CDN for instant reloads)
-            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=turbo&enhance=false&nologo=true&seed=12345"
+            # 🚨 THE NEW AI SPEED HACK: Using model=flux for instant generation! 🚨
+            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=flux&nologo=true&seed={seed}"
 
         return parsed
     except Exception as e:
@@ -453,10 +450,12 @@ def recommend():
     
     force_ai_fallback = force_ai
 
-    # 🚨 SUITABILITY CHECK 🚨
+    # 🚨 SUITABILITY CHECK WITH 0.68 THRESHOLD 🚨
     if img_b64 and len(top_matches) > 0:
         best_score = top_matches[0]["score"]
+        print(f"DEBUG: Best visual match score is {best_score}")
         if best_score < SUITABILITY_THRESHOLD:
+            print("DEBUG: Visual match too poor. Forcing AI Fallback.")
             force_ai_fallback = True
 
     if force_ai_fallback:
@@ -466,6 +465,7 @@ def recommend():
 
     ai_designer_data = None
     if len(payload_items) == 0 and GEMINI_API_KEY:
+        print("DEBUG: Triggering Gemini AI Designer.")
         ai_designer_data = analyze_with_gemini(
             img_b64=img_b64, text=text, f_type=f_type, size_pref=size_pref, color_pref=color_pref, min_b=min_budget, max_b=max_budget
         )

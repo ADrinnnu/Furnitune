@@ -5,14 +5,12 @@ import botImg from "../assets/letter-f.png";
 import { onAuthStateChanged } from "firebase/auth";
 import { auth } from "../firebase";
 
-// ---- endpoints ----
 const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
 const RECO_URL = (import.meta.env.VITE_RECO_URL || "/recommender").replace(/\/+$/, "");
 
 const RECO_K = 2;
 
-// ---- panel styles ----
 const PANEL_CSS = `
 .mini-panel{position:fixed;right:22px;bottom:84px;width:420px;max-width:calc(100vw - 24px);
   height:620px;max-height:calc(100vh - 120px);background:#f8f5ee;border:1px solid #dcd5c7;border-radius:22px;overflow:hidden;
@@ -52,34 +50,54 @@ const PANEL_CSS = `
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
+// 🚨 THE MAGIC FIX: Auto-Retry Image Loader 🚨
 function ImageWithLoader({ src, alt }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
+  const [retryCount, setRetryCount] = useState(0);
+
+  useEffect(() => {
+    // If the browser gives up, we automatically wait 3 seconds and force it to try again!
+    if (error && retryCount < 4) {
+      const timer = setTimeout(() => {
+        setError(false);
+        setLoaded(false);
+        setRetryCount(prev => prev + 1);
+      }, 3000);
+      return () => clearTimeout(timer);
+    }
+  }, [error, retryCount]);
+
+  // Appending &retry=X forces the browser to actually make a new request instead of giving up
+  const imageSrc = retryCount > 0 ? `${src}&retry=${retryCount}` : src;
 
   return (
-    <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+    <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       {!loaded && !error && (
-        <span className="loading-text">✨ AI is drawing your design...</span>
+        <span className="loading-text" style={{ position: "absolute", zIndex: 1 }}>
+          {retryCount > 0 ? "✨ Applying finishing touches..." : "✨ AI is drawing your design..."}
+        </span>
       )}
-      {error && (
-        <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10 }}>
-            Image failed to load in Chat.<br/>
-            <a href={src} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to view AI Image</a>
+      {error && retryCount >= 4 && (
+        <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10, position: "absolute", zIndex: 1 }}>
+            Image took too long.<br/>
+            <a href={src} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to open it directly</a>
         </div>
       )}
       <img
-        src={src}
+        key={retryCount}
+        src={imageSrc}
         alt={alt}
-        onLoad={() => setLoaded(true)}
+        onLoad={() => { setLoaded(true); setError(false); }}
         onError={() => { setLoaded(true); setError(true); }}
         style={{
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          display: loaded && !error ? "block" : "none", 
-          position: "absolute",
-          top: 0,
-          left: 0
+          opacity: loaded && !error ? 1 : 0, 
+          transition: "opacity 0.4s ease-in-out",
+          position: "relative",
+          zIndex: 2
         }}
       />
     </div>
@@ -296,12 +314,10 @@ export default function FloatingRobot() {
       if (Array.isArray(data.items) && data.items.length) items = data.items;
       else if (Array.isArray(data.related) && data.related.length) items = data.related;
 
-      // 1. SHOW AI ANALYSIS TEXT
       if (data.ai_designer && data.ai_designer.room_analysis) {
         addRecoMsg({ role: "bot", text: `🤖 ${data.ai_designer.room_analysis}` });
       }
 
-      // 2. SHOW CATALOG ITEMS
       if (!force_ai && items.length > 0) {
         const sameType = items.filter(it => itemLooksLikeType(it, type));
         const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
@@ -322,7 +338,6 @@ export default function FloatingRobot() {
         });
       } 
 
-      // 3. SHOW AI GENERATED CONCEPTS
       if (data.ai_designer && data.ai_designer.custom_concepts && data.ai_designer.custom_concepts.length > 0) {
         data.ai_designer.custom_concepts.forEach(concept => {
           addRecoMsg({ role: "bot", customConcept: concept });
@@ -347,7 +362,7 @@ export default function FloatingRobot() {
   function onRecoChipClick(label){
     if (label === "Design Custom AI Concept") {
       addRecoMsg({ role: "user", text: label });
-      recommendBest(recoType, { ...recoAnswers }, true); // Force AI!
+      recommendBest(recoType, { ...recoAnswers }, true);
       return;
     }
 
