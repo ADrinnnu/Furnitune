@@ -46,9 +46,8 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-# 🚨 INCREASED THRESHOLD: The catalog must be a VERY GOOD visual match (> 0.55), 
-# otherwise it clears the catalog and forces the Custom AI to take over!
-SUITABILITY_THRESHOLD = 0.55
+# Threshold to trigger AI when catalog doesn't perfectly match the room
+SUITABILITY_THRESHOLD = 0.68
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = None
@@ -72,18 +71,17 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         contents = []
 
         prompt = f"""
-        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK in our ready-to-ship catalog, or doesn't match their room's aesthetic perfectly.
+        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK.
         Analyze their room photo (if provided) and design 2 CUSTOM concepts that perfectly meet their requirements.
         
         Customer Requirements:
         - Type: {f_type or 'Not specified'}
         - Size: {size_pref or 'Not specified'}
         - Color: {color_pref or 'Not specified'}
-        - Budget: {min_b or 0} to {max_b or 'Any'} PHP
 
         Output ONLY valid JSON. Structure exactly like this:
         {{
-          "room_analysis": "A warm paragraph explaining that while the exact item isn't in our standard catalog, you've custom-designed these pieces to perfectly match their space.",
+          "room_analysis": "A warm paragraph explaining that their exact item is out of stock, but you designed these custom concepts specifically to match their room.",
           "custom_concepts": [
             {{
               "title": "Short Creative Name of Furniture",
@@ -119,18 +117,21 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
+            # Clean prompt to completely prevent URL breakage
             c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
             c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
             
             c_color_short = " ".join(c_color.split()[:2])
             c_title_short = " ".join(c_title.split()[:3])
             
-            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated"
+            img_prompt_str = f"{c_color_short} {c_title_short} furniture isolated on white background"
             encoded_prompt = urllib.parse.quote(img_prompt_str)
-            seed = random.randint(1, 999999)
             
-            # 🚨 Added model=flux to generate the image in 2 seconds so it NEVER times out! 🚨
-            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=flux&nologo=true&seed={seed}"
+            # 🚨 SPEED HACKS APPLIED HERE 🚨
+            # model=turbo (fastest AI generation)
+            # enhance=false (skips GPT prompt rewriting, saves 5 seconds)
+            # seed=12345 (caches the image on Pollinations' global CDN for instant reloads)
+            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=turbo&enhance=false&nologo=true&seed=12345"
 
         return parsed
     except Exception as e:
@@ -452,12 +453,10 @@ def recommend():
     
     force_ai_fallback = force_ai
 
-    # 🚨 SUITABILITY CHECK WITH NEW HIGH THRESHOLD 🚨
+    # 🚨 SUITABILITY CHECK 🚨
     if img_b64 and len(top_matches) > 0:
         best_score = top_matches[0]["score"]
-        print(f"DEBUG: Best visual match score is {best_score}")
         if best_score < SUITABILITY_THRESHOLD:
-            print("DEBUG: Visual match too poor. Forcing AI Fallback.")
             force_ai_fallback = True
 
     if force_ai_fallback:
@@ -467,7 +466,6 @@ def recommend():
 
     ai_designer_data = None
     if len(payload_items) == 0 and GEMINI_API_KEY:
-        print("DEBUG: Triggering Gemini AI Designer.")
         ai_designer_data = analyze_with_gemini(
             img_b64=img_b64, text=text, f_type=f_type, size_pref=size_pref, color_pref=color_pref, min_b=min_budget, max_b=max_budget
         )
