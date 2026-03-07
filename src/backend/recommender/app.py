@@ -44,7 +44,6 @@ PROJECT_ID = os.getenv("GCP_PROJECT") or os.getenv("FIREBASE_PROJECT") or ""
 GCS_BUCKET = os.getenv("GCS_BUCKET", "")
 SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
-BOOST_PER_MATCH = float(os.getenv("BOOST_PER_MATCH", "0.18"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
@@ -67,15 +66,13 @@ gcs = storage.Client(project=PROJECT_ID or None)
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b):
     try:
         if not gemini_client:
-            return {
-                "room_analysis": "🚨 DEBUG: No API Key found on the server!",
-                "custom_concepts": []
-            }
+            return {"room_analysis": "🚨 DEBUG: No API Key found!", "custom_concepts": []}
 
         contents = []
 
         prompt = f"""
-        You are an expert interior designer. The customer wants a custom piece of furniture.
+        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK in our ready-to-ship catalog.
+        Analyze their room photo (if provided) and design 2 CUSTOM concepts that perfectly meet their requirements.
         
         Customer Requirements:
         - Type: {f_type or 'Not specified'}
@@ -84,20 +81,20 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         - Budget: {min_b or 0} to {max_b or 'Any'} PHP
         - Extra text: {text}
 
-        Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements and matches their room's aesthetic.
-
         Output ONLY valid JSON. Structure exactly like this:
         {{
-          "room_analysis": "A warm, personalized 2-sentence paragraph analyzing their room and introducing the custom concept you designed for them.",
+          "room_analysis": "A warm paragraph explaining that the exact item is out of stock, but you designed these concepts to perfectly complement their room.",
           "custom_concepts": [
             {{
               "title": "Creative Name of the Custom Furniture Piece",
               "description": "Why this specific custom piece would look amazing in their room.",
               "category": "The category (e.g., Sofa, Bed, Chair)",
-              "suggested_color": "The recommended color (perfectly matching their requested color if they provided one)."
+              "suggested_color": "The recommended color (perfectly matching their requested color).",
+              "background_vibe": "A 4-word description of the exact lighting and style of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo was uploaded, output 'bright minimal interior design room'."
             }}
           ]
         }}
+        Provide exactly 2 custom concepts.
         """
         
         if img_b64:
@@ -124,26 +121,23 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
-            # 🚨 BULLETPROOF PROMPT CLEANER 🚨
-            clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("title", f_type or "Furniture"))
-            clean_color = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("suggested_color", color_pref or "Neutral"))
+            clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("title", ""))
+            clean_color = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("suggested_color", color_pref or ""))
+            raw_vibe = concept.get("background_vibe", "bright minimal room")
+            clean_vibe = re.sub(r'[^a-zA-Z0-9\s]', '', raw_vibe)
+            short_vibe = " ".join(clean_vibe.split()[:6])
             
-            # Simple prompt so Pollinations NEVER breaks
-            img_prompt_str = f"Professional product photography of a {clean_color} {clean_title} modern furniture, white background"
-            
+            # Pure, clean text to ensure Pollinations works 100% of the time
+            img_prompt_str = f"Photorealistic {clean_color} {clean_title} placed inside a {short_vibe}"
             encoded_prompt = urllib.parse.quote(img_prompt_str)
-            seed = random.randint(1, 999999)
+            seed = random.randint(1, 99999)
             
-            # 🚨 STABLE IMAGE URL ENDPOINT 🚨
             concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true&seed={seed}"
 
         return parsed
     except Exception as e:
         print(f"Gemini Error: {e}")
-        return {
-            "room_analysis": f"🚨 DEBUG ERROR: Gemini crashed with error: {str(e)}",
-            "custom_concepts": []
-        }
+        return {"room_analysis": f"🚨 DEBUG ERROR: {str(e)}", "custom_concepts": []}
 
 # -----------------------------------------------------------------------------
 # Helpers
@@ -506,12 +500,11 @@ def recommend():
     color_pref      = (data.get("color") or "").strip()
     additionals_in  = _extract_additionals(data, text)
     
-    # 🚨 THE NEW LOGIC 🚨
-    # React passes force_ai=true when the user clicks the "Design Custom AI" button!
     force_ai        = bool(data.get("force_ai", False))
     
-    w_image         = float(data.get("w_image", 1.0)) 
-    w_text          = float(data.get("w_text", 0.0))
+    # Slightly adjusted weights so FAISS understands you are looking for a Sofa *inside* the room image
+    w_image         = float(data.get("w_image", 0.85)) 
+    w_text          = float(data.get("w_text", 0.15))
 
     try:
         min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
@@ -550,6 +543,14 @@ def recommend():
             continue
         if max_budget is not None and price > max_budget:
             continue
+            
+        if color_pref and color_pref.lower() != "none":
+            if _color_match_score(it, color_pref) == 0.0:
+                continue
+                
+        if size_pref and size_pref.lower() != "none":
+            if _size_match_score(it, size_pref) == 0.0:
+                continue
 
         it["score"] = float(sc)
         ranked.append(it)
@@ -569,14 +570,14 @@ def recommend():
             fallback_reason = "no_strict_additional_match"
 
     ranked = [_ensure_item_avg_lab(it) for it in ranked]
-    
-    # 🚨 PURE VISUAL MATCHING SORT 🚨
     ranked.sort(key=lambda x: x["score"], reverse=True)
-    ranked = ranked[:k]
+    
+    top_matches = ranked[:k]
+    
+    # Send matches to UI
+    payload_items = _to_ui(top_matches, size_pref=size_pref, color_pref=color_pref)
 
-    payload_items = _to_ui(ranked, size_pref=size_pref, color_pref=color_pref)
-
-    # 🚨 AI RUNS ONLY IF CATALOG IS EMPTY **OR** IF THE USER CLICKED THE CUSTOM BUTTON 🚨
+    # 🚨 ONLY triggers Gemini if catalog is completely empty OR user clicked the Custom button 🚨
     ai_designer_data = None
     if (len(payload_items) == 0 or force_ai) and GEMINI_API_KEY:
         ai_designer_data = analyze_with_gemini(
@@ -588,8 +589,6 @@ def recommend():
             min_b=min_budget,
             max_b=max_budget
         )
-        
-        # If AI was forced, clear the catalog items so ONLY the AI concept shows
         if force_ai:
             payload_items = []
 

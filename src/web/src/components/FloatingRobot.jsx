@@ -48,7 +48,42 @@ const PANEL_CSS = `
 .input{flex:1;border:1px solid #cbbfae;border-radius:12px;padding:10px 12px;background:#fff}
 .send{border:1px solid #2d4739;background:#2d4739;color:#fff;padding:8px 12px;border-radius:12px;font-weight:800;cursor:pointer}
 .muted{color:#5c6a64;font-size:.85rem}
+/* New loading animation class */
+@keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
+.loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
+
+// 🚨 NEW IMAGE LOADER COMPONENT 🚨
+function ImageWithLoader({ src, alt }) {
+  const [loaded, setLoaded] = useState(false);
+  const [error, setError] = useState(false);
+
+  return (
+    <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative" }}>
+      {!loaded && !error && (
+        <span className="loading-text">✨ AI is drawing your design...</span>
+      )}
+      {error && (
+        <span style={{ fontSize: 12, color: "#999" }}>Image failed to load</span>
+      )}
+      <img
+        src={src}
+        alt={alt}
+        onLoad={() => setLoaded(true)}
+        onError={() => { setLoaded(true); setError(true); }}
+        style={{
+          width: "100%",
+          height: "100%",
+          objectFit: "cover",
+          display: loaded && !error ? "block" : "none", // Hide the image until it is fully downloaded
+          position: "absolute",
+          top: 0,
+          left: 0
+        }}
+      />
+    </div>
+  );
+}
 
 const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 
@@ -223,7 +258,6 @@ export default function FloatingRobot() {
 
   const toBase64 = (file) => new Promise((res, rej)=>{ const r=new FileReader(); r.onload=()=>{ const s=String(r.result||""); res(s.includes(",")?s.split(",")[1]:s); }; r.onerror=rej; r.readAsDataURL(file); });
 
-  // 🚨 FORCE AI TRIGGER ADDED HERE 🚨
   async function recommendBest(type, allAnswers, force_ai = false) {
     if (recoHealth && recoHealth !== "ok") {
       addRecoMsg({ role:"bot", text:"Hmm, the recommender service looks offline right now. Please try again later." });
@@ -247,9 +281,9 @@ export default function FloatingRobot() {
         strict: !Array.isArray(allAnswers.additionals)
           ? false
           : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
-        w_image: 1.0, 
-        w_text: 0.0, 
-        force_ai: force_ai // PASSING THE TRIGGER TO PYTHON!
+        w_image: 0.85, // Giving the visual AI high priority
+        w_text: 0.15,  // Letting text guide the item type
+        force_ai: force_ai
       };
       if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
 
@@ -266,7 +300,7 @@ export default function FloatingRobot() {
         addRecoMsg({ role: "bot", text: `🤖 ${data.ai_designer.room_analysis}` });
       }
 
-      // 2. SHOW CATALOG ITEMS (If we didn't force AI)
+      // 2. SHOW CATALOG ITEMS (If we didn't force AI and catalog has items)
       if (!force_ai && items.length > 0) {
         const sameType = items.filter(it => itemLooksLikeType(it, type));
         const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
@@ -280,7 +314,7 @@ export default function FloatingRobot() {
           addRecoMsg({ role: "bot", product: p });
         });
         
-        // ADDED THE NEW BUTTON! If the catalog doesn't have exactly what they want, let them trigger the AI
+        // 🚨 IMPORTANT: Offer the AI custom option if the catalog match isn't perfect!
         addRecoMsg({
           role:"bot",
           text:"Are you looking for something completely unique?",
@@ -294,7 +328,6 @@ export default function FloatingRobot() {
           addRecoMsg({ role: "bot", customConcept: concept });
         });
         
-        // Follow up after custom AI
         addRecoMsg({
           role:"bot",
           text:"What would you like to do next?",
@@ -312,10 +345,9 @@ export default function FloatingRobot() {
   }
 
   function onRecoChipClick(label){
-    // 🚨 TRIGGER CUSTOM AI HERE 🚨
     if (label === "Design Custom AI Concept") {
       addRecoMsg({ role: "user", text: label });
-      recommendBest(recoType, { ...recoAnswers }, true); // Force AI to True!
+      recommendBest(recoType, { ...recoAnswers }, true); // Force AI!
       return;
     }
 
@@ -534,18 +566,12 @@ export default function FloatingRobot() {
                 {m.customConcept && (
                   <div className="card ai-concept">
                     <div className="ai-badge">AI CONCEPT</div>
-                    {m.customConcept.image_url ? (
-                      <img 
-                        src={m.customConcept.image_url} 
-                        alt={m.customConcept.title} 
-                        onError={(e) => {
-                          e.target.onerror = null;
-                          e.target.src = "https://placehold.co/800x600/eeeeee/999999?text=Image+Failed+to+Load";
-                        }}
-                      />
-                    ) : (
-                      <div style={{height:160, display:'grid', placeItems:'center', background:'#eee'}}>Generating Image...</div>
+                    
+                    {/* 🚨 THE NEW BEAUTIFUL LOADING COMPONENT 🚨 */}
+                    {m.customConcept.image_url && (
+                        <ImageWithLoader src={m.customConcept.image_url} alt={m.customConcept.title} />
                     )}
+                    
                     <div className="body">
                       <div className="type">CUSTOM {m.customConcept.category || recoType}</div>
                       <div className="title">{m.customConcept.title}</div>
@@ -554,13 +580,12 @@ export default function FloatingRobot() {
                         <strong>Color:</strong> {m.customConcept.suggested_color}
                       </div>
                       
-                      {/* 🚨 PASSING PARAMETERS TO CUSTOMIZATION PAGE 🚨 */}
                       <button className="btn" onClick={() => {
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
                               ai_desc: m.customConcept.description,
-                              ai_img: m.customConcept.image_url // <--- ADD THIS LINE!
+                              ai_img: m.customConcept.image_url
                           });
                           window.location.href = `/customization?${params.toString()}`;
                       }}>
