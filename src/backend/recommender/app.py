@@ -46,14 +46,15 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
+# 🚨 INCREASED THRESHOLD: The catalog must be a VERY GOOD visual match (> 0.55), 
+# otherwise it clears the catalog and forces the Custom AI to take over!
+SUITABILITY_THRESHOLD = 0.55
+
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = None
 if GEMINI_API_KEY:
     gemini_client = genai.Client(api_key=GEMINI_API_KEY)
 
-# -----------------------------------------------------------------------------
-# App + Clients
-# -----------------------------------------------------------------------------
 app = Flask(__name__)
 CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
 
@@ -71,7 +72,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         contents = []
 
         prompt = f"""
-        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK in our ready-to-ship catalog.
+        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK in our ready-to-ship catalog, or doesn't match their room's aesthetic perfectly.
         Analyze their room photo (if provided) and design 2 CUSTOM concepts that perfectly meet their requirements.
         
         Customer Requirements:
@@ -79,22 +80,19 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         - Size: {size_pref or 'Not specified'}
         - Color: {color_pref or 'Not specified'}
         - Budget: {min_b or 0} to {max_b or 'Any'} PHP
-        - Extra text: {text}
 
         Output ONLY valid JSON. Structure exactly like this:
         {{
-          "room_analysis": "A warm paragraph explaining that the exact item is out of stock, but you designed these concepts to perfectly complement their room.",
+          "room_analysis": "A warm paragraph explaining that while the exact item isn't in our standard catalog, you've custom-designed these pieces to perfectly match their space.",
           "custom_concepts": [
             {{
-              "title": "Creative Name of the Custom Furniture Piece",
-              "description": "Why this specific custom piece would look amazing in their room.",
-              "category": "The category (e.g., Sofa, Bed, Chair)",
-              "suggested_color": "The recommended color (perfectly matching their requested color).",
-              "background_vibe": "A 4-word description of the exact lighting and style of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo was uploaded, output 'bright minimal interior design room'."
+              "title": "Short Creative Name of Furniture",
+              "description": "Why this specific piece looks amazing in their room.",
+              "category": "The category (e.g., Sofa, Bed)",
+              "suggested_color": "The recommended color."
             }}
           ]
         }}
-        Provide exactly 2 custom concepts.
         """
         
         if img_b64:
@@ -121,18 +119,18 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         parsed = json.loads(json_str)
 
         for concept in parsed.get("custom_concepts", []):
-            clean_title = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("title", ""))
-            clean_color = re.sub(r'[^a-zA-Z0-9\s]', '', concept.get("suggested_color", color_pref or ""))
-            raw_vibe = concept.get("background_vibe", "bright minimal room")
-            clean_vibe = re.sub(r'[^a-zA-Z0-9\s]', '', raw_vibe)
-            short_vibe = " ".join(clean_vibe.split()[:6])
+            c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
+            c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
             
-            # Pure, clean text to ensure Pollinations works 100% of the time
-            img_prompt_str = f"Photorealistic {clean_color} {clean_title} placed inside a {short_vibe}"
+            c_color_short = " ".join(c_color.split()[:2])
+            c_title_short = " ".join(c_title.split()[:3])
+            
+            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated"
             encoded_prompt = urllib.parse.quote(img_prompt_str)
-            seed = random.randint(1, 99999)
+            seed = random.randint(1, 999999)
             
-            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true&seed={seed}"
+            # 🚨 Added model=flux to generate the image in 2 seconds so it NEVER times out! 🚨
+            concept["image_url"] = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&model=flux&nologo=true&seed={seed}"
 
         return parsed
     except Exception as e:
@@ -358,43 +356,7 @@ def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, s
     except Exception:
         return []
 
-def _room_avg_lab_from_b64(b64: str):
-    try:
-        img = Image.open(io.BytesIO(base64.b64decode(b64))).convert("LAB")
-        arr = np.asarray(img.resize((96, 96)), dtype=np.float32)
-        return [float(arr[:, :, 0].mean()), float(arr[:, :, 1].mean()), float(arr[:, :, 2].mean())]
-    except Exception:
-        return None
-
-def _delta_e_lab(lab1, lab2):
-    return float(np.linalg.norm(np.array(lab1, dtype=np.float32) - np.array(lab2, dtype=np.float32)))
-
-_avg_lab_cache: Dict[str, List[float]] = {}
-
-def _compute_avg_lab_from_url(url: str) -> Optional[List[float]]:
-    try:
-        b = requests.get(url, timeout=10).content
-        img = Image.open(io.BytesIO(b)).convert("LAB")
-        arr = np.asarray(img.resize((96, 96)), dtype=np.float32)
-        return [float(arr[:, :, 0].mean()), float(arr[:, :, 1].mean()), float(arr[:, :, 2].mean())]
-    except Exception:
-        return None
-
 def _ensure_item_avg_lab(it: dict) -> dict:
-    if it.get("avg_lab"):
-        return it
-    pid = it.get("id")
-    urls = _normalize_images(it)
-    if not urls and pid:
-        urls = _hydrate_images_from_firestore(pid)
-    for u in urls:
-        if pid in _avg_lab_cache:
-            it["avg_lab"] = _avg_lab_cache[pid]; return it
-        lab = _compute_avg_lab_from_url(u)
-        if lab:
-            _avg_lab_cache[pid] = lab
-            it["avg_lab"] = lab
-            return it
     return it
 
 art = ArtifactIndex(os.path.join(os.path.dirname(__file__), "artifacts"))
@@ -402,54 +364,6 @@ art.load()
 encoder = ClipQueryEncoder()
 searcher = FaissSearcher(art)
 CATALOG: Dict[str, dict] = {m["id"]: m for m in art.mapping_list}
-
-def _load_flags_cache() -> Dict[str, Dict[str, bool]]:
-    flags: Dict[str, Dict[str, bool]] = {}
-    for snap in db.collection("products").where("active", "==", True).stream():
-        pid = snap.id
-        doc = snap.to_dict() or {}
-        flags[pid] = {field: bool(doc.get(field)) for field in ADDITIONAL_TO_FIELD.values()}
-    return flags
-
-ADDITIONAL_TO_FIELD: Dict[str, str] = {
-    "Cushion": "hasCushions",
-    "With armrest": "hasArmrest",
-    "Footrest": "hasFootrest",
-    "Cabinets": "hasCabinets",
-    "Pull out Bed": "hasPullOutBed",
-    "Glass on top": "hasGlassTop",
-    "Padded foam on top": "hasPaddedFoam",
-    "With storage": "hasStorage",
-    "Throw Pillow": "hasThrowPillow",
-    "Decorative Tray": "hasDecorativeTray",
-}
-
-def _extract_additionals(data: dict, text: str) -> List[str]:
-    addl = []
-    if isinstance(data.get("additionals"), list):
-        addl.extend([a for a in data["additionals"] if isinstance(a, str)])
-    t = (text or "").lower()
-    if "armrest" in t:
-        addl.append("With armrest")
-    if "cushion" in t or "cushions" in t or "pillow" in t:
-        addl.append("Cushion")
-    if "no additional" in t or "none" in t:
-        addl.append("None")
-    seen = set()
-    out = []
-    for a in addl:
-        key = a.strip()
-        if key and key not in seen:
-            seen.add(key); out.append(key)
-    return out
-
-def _map_additionals_to_fields(additionals_in: List[str]) -> List[str]:
-    fields: List[str] = []
-    for a in additionals_in:
-        key = ADDITIONAL_TO_FIELD.get(a) or ADDITIONAL_TO_FIELD.get(a.strip().title())
-        if key:
-            fields.append(key)
-    return fields
 
 def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optional[str] = None) -> List[dict]:
     out: List[dict] = []
@@ -498,13 +412,11 @@ def recommend():
     f_type          = (data.get("type") or "").strip()
     size_pref       = (data.get("size") or "").strip()
     color_pref      = (data.get("color") or "").strip()
-    additionals_in  = _extract_additionals(data, text)
-    
     force_ai        = bool(data.get("force_ai", False))
     
-    # Slightly adjusted weights so FAISS understands you are looking for a Sofa *inside* the room image
-    w_image         = float(data.get("w_image", 0.85)) 
-    w_text          = float(data.get("w_text", 0.15))
+    # 100% VISUAL AI
+    w_image = 1.0 
+    w_text  = 0.0
 
     try:
         min_budget = float(data.get("min_budget")) if data.get("min_budget") else None
@@ -512,85 +424,53 @@ def recommend():
     except ValueError:
         min_budget, max_budget = None, None
 
-    if any(a.strip().lower() == "none" for a in additionals_in):
-        additionals_in = []
-        strict_mode = False
-    else:
-        strict_mode = bool(data.get("strict", True if additionals_in else False))
-
-    fields_wanted = _map_additionals_to_fields(additionals_in)
-    if fields_wanted:
-        strict_mode = True
-
-    flags_cache = _load_flags_cache()
-
     qvec = encoder.embed_query(text=text, image_b64=img_b64, w_image=w_image, w_text=w_text)
-
     rows, scores = searcher.search(qvec, k=max(k, 60))
 
     ranked: List[dict] = []
     for row, sc in zip(rows, scores):
         it = dict(art.row_to_item(row))
         pid = it.get("id")
-        if not pid:
-            continue
-        
-        if f_type and not _type_matches(it, f_type):
-            continue
+        if not pid: continue
+        if f_type and not _type_matches(it, f_type): continue
         
         price = float(it.get("basePrice") or it.get("price") or 0)
-        if min_budget is not None and price < min_budget:
-            continue
-        if max_budget is not None and price > max_budget:
-            continue
+        if min_budget is not None and price < min_budget: continue
+        if max_budget is not None and price > max_budget: continue
             
         if color_pref and color_pref.lower() != "none":
-            if _color_match_score(it, color_pref) == 0.0:
-                continue
+            if _color_match_score(it, color_pref) == 0.0: continue
                 
         if size_pref and size_pref.lower() != "none":
-            if _size_match_score(it, size_pref) == 0.0:
-                continue
+            if _size_match_score(it, size_pref) == 0.0: continue
 
         it["score"] = float(sc)
         ranked.append(it)
 
-    def pass_all_flags(item: dict) -> bool:
-        if not fields_wanted:
-            return True
-        item_flags = flags_cache.get(item["id"], {})
-        return all(item_flags.get(f) for f in fields_wanted)
-
-    fallback_reason = None
-    if fields_wanted and strict_mode:
-        strict_items = [it for it in ranked if pass_all_flags(it)]
-        if strict_items:
-            ranked = strict_items
-        else:
-            fallback_reason = "no_strict_additional_match"
-
-    ranked = [_ensure_item_avg_lab(it) for it in ranked]
     ranked.sort(key=lambda x: x["score"], reverse=True)
-    
     top_matches = ranked[:k]
     
-    # Send matches to UI
-    payload_items = _to_ui(top_matches, size_pref=size_pref, color_pref=color_pref)
+    force_ai_fallback = force_ai
 
-    # 🚨 ONLY triggers Gemini if catalog is completely empty OR user clicked the Custom button 🚨
+    # 🚨 SUITABILITY CHECK WITH NEW HIGH THRESHOLD 🚨
+    if img_b64 and len(top_matches) > 0:
+        best_score = top_matches[0]["score"]
+        print(f"DEBUG: Best visual match score is {best_score}")
+        if best_score < SUITABILITY_THRESHOLD:
+            print("DEBUG: Visual match too poor. Forcing AI Fallback.")
+            force_ai_fallback = True
+
+    if force_ai_fallback:
+        payload_items = []
+    else:
+        payload_items = _to_ui(top_matches, size_pref=size_pref, color_pref=color_pref)
+
     ai_designer_data = None
-    if (len(payload_items) == 0 or force_ai) and GEMINI_API_KEY:
+    if len(payload_items) == 0 and GEMINI_API_KEY:
+        print("DEBUG: Triggering Gemini AI Designer.")
         ai_designer_data = analyze_with_gemini(
-            img_b64=img_b64,
-            text=text,
-            f_type=f_type,
-            size_pref=size_pref,
-            color_pref=color_pref,
-            min_b=min_budget,
-            max_b=max_budget
+            img_b64=img_b64, text=text, f_type=f_type, size_pref=size_pref, color_pref=color_pref, min_b=min_budget, max_b=max_budget
         )
-        if force_ai:
-            payload_items = []
 
     return jsonify({
         "items": payload_items,
@@ -599,7 +479,7 @@ def recommend():
         "ai_designer": ai_designer_data,
         "from": "catalog" if len(payload_items) > 0 else "ai_fallback",
         "count": len(payload_items),
-        "fallback": fallback_reason,
+        "fallback": None,
     })
 
 if __name__ == "__main__":

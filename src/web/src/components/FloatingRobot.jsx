@@ -48,12 +48,10 @@ const PANEL_CSS = `
 .input{flex:1;border:1px solid #cbbfae;border-radius:12px;padding:10px 12px;background:#fff}
 .send{border:1px solid #2d4739;background:#2d4739;color:#fff;padding:8px 12px;border-radius:12px;font-weight:800;cursor:pointer}
 .muted{color:#5c6a64;font-size:.85rem}
-/* New loading animation class */
 @keyframes pulse { 0% { opacity: 0.6; } 50% { opacity: 1; } 100% { opacity: 0.6; } }
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
-// 🚨 NEW IMAGE LOADER COMPONENT 🚨
 function ImageWithLoader({ src, alt }) {
   const [loaded, setLoaded] = useState(false);
   const [error, setError] = useState(false);
@@ -64,7 +62,10 @@ function ImageWithLoader({ src, alt }) {
         <span className="loading-text">✨ AI is drawing your design...</span>
       )}
       {error && (
-        <span style={{ fontSize: 12, color: "#999" }}>Image failed to load</span>
+        <div style={{ fontSize: 12, color: "#999", textAlign: "center", padding: 10 }}>
+            Image failed to load in Chat.<br/>
+            <a href={src} target="_blank" rel="noreferrer" style={{color: "#2F6F62", textDecoration: "underline"}}>Click to view AI Image</a>
+        </div>
       )}
       <img
         src={src}
@@ -75,7 +76,7 @@ function ImageWithLoader({ src, alt }) {
           width: "100%",
           height: "100%",
           objectFit: "cover",
-          display: loaded && !error ? "block" : "none", // Hide the image until it is fully downloaded
+          display: loaded && !error ? "block" : "none", 
           position: "absolute",
           top: 0,
           left: 0
@@ -281,8 +282,8 @@ export default function FloatingRobot() {
         strict: !Array.isArray(allAnswers.additionals)
           ? false
           : allAnswers.additionals.length > 0 && !allAnswers.additionals.includes("None"),
-        w_image: 0.85, // Giving the visual AI high priority
-        w_text: 0.15,  // Letting text guide the item type
+        w_image: 0.85, 
+        w_text: 0.15,  
         force_ai: force_ai
       };
       if (recoImage?.file) body.image_b64 = await toBase64(recoImage.file);
@@ -300,7 +301,7 @@ export default function FloatingRobot() {
         addRecoMsg({ role: "bot", text: `🤖 ${data.ai_designer.room_analysis}` });
       }
 
-      // 2. SHOW CATALOG ITEMS (If we didn't force AI and catalog has items)
+      // 2. SHOW CATALOG ITEMS
       if (!force_ai && items.length > 0) {
         const sameType = items.filter(it => itemLooksLikeType(it, type));
         const picks = (sameType.length ? sameType : items).slice(0, RECO_K);
@@ -314,7 +315,6 @@ export default function FloatingRobot() {
           addRecoMsg({ role: "bot", product: p });
         });
         
-        // 🚨 IMPORTANT: Offer the AI custom option if the catalog match isn't perfect!
         addRecoMsg({
           role:"bot",
           text:"Are you looking for something completely unique?",
@@ -567,7 +567,6 @@ export default function FloatingRobot() {
                   <div className="card ai-concept">
                     <div className="ai-badge">AI CONCEPT</div>
                     
-                    {/* 🚨 THE NEW BEAUTIFUL LOADING COMPONENT 🚨 */}
                     {m.customConcept.image_url && (
                         <ImageWithLoader src={m.customConcept.image_url} alt={m.customConcept.title} />
                     )}
