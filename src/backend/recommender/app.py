@@ -12,7 +12,6 @@ from google.cloud import firestore, storage
 import requests
 
 from google import genai
-
 from model import ArtifactIndex, ClipQueryEncoder, FaissSearcher
 
 # -----------------------------------------------------------------------------
@@ -52,7 +51,6 @@ SUITABILITY_THRESHOLD = 0.68
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
 gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
 
-# Make sure you added OPENROUTER_API_KEY to your Render Environment Variables!
 OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 app = Flask(__name__)
@@ -60,6 +58,12 @@ CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
 
 db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
+
+art = ArtifactIndex(os.path.join(os.path.dirname(__file__), "artifacts"))
+art.load()
+encoder = ClipQueryEncoder()
+searcher = FaissSearcher(art)
+CATALOG: Dict[str, dict] = {m["id"]: m for m in art.mapping_list}
 
 # -----------------------------------------------------------------------------
 # AI Interior Designer Logic (Gemini + OpenRouter Flux)
@@ -102,7 +106,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
-        # 1. Gemini writes the text analysis
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents
@@ -115,7 +118,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
             
         parsed = json.loads(json_str)
 
-        # 2. OpenRouter Flux Draws the Image!
+        # 🚨 OPENROUTER IMAGE GENERATION 🚨
         for concept in parsed.get("custom_concepts", []):
             c_title = str(concept.get("title", f_type or "Furniture"))
             c_color = str(concept.get("suggested_color", color_pref or "Modern"))
@@ -125,7 +128,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
             
             if OPENROUTER_API_KEY:
                 try:
-                    # 🚨 Requesting the Base64 Image from OpenRouter Flux 🚨
                     router_res = requests.post(
                         "https://openrouter.ai/api/v1/chat/completions",
                         headers={
@@ -133,17 +135,15 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
                             "Content-Type": "application/json"
                         },
                         json={
-                            # Using Flux Schnell for lightning-fast, high-quality generation
                             "model": "flux/flux-schnell", 
                             "messages": [{"role": "user", "content": img_prompt}],
-                            "response_format": {"type": "b64_json"} # This tells OpenRouter we want Base64 data!
+                            "response_format": {"type": "b64_json"} # Ask for Base64 Data!
                         },
                         timeout=30
                     )
                     router_res.raise_for_status()
                     data = router_res.json()
                     
-                    # 🚨 AdBlock Immunity: We attach the raw image data directly. No URL needed!
                     b64_string = data['choices'][0]['message']['content']
                     concept["image_url"] = f"data:image/jpeg;base64,{b64_string}"
                     
@@ -377,11 +377,8 @@ def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, s
     except Exception:
         return []
 
-art = ArtifactIndex(os.path.join(os.path.dirname(__file__), "artifacts"))
-art.load()
-encoder = ClipQueryEncoder()
-searcher = FaissSearcher(art)
-CATALOG: Dict[str, dict] = {m["id"]: m for m in art.mapping_list}
+def _ensure_item_avg_lab(it: dict) -> dict:
+    return it
 
 def _to_ui(items: List[dict], size_pref: Optional[str] = None, color_pref: Optional[str] = None) -> List[dict]:
     out: List[dict] = []

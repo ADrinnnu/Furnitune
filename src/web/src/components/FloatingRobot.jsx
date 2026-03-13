@@ -50,7 +50,6 @@ const PANEL_CSS = `
 .loading-text { animation: pulse 1.5s infinite; font-size: 13px; font-weight: bold; color: #2d4739; }
 `;
 
-// 🚨 THE FIX: Patient Loader that never gives up! 🚨
 function ImageWithLoader({ src, alt }) {
   const [loaded, setLoaded] = useState(false);
 
@@ -58,15 +57,13 @@ function ImageWithLoader({ src, alt }) {
     <div style={{ width: "100%", height: 160, background: "#f5f5f5", display: "flex", alignItems: "center", justifyContent: "center", position: "relative", overflow: "hidden" }}>
       {!loaded && (
         <div style={{ position: "absolute", zIndex: 1, textAlign: "center", padding: "0 10px" }}>
-            <span className="loading-text">✨ AI is drawing your design...</span>
-            <div style={{ fontSize: 10, color: "#888", marginTop: 4 }}>(This may take 15-30 seconds)</div>
+            <span className="loading-text">✨ Preparing your design...</span>
         </div>
       )}
       <img
         src={src}
         alt={alt}
         onLoad={() => setLoaded(true)}
-        // REMOVED onError completely so the browser patiently waits for the image!
         style={{
           width: "100%",
           height: "100%",
@@ -261,7 +258,7 @@ export default function FloatingRobot() {
     }
     setRecoError(""); setRecoBusy(true);
     if(force_ai) {
-        addRecoMsg({ role:"bot", text:"Got it! I am designing a custom concept just for you..." });
+        addRecoMsg({ role:"bot", text:"Got it! I am designing a custom Flux concept just for you. This will take about 15 seconds..." });
     } else {
         addRecoMsg({ role:"bot", text:"Got it! Let me search our catalog..." });
     }
@@ -572,11 +569,12 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
+                          // 🚨 SAVES THE 1-MILLION CHARACTER IMAGE TO SESSION STORAGE SO CHROME DOESN'T CRASH!
+                          sessionStorage.setItem("ai_generated_image", m.customConcept.image_url);
                           const params = new URLSearchParams({
                               ai_title: m.customConcept.title,
                               ai_color: m.customConcept.suggested_color,
-                              ai_desc: m.customConcept.description,
-                              ai_img: m.customConcept.image_url
+                              ai_desc: m.customConcept.description
                           });
                           window.location.href = `/customization?${params.toString()}`;
                       }}>
@@ -599,7 +597,7 @@ export default function FloatingRobot() {
               </BotBubble>
             )
           )}
-          {recoBusy && <BotBubble><span className="muted">Searching…</span></BotBubble>}
+          {recoBusy && <BotBubble><span className="muted">Processing AI Generation...</span></BotBubble>}
           {recoError && <BotBubble><span style={{color:"crimson"}}>{recoError}</span></BotBubble>}
         </div>
 

@@ -404,16 +404,17 @@ export default function Customization() {
   
   const loc = useLocation();
 
-  // 🚨 NEW LOGIC: INSTANTLY LOAD THE AI IMAGE AND PREFILL 🚨
+  // 🚨 NEW LOGIC: INSTANTLY LOAD THE BASE64 AI IMAGE FROM STORAGE 🚨
   useEffect(() => {
     const query = new URLSearchParams(loc.search);
     const title = query.get("ai_title");
     const color = query.get("ai_color");
     const desc = query.get("ai_desc");
-    const imgUrl = query.get("ai_img");
+    
+    // Safely pull the giant image text code out of session storage
+    const imgUrl = sessionStorage.getItem("ai_generated_image");
 
     if (title && imgUrl) {
-      // 1. Guess the category so the right structural options load
       let cat = "Others";
       const tLower = title.toLowerCase();
       if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee")) cat = "Sofas";
@@ -423,24 +424,24 @@ export default function Customization() {
       else if (tLower.includes("sectional")) cat = "Sectionals";
       else if (tLower.includes("ottoman")) cat = "Ottomans";
 
-      // 2. Create a "Fake" Base Product using the AI Image!
       const aiProduct = {
         id: "ai-custom-concept",
         title: title,
         name: title,
         category: cat,
-        image: imgUrl, // The AI Image will show up in the preview box!
+        image: imgUrl, 
         basePrice: 0 
       };
 
-      // 3. Pre-fill all the options
       setSelectedProduct(aiProduct);
       setSelectedCategory(cat);
       setSize("Custom");
       
-      // 4. Inject the AI's complex design notes directly for the upholsterer
       const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
+      
+      // Cleanup the massive text file from memory to keep the browser running fast
+      sessionStorage.removeItem("ai_generated_image");
     }
   }, [loc.search]);
 
@@ -597,7 +598,7 @@ export default function Customization() {
 
   const priceBreakdown = useMemo(() => {
     if (!selectedProduct) return null;
-    if (selectedProduct.id === "ai-custom-concept") return null; // AI Concept price is TBD!
+    if (selectedProduct.id === "ai-custom-concept") return null;
 
     const base = selectedProduct.basePriceCents != null ? selectedProduct.basePriceCents : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
     const sizeForPricing = canonicalSize(selectedCategory, size);
