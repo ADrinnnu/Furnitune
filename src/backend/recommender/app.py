@@ -75,16 +75,20 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents = []
 
-        # 🚨 BRUTALLY STRICT PROMPT INSTRUCTIONS 🚨
+        # 🚨 NUCLEAR STRICT PROMPT 🚨
         prompt = f"""
         You are an expert interior designer. A customer is looking for a specific furniture piece.
-        Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements.
+        Analyze their room photo (if provided) and design 1 CUSTOM concept.
         
         System Rules regarding Customer Requirements:
         1. COMPLIANCE IS MANDATORY. If the user specified a requirement (Type: {f_type}, Size: {size_pref}, Color: {color_pref}), your concept MUST match it exactly.
         
-        Image Composition Instruction:
-        If a room photo is provided, you must provide an obsessive visual breakdown of the room in the output field "background_vibe". Focus on recreating the *exact* environment: wall paint hex colors/textures, flooring material (e.g., dark walnut planks), window locations, and lighting. Do NOT describe the furniture in this field, ONLY the empty room background.
+        Image Composition Instruction (CRITICAL):
+        If a room photo is provided, you must provide an obsessive, microscopic breakdown of the room in the output field "background_vibe". 
+        - FLOOR: Describe the EXACT color temperature, shade, and texture (e.g., "cool-toned, desaturated ashy-brown distressed wood planks" vs "warm honey oak").
+        - WALLS: Describe the exact texture and color (e.g., "split wall with raw gray concrete on the left, smooth dark charcoal paint on the right").
+        - PROPS: Note the exact props (e.g., "tall ribbed gray floor vase with yellow flowering branches on the right").
+        Do NOT describe the furniture here, ONLY the exact background so an artist can perfectly replicate the room.
 
         Output ONLY valid JSON. Structure exactly like this:
         {{
@@ -95,9 +99,9 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
               "suggested_color": "The recommended color.",
-              "suggested_dimensions": "Specific size in inches or cm matching their size preference.",
+              "suggested_dimensions": "Specific size in inches or cm.",
               "suggested_material": "Specific materials.",
-              "background_vibe": "Describe the EXACT walls, floor, windows, and lighting from the uploaded photo so the room can be identical."
+              "background_vibe": "The microscopic, exact description of the floor, walls, and props."
             }}
           ]
         }}
@@ -129,19 +133,17 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
             c_room = str(concept.get("background_vibe", "bright minimal luxury room"))
             c_mat = str(concept.get("suggested_material", "premium materials"))
             
-            # 🚨 1. ENFORCE CUSHION COUNT BASED ON SIZE PREFERENCE
+            # 🚨 AGGRESSIVE CUSHION COUNT ENFORCEMENT
             pref_reinforcement = ""
             if size_pref:
                 pref_reinforcement += f" Size requirement: {size_pref}. "
                 if "4" in str(size_pref):
-                    pref_reinforcement += "CRITICAL: It MUST be an extra-long sofa with EXACTLY 4 distinct, separate seat cushions in a row. "
+                    pref_reinforcement += "CRITICAL STRICT RULE: The sofa MUST be extra-long and MUST feature EXACTLY FOUR (4) distinct, separate seat cushions. Generating 3 cushions is a strict failure. Count them: One, Two, Three, Four cushions. "
                 elif "5" in str(size_pref):
-                    pref_reinforcement += "CRITICAL: It MUST be a massive sofa with EXACTLY 5 distinct, separate seat cushions in a row. "
-                elif "3" in str(size_pref):
-                    pref_reinforcement += "CRITICAL: It MUST have EXACTLY 3 distinct, separate seat cushions. "
+                    pref_reinforcement += "CRITICAL STRICT RULE: The sofa MUST be massive and MUST feature EXACTLY FIVE (5) distinct, separate seat cushions. Generating 3 or 4 cushions is a strict failure. "
 
-            # 🚨 2. ENFORCE FRONT-FACING CAMERA ANGLE
-            img_prompt = f"A perfectly straight-on, symmetrical, front-facing photograph of a {c_color} {c_title} made of {c_mat}. {pref_reinforcement}. The furniture is facing directly forward, dead-centered in the frame. Background environment: {c_room}. Photorealistic, 8k resolution, eye-level camera angle."
+            # 🚨 AGGRESSIVE BACKGROUND ENFORCEMENT
+            img_prompt = f"A perfectly straight-on, symmetrical, front-facing photograph of a {c_color} {c_title} made of {c_mat}. {pref_reinforcement} The furniture is dead-centered. CRITICAL BACKGROUND RULE: The background MUST perfectly match this description: {c_room}. Ensure the floor color temperature and wall textures are an exact match. Photorealistic, 8k resolution."
             
             if OPENROUTER_API_KEY:
                 try:
