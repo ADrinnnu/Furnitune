@@ -925,7 +925,7 @@ export default function Customization() {
 
                 <label className="sub-label">COLORS</label>
                 <div className="colors" style={{flexWrap: "wrap"}}>
-                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020"]).map((cHex) => (
+                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020", "#008080", "#E1AD01", "#C08081", "#C0C0C0"]).map((cHex) => (
                     <div
                     key={cHex}
                     className="color-box"
