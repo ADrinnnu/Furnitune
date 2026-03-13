@@ -343,62 +343,67 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
 export default function Customization() {
   const navigate = useNavigate();
 
-  // catalog state
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [productsByCategory, setProductsByCategory] = useState({});
   const [activeCategory, setActiveCategory] = useState("Beds");
 
-  // selection state
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("Others");
   
-  // 1. Size & Dimensions
   const [sizeOptions, setSizeOptions] = useState(["S", "M", "L", "Custom"]);
   const [size, setSize] = useState("S");
   const [customSizeDetails, setCustomSizeDetails] = useState("");
 
-  // 2. Dynamic Features
   const [featureSelections, setFeatureSelections] = useState({});
   const [customFeatureInputs, setCustomFeatureInputs] = useState({}); 
   const [foamDensity, setFoamDensity] = useState("");
 
-  // 3. Upholstery & Color 
   const [coverMaterialType, setCoverMaterialType] = useState("");
   const [coverColor, setCoverColor] = useState(""); 
-  const [coverEnabled, setCoverEnabled] = useState(true);
 
-  // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
   const currency = additionalsPricing?.currency || pricing?.currency || "PHP";
 
-  // additionals UI
   const [additionalChoices, setAdditionalChoices] = useState([]);
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
 
-  // Refs & Errors
   const [referenceImages, setReferenceImages] = useState([]); 
+  
+  // 🚨 ERROR TRACKING STATE
   const [placeOrderError, setPlaceOrderError] = useState("");
+  const [validationErrors, setValidationErrors] = useState({});
 
   const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
   const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
 
-  // Reset granular choices when category changes
+  // Helper to generate a red warning box if an error exists
+  const getErrorStyle = (key) => ({
+    padding: validationErrors[key] ? "12px" : "0",
+    backgroundColor: validationErrors[key] ? "#ffebee" : "transparent",
+    border: validationErrors[key] ? "2px solid #d9534f" : "2px solid transparent",
+    borderRadius: "8px",
+    transition: "all 0.3s ease",
+    marginBottom: validationErrors[key] ? "8px" : "0",
+  });
+
   useEffect(() => {
     setFeatureSelections({});
     setCustomFeatureInputs({});
     setFoamDensity("");
     setCoverMaterialType("");
     setCoverColor("");
+    setValidationErrors({});
+    setPlaceOrderError("");
   }, [selectedCategory]); 
 
-  // esc + scroll lock when drawer open
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && setCatalogOpen(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
@@ -451,13 +456,11 @@ export default function Customization() {
   }, [loc.search]);
 
 
-  // Construct dynamic description for admins and preview
   const descriptionText = useMemo(() => {
     if (!selectedProduct) return "Please select a product to begin customization.";
     const attachments = Object.keys(additionalPicked).filter((k) => additionalPicked[k]);
 
     let finalDesc = `--- Custom Build Specifications ---\n`;
-
     let primaryWoodStr = "Pending Selection";
 
     if (catConfig.features) {
@@ -467,11 +470,9 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} - ${customFeatureInputs[feat.id]}`;
         }
-
         if (feat.id === "woodMaterial") {
             primaryWoodStr = val || "Pending Selection";
         }
-
         if (val) {
           finalDesc += `• ${titleCase(feat.label)}: ${val}\n`;
         } else {
@@ -506,7 +507,6 @@ export default function Customization() {
     return finalDesc.trim() || "No customizations selected.";
   }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, size, customSizeDetails, catConfig]);
 
-  // load products
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -547,7 +547,6 @@ export default function Customization() {
     return () => { alive = false; };
   }, []); 
 
-  // load pricing tables
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -568,7 +567,6 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // load additionals pricing
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -583,7 +581,6 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // merge choices 
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
     const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
@@ -649,9 +646,9 @@ export default function Customization() {
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
 
-    const isCoverEnabled = (CATEGORY_OPTIONS[cat] || CATEGORY_OPTIONS["Others"]).hasCover && (p?.hasCover !== false);
-    setCoverEnabled(isCoverEnabled);
-
+    // Reset validations on new product pick
+    setValidationErrors({});
+    setPlaceOrderError("");
     setCatalogOpen(false);
   }
 
@@ -684,54 +681,73 @@ export default function Customization() {
 
   const colorBoxStyle = (cHex, activeValue) => ({
     background: cHex,
-    outline: activeValue === cHex ? "2px solid #111" : "1px solid #ccc",
+    outline: activeValue === cHex ? "3px solid #111" : "1px solid #ccc",
   });
 
-  // 🚨 STRICT VALIDATION FUNCTION 🚨
+  // 🚨 STRICT VALIDATION & SCROLL LOGIC 🚨
   const handlePlaceOrder = async () => {
     setPlaceOrderError("");
-    const missing = [];
+    const newErrors = {};
+    let firstErrorId = null;
 
-    // Check Product & Size
-    if (!selectedProduct) missing.push("Product");
-    if (!size) missing.push("Size & Dimensions");
-    if (size === "Custom" && (!customSizeDetails || !customSizeDetails.trim())) {
-      missing.push("Custom Dimensions Details");
+    const markError = (key) => {
+      newErrors[key] = true;
+      if (!firstErrorId) firstErrorId = `error-${key}`;
+    };
+
+    // 1. Check Product
+    if (!selectedProduct) {
+      markError("product");
     }
 
-    // Check all dynamic Architectural Features (Wood, Frame, Arms, etc.)
+    // 2. Check Size
+    if (!size) {
+      markError("size");
+    } else if (size === "Custom" && (!customSizeDetails || !customSizeDetails.trim())) {
+      markError("customSize");
+    }
+
+    // 3. Check Architectural Features
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
         if (!featureSelections[feat.id]) {
-          missing.push(feat.label);
+          markError(feat.id);
         } else if (featureSelections[feat.id].toLowerCase().includes("custom")) {
           if (!customFeatureInputs[feat.id] || !customFeatureInputs[feat.id].trim()) {
-             missing.push(`${feat.label} (Custom Details)`);
+             markError(`${feat.id}_custom`);
           }
         }
       });
     }
 
-    // Check Foam (If applicable)
+    // 4. Check Foam
     if (catConfig.hasFoam && !foamDensity) {
-      missing.push("Uratex Foam Density");
+      markError("foam");
     }
 
-    // Check Cover & Color (If applicable)
-    if (catConfig.hasCover && coverEnabled) {
-      if (!coverMaterialType) missing.push("Leather / Fabric Type");
-      if (!coverColor) missing.push("Cover Color");
+    // 5. Check Cover & Color
+    if (catConfig.hasCover) {
+      if (!coverMaterialType) markError("coverMaterial");
+      if (!coverColor) markError("coverColor");
     }
 
-    // Block Checkout if anything is missing
-    if (missing.length > 0) {
-      setPlaceOrderError(
-        `Please complete your selections for: ${missing.join(", ")}.`
-      );
+    setValidationErrors(newErrors);
+
+    // If there are ANY errors, stop and scroll to the first one!
+    if (Object.keys(newErrors).length > 0) {
+      setPlaceOrderError("Please complete all highlighted selections (marked in red) before checking out.");
+      
+      // Smoothly scroll to the missing element
+      setTimeout(() => {
+        const el = document.getElementById(firstErrorId);
+        if (el) {
+          el.scrollIntoView({ behavior: "smooth", block: "center" });
+        }
+      }, 100);
       return;
     }
 
-    // If passed, compile everything perfectly for the Admin Dashboard
+    // If perfectly validated, proceed to bundle data for checkout
     const compiledMaterials = {};
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
@@ -755,8 +771,8 @@ export default function Customization() {
         materials: {
           ...compiledMaterials,
           "Uratex Foam Density": catConfig.hasFoam ? foamDensity : null,
-          "Leather / Fabric Type": (catConfig.hasCover && coverEnabled) ? coverMaterialType : null,
-          "Cover Color": (catConfig.hasCover && coverEnabled) ? coverColor : null,
+          "Leather / Fabric Type": catConfig.hasCover ? coverMaterialType : null,
+          "Cover Color": catConfig.hasCover ? coverColor : null,
         },
         
         additionals: pickedAdditionals,
@@ -804,10 +820,18 @@ export default function Customization() {
           <h1 className="title">FURNITURE CUSTOMIZATION</h1>
 
           <div
+            id="error-product"
             className="preview-box"
-            onClick={() => setCatalogOpen(true)}
+            onClick={() => {
+                setCatalogOpen(true);
+                setValidationErrors(p => ({...p, product: false}));
+            }}
             title={selectedProduct ? "Click to change product" : "Open Catalog"}
-            style={{ cursor: "pointer", position: "relative", overflow: "hidden" }}
+            style={{ 
+              cursor: "pointer", position: "relative", overflow: "hidden",
+              border: validationErrors.product ? "3px solid #d9534f" : "1px solid #ddd",
+              boxShadow: validationErrors.product ? "0 0 10px rgba(217, 83, 79, 0.4)" : "none"
+            }}
           >
             {(() => {
               const previewImg = selectedProduct ? pickCardImage(selectedProduct) : "";
@@ -823,9 +847,9 @@ export default function Customization() {
               return (
                 <div
                   data-fallback
-                  style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: "#555" }}
+                  style={{ width: "100%", height: "100%", display: "flex", alignItems: "center", justifyContent: "center", color: validationErrors.product ? "#d9534f" : "#555", fontWeight: validationErrors.product ? "bold" : "normal" }}
                 >
-                  Click here to choose a product
+                  {validationErrors.product ? "🚨 CLICK HERE TO CHOOSE A PRODUCT FIRST" : "Click here to choose a product"}
                 </div>
               );
             })()}
@@ -869,11 +893,14 @@ export default function Customization() {
         <div className="right-side" style={{ position: "relative", zIndex: 1 }}>
           
           {/* 1 SIZE */}
-          <div className="option">
-            <h3 className="option-title">1. SIZE & DIMENSIONS</h3>
+          <div className="option" id="error-size" style={getErrorStyle("size")}>
+            <h3 className="option-title">1. SIZE & DIMENSIONS <span style={{color: '#d9534f'}}>*</span></h3>
             <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
               {sizeOptions.map((s) => (
-                <Chip key={s} active={size === s} onClick={() => setSize(s)}>
+                <Chip key={s} active={size === s} onClick={() => {
+                    setSize(s);
+                    setValidationErrors(p => ({...p, size: false}));
+                }}>
                   {s}
                 </Chip>
               ))}
@@ -881,11 +908,16 @@ export default function Customization() {
             
             {size === "Custom" && (
               <div style={{ marginTop: 12 }}>
-                <label className="sub-label">Custom Dimensions & Shape Specs:</label>
+                <label className="sub-label">Custom Dimensions & Shape Specs: <span style={{color: '#d9534f'}}>*</span></label>
                 <textarea
+                  id="error-customSize"
                   placeholder="E.g. Length 200cm, Width 100cm. Describe any abstract shapes, curved edges, specific heights..."
                   value={customSizeDetails}
-                  onChange={(e) => setCustomSizeDetails(e.target.value)}
+                  onChange={(e) => {
+                      setCustomSizeDetails(e.target.value);
+                      setValidationErrors(p => ({...p, customSize: false}));
+                  }}
+                  style={{ border: validationErrors.customSize ? "2px solid #d9534f" : undefined }}
                 />
               </div>
             )}
@@ -901,19 +933,16 @@ export default function Customization() {
                   const isCustomSelected = featureSelections[feat.id]?.toLowerCase().includes("custom");
                   
                   return (
-                  <div key={feat.id} style={{marginBottom: 20}}>
-                      <label className="sub-label">{feat.label}</label>
+                  <div key={feat.id} id={`error-${feat.id}`} style={{marginBottom: 20, ...getErrorStyle(feat.id)}}>
+                      <label className="sub-label">{feat.label} <span style={{color: '#d9534f'}}>*</span></label>
                       <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {feat.choices.map((choice) => (
                           <Chip 
                             key={choice} 
                             active={featureSelections[feat.id] === choice} 
                             onClick={() => {
-                              if (featureSelections[feat.id] === choice) {
-                                setFeatureSelections(prev => ({...prev, [feat.id]: ""}));
-                              } else {
-                                setFeatureSelections(prev => ({...prev, [feat.id]: choice}));
-                              }
+                              setFeatureSelections(prev => ({...prev, [feat.id]: choice}));
+                              setValidationErrors(p => ({...p, [feat.id]: false}));
                             }}
                           >
                             {choice}
@@ -924,10 +953,17 @@ export default function Customization() {
                       {isCustomSelected && (
                         <div style={{ marginTop: 8 }}>
                             <textarea 
-                              style={{ height: 40, width: "100%", fontSize: 12, padding: 8 }}
+                              id={`error-${feat.id}_custom`}
+                              style={{ 
+                                height: 40, width: "100%", fontSize: 12, padding: 8,
+                                border: validationErrors[`${feat.id}_custom`] ? "2px solid #d9534f" : undefined
+                              }}
                               placeholder={`Specify your custom ${feat.label.toLowerCase()} details...`}
                               value={customFeatureInputs[feat.id] || ""}
-                              onChange={e => setCustomFeatureInputs(prev => ({...prev, [feat.id]: e.target.value}))}
+                              onChange={e => {
+                                  setCustomFeatureInputs(prev => ({...prev, [feat.id]: e.target.value}));
+                                  setValidationErrors(p => ({...p, [`${feat.id}_custom`]: false}));
+                              }}
                             />
                         </div>
                       )}
@@ -939,11 +975,14 @@ export default function Customization() {
 
           {/* 3 COMFORT (Conditional) */}
           {catConfig.hasFoam && (
-            <div className="option">
-                <h3 className="option-title">3. URATEX FOAM DENSITY</h3>
+            <div className="option" id="error-foam" style={getErrorStyle("foam")}>
+                <h3 className="option-title">3. URATEX FOAM DENSITY <span style={{color: '#d9534f'}}>*</span></h3>
                 <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {FOAM_CHOICES.map((f) => (
-                    <Chip key={f} active={foamDensity === f} onClick={() => setFoamDensity(prev => prev === f ? "" : f)}>
+                    <Chip key={f} active={foamDensity === f} onClick={() => {
+                        setFoamDensity(f);
+                        setValidationErrors(p => ({...p, foam: false}));
+                    }}>
                     {f}
                     </Chip>
                 ))}
@@ -952,43 +991,53 @@ export default function Customization() {
           )}
           {catConfig.hasFoam && <hr />}
 
-          {/* 4 COVER MATERIAL & COLOR (🚨 ALWAYS SHOWS UNLESS IT'S A TABLE) */}
+          {/* 4 COVER MATERIAL & COLOR */}
           {catConfig.hasCover && (
             <div className="option">
                 <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
                 
-                <label className="sub-label">LEATHER / FABRIC TYPE</label>
-                <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
-                {COVER_CHOICES.map((m) => (
-                    <Chip key={m} active={coverMaterialType === m} onClick={() => setCoverMaterialType(prev => prev === m ? "" : m)}>
-                    {m}
-                    </Chip>
-                ))}
+                <div id="error-coverMaterial" style={{marginBottom: 16, ...getErrorStyle("coverMaterial")}}>
+                  <label className="sub-label">LEATHER / FABRIC TYPE <span style={{color: '#d9534f'}}>*</span></label>
+                  <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                  {COVER_CHOICES.map((m) => (
+                      <Chip key={m} active={coverMaterialType === m} onClick={() => {
+                          setCoverMaterialType(m);
+                          setValidationErrors(p => ({...p, coverMaterial: false}));
+                      }}>
+                      {m}
+                      </Chip>
+                  ))}
+                  </div>
                 </div>
 
-                <label className="sub-label">COLORS</label>
-                <div className="colors" style={{flexWrap: "wrap"}}>
-                {DEFAULT_COLORS.map((cHex) => (
-                    <div
-                    key={cHex}
-                    className="color-box"
-                    style={{
-                      ...colorBoxStyle(cHex, coverColor),
-                      width: 30,
-                      height: 30,
-                      borderRadius: "50%",
-                      cursor: "pointer"
-                    }}
-                    onClick={() => setCoverColor(prev => prev === cHex ? "" : cHex)}
-                    title={cHex}
-                    />
-                ))}
+                <div id="error-coverColor" style={getErrorStyle("coverColor")}>
+                  <label className="sub-label">COLORS <span style={{color: '#d9534f'}}>*</span></label>
+                  <div className="colors" style={{flexWrap: "wrap"}}>
+                  {DEFAULT_COLORS.map((cHex) => (
+                      <div
+                      key={cHex}
+                      className="color-box"
+                      style={{
+                        ...colorBoxStyle(cHex, coverColor),
+                        width: 35,
+                        height: 35,
+                        borderRadius: "50%",
+                        cursor: "pointer"
+                      }}
+                      onClick={() => {
+                          setCoverColor(cHex);
+                          setValidationErrors(p => ({...p, coverColor: false}));
+                      }}
+                      title={cHex}
+                      />
+                  ))}
+                  </div>
                 </div>
             </div>
           )}
           {catConfig.hasCover && <hr />}
 
-          {/* 5 ADDITIONALS */}
+          {/* 5 ADDITIONALS (NEVER VALIDATED - PURELY OPTIONAL) */}
           <div className="option">
             <h3 className="option-title">{catConfig.hasCover ? "5." : "3."} ADD-ONS & REFERENCES</h3>
 
@@ -1094,9 +1143,13 @@ export default function Customization() {
           </button>
 
           {placeOrderError && (
-            <p style={{ color: "#d9534f", marginTop: 8, fontSize: 13, fontWeight: "bold" }}>
+            <div style={{ 
+              marginTop: 16, padding: "12px 16px", backgroundColor: "#ffebee", 
+              border: "1px solid #d9534f", borderRadius: 8, color: "#d9534f", 
+              fontSize: 14, fontWeight: "bold", textAlign: "center" 
+            }}>
               {placeOrderError}
-            </p>
+            </div>
           )}
         </div>
       </div>
