@@ -22,7 +22,7 @@ import { query, where } from "firebase/firestore";
 const CATEGORY_OPTIONS = {
   "Beds": {
     hasFoam: true,
-    hasCover: true,
+    hasCover: true, // 🚨 Forces Cover & Colors to ALWAYS show
     inclusions: "Main bed frame, structural wooden slats/base, and standard assembly hardware.",
     exclusions: "Mattress, foam toppers, pillows, and bed sheets are NOT included.",
     features: [
@@ -83,7 +83,7 @@ const CATEGORY_OPTIONS = {
   },
   "Dining Tables": {
     hasFoam: false,
-    hasCover: false,
+    hasCover: false, // 🚨 Forces Cover & Colors to HIDE
     inclusions: "The main dining table top and the structural base/legs.",
     exclusions: "Dining chairs, table runners, and tableware/decorations are NOT included.",
     features: [
@@ -95,7 +95,7 @@ const CATEGORY_OPTIONS = {
   },
   "Tables": {
     hasFoam: false,
-    hasCover: false,
+    hasCover: false, // 🚨 Forces Cover & Colors to HIDE
     inclusions: "The table top and the supporting legs/base.",
     exclusions: "Chairs, surrounding decor, and floor rugs are NOT included.",
     features: [
@@ -119,7 +119,6 @@ const CATEGORY_OPTIONS = {
 
 const FOAM_CHOICES = ["Standard High Density", "Soft / Cloud Plush", "Extra Firm (Orthopedic)", "Memory Foam Topper"];
 const COVER_CHOICES = ["Fabric", "Leather", "Linen", "Microfiber", "Velvet", "Cotton"];
-
 const DEFAULT_COLORS = ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020", "#008080", "#E1AD01", "#C08081", "#C0C0C0"];
 
 const COMMON_ADDITIONALS = {
@@ -344,48 +343,38 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
 export default function Customization() {
   const navigate = useNavigate();
 
-  // catalog state
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [productsByCategory, setProductsByCategory] = useState({});
   const [activeCategory, setActiveCategory] = useState("Beds");
 
-  // selection state
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("Others");
   
-  // 1. Size & Dimensions
   const [sizeOptions, setSizeOptions] = useState(["S", "M", "L", "Custom"]);
   const [size, setSize] = useState("S");
   const [customSizeDetails, setCustomSizeDetails] = useState("");
 
-  // 2. Dynamic Features
   const [featureSelections, setFeatureSelections] = useState({});
   const [customFeatureInputs, setCustomFeatureInputs] = useState({}); 
   const [foamDensity, setFoamDensity] = useState("");
 
-  // 3. Upholstery & Color 
   const [coverMaterialType, setCoverMaterialType] = useState("");
   const [coverColor, setCoverColor] = useState(""); 
-  const [coverEnabled, setCoverEnabled] = useState(true);
 
-  // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
   const currency = additionalsPricing?.currency || pricing?.currency || "PHP";
 
-  // additionals UI
   const [additionalChoices, setAdditionalChoices] = useState([]);
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
 
-  // Refs & Errors
   const [referenceImages, setReferenceImages] = useState([]); 
   const [placeOrderError, setPlaceOrderError] = useState("");
 
   const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
   const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
 
-  // Reset granular choices when category changes
   useEffect(() => {
     setFeatureSelections({});
     setCustomFeatureInputs({});
@@ -394,12 +383,12 @@ export default function Customization() {
     setCoverColor("");
   }, [selectedCategory]); 
 
-  // esc + scroll lock when drawer open
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && setCatalogOpen(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
+  
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
@@ -452,13 +441,11 @@ export default function Customization() {
   }, [loc.search]);
 
 
-  // Construct dynamic description for admins and preview
   const descriptionText = useMemo(() => {
     if (!selectedProduct) return "Please select a product to begin customization.";
     const attachments = Object.keys(additionalPicked).filter((k) => additionalPicked[k]);
 
     let finalDesc = `--- Custom Build Specifications ---\n`;
-
     let primaryWoodStr = "Default Factory Wood/Material";
 
     if (catConfig.features) {
@@ -468,11 +455,9 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} - ${customFeatureInputs[feat.id]}`;
         }
-
         if (feat.id === "woodMaterial") {
             primaryWoodStr = val || "Default Factory Wood";
         }
-
         if (val) {
           finalDesc += `• ${titleCase(feat.label)}: ${val}\n`;
         } else {
@@ -491,7 +476,9 @@ export default function Customization() {
     if (catConfig.hasFoam) {
       finalDesc += `• Foam / Padding: ${foamDensity || "Standard Factory Foam"}\n`;
     }
-    if (catConfig.hasCover && coverEnabled) {
+    
+    // 🚨 Always prints Cover details if the category allows it (ignoring DB rules)
+    if (catConfig.hasCover) {
       finalDesc += `• Upholstery Used: ${coverMaterialType || "Standard Material"} (Color: ${coverColor || "Default Color"})\n`;
     }
 
@@ -504,9 +491,8 @@ export default function Customization() {
     }
 
     return finalDesc.trim() || "No customizations selected.";
-  }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, coverEnabled, size, customSizeDetails, catConfig]);
+  }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, size, customSizeDetails, catConfig]);
 
-  // load products
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -547,7 +533,6 @@ export default function Customization() {
     return () => { alive = false; };
   }, []); 
 
-  // load pricing tables
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -568,7 +553,6 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // load additionals pricing
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -583,7 +567,6 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
-  // merge choices 
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
     const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
@@ -648,10 +631,6 @@ export default function Customization() {
     if (!sizes.includes("Custom")) sizes.push("Custom");
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
-
-    const isCoverEnabled = (CATEGORY_OPTIONS[cat] || CATEGORY_OPTIONS["Others"]).hasCover && (p?.hasCover !== false);
-    setCoverEnabled(isCoverEnabled);
-
     setCatalogOpen(false);
   }
 
@@ -700,7 +679,6 @@ export default function Customization() {
       return;
     }
 
-    // 🚨 FORMATTING CHOICES PERFECTLY FOR THE ADMIN DATABASE
     const compiledMaterials = {};
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
@@ -708,7 +686,6 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} (${customFeatureInputs[feat.id]})`;
         }
-        // Save using the EXACT human-readable title (e.g. "ARCHITECTURAL BED FRAME")
         compiledMaterials[feat.label] = val || "Default Spec"; 
       });
     }
@@ -722,12 +699,12 @@ export default function Customization() {
         size: size || null,
         customSizeDetails: size === "Custom" ? customSizeDetails : null,
         
-        // 🚨 PASSING STRUCTURED OBJECT SO FIREBASE CAN DISPLAY IT TO THE ADMIN
         materials: {
           ...compiledMaterials,
           "Uratex Foam Density": catConfig.hasFoam ? (foamDensity || "Standard") : null,
-          "Leather / Fabric Type": (catConfig.hasCover && coverEnabled) ? (coverMaterialType || "Standard") : null,
-          "Cover Color": (catConfig.hasCover && coverEnabled) ? (coverColor || "Default") : null,
+          // 🚨 Always bundles Cover details if category permits, ignoring DB overrides
+          "Leather / Fabric Type": catConfig.hasCover ? (coverMaterialType || "Standard") : null,
+          "Cover Color": catConfig.hasCover ? (coverColor || "Default") : null,
         },
         
         additionals: pickedAdditionals,
@@ -923,8 +900,8 @@ export default function Customization() {
           )}
           {catConfig.hasFoam && <hr />}
 
-          {/* 4 COVER MATERIAL & COLOR */}
-          {catConfig.hasCover && coverEnabled && (
+          {/* 4 COVER MATERIAL & COLOR (🚨 ALWAYS SHOWS UNLESS IT'S A TABLE) */}
+          {catConfig.hasCover && (
             <div className="option">
                 <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
                 
@@ -957,7 +934,7 @@ export default function Customization() {
                 </div>
             </div>
           )}
-          {catConfig.hasCover && coverEnabled && <hr />}
+          {catConfig.hasCover && <hr />}
 
           {/* 5 ADDITIONALS */}
           <div className="option">
