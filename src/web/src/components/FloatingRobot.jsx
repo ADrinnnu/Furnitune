@@ -82,29 +82,29 @@ const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 
 const TYPE_QUESTIONS = {
   Sofa: [
-    { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater"] },
+    { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater", "Custom Size"] },
     { key: "color", prompt: "What color?",  options: ["Red","White","Black","Brown","None"] },
   ],
   Sectional: [
-    { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape"] },
+    { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape", "Custom Size"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Chair: [
-    { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar"] },
+    { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar", "Custom Size"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Table: [
-    { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people"] },
+    { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people", "Custom Size"] },
   ],
   Bed: [
-    { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King"] },
+    { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King", "Custom Size"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Bench: [
-    { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long"] },
+    { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long", "Custom Size"] },
   ],
   Ottoman: [
-    { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large"] },
+    { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large", "Custom Size"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
 };
@@ -571,12 +571,10 @@ export default function FloatingRobot() {
                       <button className="btn" onClick={() => {
                           // 🚨 SAVES THE 1-MILLION CHARACTER IMAGE TO SESSION STORAGE SO CHROME DOESN'T CRASH!
                           sessionStorage.setItem("ai_generated_image", m.customConcept.image_url);
-                          const params = new URLSearchParams({
-                              ai_title: m.customConcept.title,
-                              ai_color: m.customConcept.suggested_color,
-                              ai_desc: m.customConcept.description
-                          });
-                          window.location.href = `/customization?${params.toString()}`;
+                          // 🚨 NEW: Save ALL the specs to send to the customization page
+                          sessionStorage.setItem("ai_generated_specs", JSON.stringify(m.customConcept));
+                          
+                          window.location.href = `/customization?ai_custom=true`;
                       }}>
                         Build This Custom
                       </button>

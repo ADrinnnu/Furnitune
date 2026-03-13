@@ -404,24 +404,28 @@ export default function Customization() {
   
   const loc = useLocation();
 
-  // 🚨 NEW LOGIC: INSTANTLY LOAD THE BASE64 AI IMAGE FROM STORAGE 🚨
+  // 🚨 UPDATED LOGIC: LOAD IMAGE AND FULL SPECS FROM STORAGE 🚨
   useEffect(() => {
-    const query = new URLSearchParams(loc.search);
-    const title = query.get("ai_title");
-    const color = query.get("ai_color");
-    const desc = query.get("ai_desc");
+    const isAiCustom = new URLSearchParams(loc.search).get("ai_custom");
     
-    // Safely pull the giant image text code out of session storage
+    // Pull the image and the specs object out of storage
     const imgUrl = sessionStorage.getItem("ai_generated_image");
+    const specsRaw = sessionStorage.getItem("ai_generated_specs");
 
-    if (title && imgUrl) {
+    if (isAiCustom && imgUrl && specsRaw) {
+      const specs = JSON.parse(specsRaw);
+      const title = specs.title || "Custom AI Concept";
+      const color = specs.suggested_color || "Custom Color";
+      const desc = specs.description || "";
+      const dimensions = specs.suggested_dimensions || "Custom Size";
+      const material = specs.suggested_material || "Standard Materials";
+
       let cat = "Others";
       const tLower = title.toLowerCase();
-      if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee")) cat = "Sofas";
+      if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee") || tLower.includes("sectional")) cat = "Sofas";
       else if (tLower.includes("bed")) cat = "Beds";
       else if (tLower.includes("chair")) cat = "Chairs";
       else if (tLower.includes("table")) cat = "Tables";
-      else if (tLower.includes("sectional")) cat = "Sectionals";
       else if (tLower.includes("ottoman")) cat = "Ottomans";
 
       const aiProduct = {
@@ -435,13 +439,22 @@ export default function Customization() {
 
       setSelectedProduct(aiProduct);
       setSelectedCategory(cat);
-      setSize("Custom");
       
-      const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
+      // Load the correct size buttons for this specific furniture type
+      const correctSizes = DEFAULT_SIZES_BY_TYPE[cat] || DEFAULT_SIZES_BY_TYPE["Others"];
+      setSizeOptions([...correctSizes]);
+      
+      // Auto-fill the custom dimensions box
+      setSize("Custom");
+      setCustomSizeDetails(dimensions);
+      
+      // Auto-fill the notes with materials and color for the admin
+      const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nSuggested Dimensions: ${dimensions}\nTarget Color: ${color}\nRecommended Material: ${material}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
       
-      // Cleanup the massive text file from memory to keep the browser running fast
+      // Cleanup
       sessionStorage.removeItem("ai_generated_image");
+      sessionStorage.removeItem("ai_generated_specs");
     }
   }, [loc.search]);
 

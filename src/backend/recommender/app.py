@@ -76,7 +76,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         contents = []
 
         prompt = f"""
-        You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK.
+        You are an expert interior designer. A customer is looking for a specific furniture piece.
         Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements.
         
         Customer Requirements:
@@ -93,7 +93,9 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
               "suggested_color": "The recommended color.",
-              "background_vibe": "A 5-word description of the exact lighting and aesthetic of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo, write 'bright minimal luxury room'."
+              "suggested_dimensions": "Specific size in inches or cm (e.g., 84 inches long, 36 inches deep). If their size preference is 'Custom Size', generate the ideal, realistic dimensions for this specific furniture type to fit the room.",
+              "suggested_material": "Specific materials (e.g., Walnut wood base with Boucle fabric).",
+              "background_vibe": "Describe the EXACT floor, walls, windows, and lighting from the uploaded room photo (e.g., 'dark wood floors, beige painted walls, natural sunlight from left window'). If no photo, write 'bright minimal luxury room'."
             }}
           ]
         }}
@@ -122,9 +124,11 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
         for concept in parsed.get("custom_concepts", []):
             c_title = str(concept.get("title", f_type or "Furniture"))
             c_color = str(concept.get("suggested_color", color_pref or "Modern"))
-            c_vibe = str(concept.get("background_vibe", "bright minimal luxury room"))
+            c_room = str(concept.get("background_vibe", "bright minimal luxury room"))
+            c_mat = str(concept.get("suggested_material", "premium materials"))
             
-            img_prompt = f"Professional interior design photography. A photorealistic {c_color} {c_title} furniture piece placed perfectly inside a {c_vibe}. 8k resolution, highly detailed texture."
+            # Force OpenRouter to place it inside the extracted room 
+            img_prompt = f"Professional interior design photography. A {c_color} {c_title} made of {c_mat}. The furniture is placed inside this exact room: {c_room}. 8k resolution, highly detailed texture, photorealistic lighting."
             
             if OPENROUTER_API_KEY:
                 try:
@@ -135,18 +139,15 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
                             "Content-Type": "application/json"
                         },
                         json={
-                            # 1. Use a valid OpenRouter model ID
                             "model": "black-forest-labs/flux.2-flex", 
                             "messages": [{"role": "user", "content": img_prompt}],
-                            # 2. Tell OpenRouter to generate an image
                             "modalities": ["image"] 
                         },
-                        timeout=45 # Bumped this to 45s since images take longer!
+                        timeout=45
                     )
                     router_res.raise_for_status()
                     data = router_res.json()
                     
-                    # 3. OpenRouter puts the full Base64 Data URL right here in the images array
                     message = data['choices'][0]['message']
                     if 'images' in message and len(message['images']) > 0:
                         concept["image_url"] = message['images'][0]['image_url']['url']
