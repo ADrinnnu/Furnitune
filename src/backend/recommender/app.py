@@ -135,17 +135,23 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
                             "Content-Type": "application/json"
                         },
                         json={
-                            "model": "flux/flux-schnell", 
+                            # 1. Use a valid OpenRouter model ID
+                            "model": "black-forest-labs/flux.2-flex", 
                             "messages": [{"role": "user", "content": img_prompt}],
-                            "response_format": {"type": "b64_json"} # Ask for Base64 Data!
+                            # 2. Tell OpenRouter to generate an image
+                            "modalities": ["image"] 
                         },
-                        timeout=30
+                        timeout=45 # Bumped this to 45s since images take longer!
                     )
                     router_res.raise_for_status()
                     data = router_res.json()
                     
-                    b64_string = data['choices'][0]['message']['content']
-                    concept["image_url"] = f"data:image/jpeg;base64,{b64_string}"
+                    # 3. OpenRouter puts the full Base64 Data URL right here in the images array
+                    message = data['choices'][0]['message']
+                    if 'images' in message and len(message['images']) > 0:
+                        concept["image_url"] = message['images'][0]['image_url']['url']
+                    else:
+                        concept["image_url"] = "https://placehold.co/800x600/eeeeee/999999?text=No+Image+Returned"
                     
                 except Exception as e:
                     print(f"OpenRouter Error: {e}")
