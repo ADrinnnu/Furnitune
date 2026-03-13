@@ -1,12 +1,22 @@
 // src/pages/AllFurnitures.jsx
 import React, { useEffect, useMemo, useState, useCallback } from "react";
-import { firestore, storage } from "../firebase";
-import * as FS from "firebase/firestore";
 import { Link, useLocation } from "react-router-dom";
-import { getDownloadURL, ref } from "firebase/storage";
 import "../AllFurnitures.css";
 
+// Firebase Imports
+import { firestore, storage } from "../firebase";
+import { collection, getDocs } from "firebase/firestore";
+import { getDownloadURL, ref } from "firebase/storage";
+
 const slug = (s) => String(s || "").trim().toLowerCase().replace(/\s+/g, "-");
+const titleCase = (s) => String(s || "").replace(/[-_]/g, " ").replace(/\b\w/g, (c) => c.toUpperCase());
+
+// Robust Number Parser
+const parsePrice = (v) => {
+  if (v == null || v === "") return 0;
+  const n = typeof v === "number" ? v : Number(String(v).replace(/[^\d.-]/g, ""));
+  return Number.isNaN(n) ? 0 : n;
+};
 
 const TYPE_LABELS_ALL = ["Beds", "Sofas", "Chairs", "Tables", "Sectionals", "Ottomans"];
 const TYPES_BY_ROOM = {
@@ -41,9 +51,7 @@ function _tagsToSet(tags) {
       const s = t.toLowerCase().trim();
       if (s) set.add(s);
     } else if (t && typeof t === "object") {
-      const s = String(t.label ?? t.name ?? t.value ?? t.slug ?? t.title ?? "")
-        .toLowerCase()
-        .trim();
+      const s = String(t.label ?? t.name ?? t.value ?? t.slug ?? t.title ?? "").toLowerCase().trim();
       if (s) set.add(s);
     }
   }
@@ -65,7 +73,7 @@ function normalizeType(d) {
   if (n.includes("chair")) return "Chairs";
   if (n.includes("table")) return "Tables";
   if (n.includes("ottoman")) return "Ottomans";
-  return "Other";
+  return "Others";
 }
 
 function normalizeMaterials(d) {
@@ -79,41 +87,13 @@ function normalizeMaterials(d) {
 function normalizeFrameMaterial(d) {
   const tagSet = _tagsToSet(d.tags);
   const out = [];
-  if (
-    tagSet.has("metal") ||
-    tagSet.has("steel") ||
-    tagSet.has("iron") ||
-    tagSet.has("aluminum") ||
-    tagSet.has("aluminium")
-  ) {
-    out.push("Metal");
-  }
-  if (
-    tagSet.has("wood") ||
-    tagSet.has("oak") ||
-    tagSet.has("walnut") ||
-    tagSet.has("ash") ||
-    tagSet.has("teak") ||
-    tagSet.has("mahogany") ||
-    tagSet.has("acacia") ||
-    tagSet.has("mango")
-  ) {
-    out.push("Wood");
-  }
+  if (tagSet.has("metal") || tagSet.has("steel") || tagSet.has("iron") || tagSet.has("aluminum") || tagSet.has("aluminium")) out.push("Metal");
+  if (tagSet.has("wood") || tagSet.has("oak") || tagSet.has("walnut") || tagSet.has("ash") || tagSet.has("teak") || tagSet.has("mahogany") || tagSet.has("acacia") || tagSet.has("mango")) out.push("Wood");
   return out;
 }
 
 function normalizeDepartments(d) {
-  const candidates = [
-    d.departments,
-    d.departmentSlugs,
-    d.department_slug,
-    d.departmentSlug,
-    d.department,
-    d.rooms,
-    d.room,
-    d.parentSlug,
-  ];
+  const candidates = [d.departments, d.departmentSlugs, d.department_slug, d.departmentSlug, d.department, d.rooms, d.room, d.parentSlug];
   for (const val of candidates) {
     if (Array.isArray(val) && val.length) return val.map(slug);
     const s = slug(val);
@@ -172,13 +152,76 @@ async function toDownloadUrl(val) {
     const objPath = objectPathFromAnyStorageUrl(val);
     if (objPath) return await getDownloadURL(ref(storage, objPath));
     return val;
-  } catch {
-    return "";
-  }
+  } catch { return ""; }
 }
 
-async function resolveImage(val) {
-  return await toDownloadUrl(val);
+async function resolveImage(val) { return await toDownloadUrl(val); }
+
+function calculatePriceRange(productData, category, pricingMap) {
+  const basePricePHP = parsePrice(productData.basePrice || productData.price || 0);
+  if (!basePricePHP) return { min: 0, max: 0 };
+  const baseCents = basePricePHP * 100;
+  
+  const cSlug = slug(category);
+  const rules = pricingMap[cSlug] || pricingMap["others"] || {};
+  const defRules = pricingMap["_defaults"] || pricingMap["defaults"] || {};
+  
+  let sizeAdds = rules.sizeAdds || {};
+  if (Object.keys(sizeAdds).length === 0) sizeAdds = defRules.sizeAdds || {};
+
+  let sizeMults = rules.sizeMultipliers || {};
+  if (Object.keys(sizeMults).length === 0) sizeMults = defRules.sizeMultipliers || {};
+
+  let matMults = rules.materialMultipliers || {};
+  if (Object.keys(matMults).length === 0) matMults = defRules.materialMultipliers || {};
+
+  let minSizeAdd = 0, maxSizeAdd = 0;
+  const sAddVals = Object.values(sizeAdds);
+  if (sAddVals.length) {
+    minSizeAdd = Math.min(0, ...sAddVals);
+    maxSizeAdd = Math.max(0, ...sAddVals);
+  }
+
+  if (Array.isArray(productData.sizeOptions)) {
+    productData.sizeOptions.forEach(s => {
+      if (s && typeof s === 'object') {
+        if (s.price != null && s.price !== "") {
+          const delta = parsePrice(s.price) * 100 - baseCents;
+          minSizeAdd = Math.min(minSizeAdd, delta);
+          maxSizeAdd = Math.max(maxSizeAdd, delta);
+        } else if (s.priceDelta != null && s.priceDelta !== "") {
+          const delta = parsePrice(s.priceDelta) * 100;
+          minSizeAdd = Math.min(minSizeAdd, delta);
+          maxSizeAdd = Math.max(maxSizeAdd, delta);
+        } else if (s.cents != null && s.cents !== "") {
+          minSizeAdd = Math.min(minSizeAdd, parsePrice(s.cents));
+          maxSizeAdd = Math.max(maxSizeAdd, parsePrice(s.cents));
+        }
+      }
+    });
+  }
+
+  let minSizeMult = 1, maxSizeMult = 1;
+  const sMultVals = Object.values(sizeMults);
+  if (sMultVals.length) {
+    minSizeMult = Math.min(1, ...sMultVals);
+    maxSizeMult = Math.max(1, ...sMultVals);
+  }
+
+  let minMatMult = 1, maxMatMult = 1;
+  const mMultVals = Object.values(matMults);
+  if (mMultVals.length) {
+    minMatMult = Math.min(1, ...mMultVals);
+    maxMatMult = Math.max(1, ...mMultVals);
+  }
+
+  const minCents = (baseCents + minSizeAdd) * minSizeMult * minMatMult;
+  const maxCents = (baseCents + maxSizeAdd) * maxSizeMult * maxMatMult;
+
+  return {
+    min: Math.max(0, Math.round(minCents / 100)),
+    max: Math.max(0, Math.round(maxCents / 100))
+  };
 }
 
 export default function AllFurnitures({
@@ -215,22 +258,89 @@ export default function AllFurnitures({
     const fetchProducts = async () => {
       setLoading(true);
       try {
-        const snap = await FS.getDocs(FS.collection(firestore, "products"));
+        const pricingMap = {};
+        
+        // 🚨 NEW: Fetching the reviews collection to calculate accurate ratings
+        const [pSnap, sSnap, rSnap] = await Promise.all([
+          getDocs(collection(firestore, "pricing")).catch(()=>({docs:[]})),
+          getDocs(collection(firestore, "sizePriceRules")).catch(()=>({docs:[]})),
+          getDocs(collection(firestore, "reviews")).catch(()=>({docs:[]}))
+        ]);
+
+        (pSnap.docs || []).forEach(d => { 
+          const id = slug(d.id);
+          pricingMap[id] = { ...pricingMap[id], ...d.data() }; 
+        });
+        
+        (sSnap.docs || []).forEach(d => {
+          const r = d.data();
+          if(!r.type || !r.size) return;
+          const cat = slug(r.type);
+          if (!pricingMap[cat]) pricingMap[cat] = {};
+          if (!pricingMap[cat].sizeAdds) pricingMap[cat].sizeAdds = {};
+          if (!pricingMap[cat].sizeMultipliers) pricingMap[cat].sizeMultipliers = {};
+          
+          const mode = String(r.mode || "").toLowerCase().trim();
+          const value = parsePrice(r.value);
+          
+          if (["delta", "add", "plus"].includes(mode)) {
+            pricingMap[cat].sizeAdds[slug(r.size)] = Math.round(value * 100);
+          } else if (["multiplier", "x", "mul", "multiply"].includes(mode)) {
+            pricingMap[cat].sizeMultipliers[slug(r.size)] = value || 1;
+          }
+        });
+
+        // 🚨 AGGREGATE REVIEWS BY PRODUCT ID
+        const aggregatedReviews = {};
+        (rSnap.docs || []).forEach(doc => {
+          const revData = doc.data();
+          const rating = Number(revData.rating || 0);
+          
+          // Reviews can be linked via an array of productIds or a single productId string
+          let pIds = [];
+          if (Array.isArray(revData.productIds)) {
+            pIds = revData.productIds;
+          } else if (revData.productId) {
+            pIds = [revData.productId];
+          }
+
+          pIds.forEach(pid => {
+            if (!pid) return;
+            if (!aggregatedReviews[pid]) {
+              aggregatedReviews[pid] = { count: 0, totalScore: 0 };
+            }
+            aggregatedReviews[pid].count += 1;
+            aggregatedReviews[pid].totalScore += rating;
+          });
+        });
+
+        const snap = await getDocs(collection(firestore, "products"));
         let list = await Promise.all(
           snap.docs.map(async (d) => {
             const data = d.data();
+            const prodId = d.id;
             const imgsRaw = Array.isArray(data.images) ? data.images : [];
             const imgs = (await Promise.all(imgsRaw.map(resolveImage))).filter(Boolean);
-            const base = Number(data.basePrice || 0);
+            const base = parsePrice(data.basePrice || data.price || 0);
+            const category = normalizeType(data);
+            
+            const priceRange = calculatePriceRange(data, category, pricingMap);
+
+            // 🚨 PULL TRUE RATING FROM AGGREGATED REVIEWS DATABASE
+            const revStats = aggregatedReviews[prodId] || { count: 0, totalScore: 0 };
+            const trueReviewCount = revStats.count;
+            const trueRatingAvg = trueReviewCount > 0 ? (revStats.totalScore / trueReviewCount) : 0;
+
             return {
-              id: d.id,
+              id: prodId,
               title: data.name || "Untitled",
-              price: base,
+              basePrice: base,
+              priceObj: priceRange, 
               _priceBucket: priceBucket(base),
               images: imgs,
-              reviewsCount: Number(data.reviewsCount || 0),
-              ratingAvg: Number(data.ratingAvg || 0),
-              _type: normalizeType(data),
+              reviewsCount: trueReviewCount,
+              ratingAvg: trueRatingAvg,
+              _type: category,
               _materials: normalizeMaterials(data),
               _frame: normalizeFrameMaterial(data),
               _departments: normalizeDepartments(data),
@@ -238,6 +348,7 @@ export default function AllFurnitures({
             };
           })
         );
+
         if (room) {
           const key = slug(room);
           list = list.filter((p) => p._departments.includes(key));
@@ -285,6 +396,12 @@ export default function AllFurnitures({
     });
   }, [products, filters]);
 
+  const renderPrice = (priceObj) => {
+    if (!priceObj || (priceObj.min === 0 && priceObj.max === 0)) return "N/A";
+    if (priceObj.min === priceObj.max) return `₱${priceObj.min.toLocaleString()}`;
+    return `₱${priceObj.min.toLocaleString()} - ₱${priceObj.max.toLocaleString()}`;
+  };
+
   return (
     <div className="all-furnitures">
       <div className="filter">
@@ -292,7 +409,7 @@ export default function AllFurnitures({
           <h2>{pageTitle}</h2>
           <button
             onClick={clearFilters}
-            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff" }}
+            style={{ padding: "6px 10px", borderRadius: 8, border: "1px solid #ddd", background: "#fff", cursor: "pointer" }}
           >
             Clear Filters
           </button>
@@ -374,7 +491,9 @@ export default function AllFurnitures({
                   className="product-image"
                 />
                 <h3 className="product-title">{product.title || "Untitled"}</h3>
-                <p className="product-price">₱{product.price ? product.price.toLocaleString() : "N/A"}</p>
+                
+                <p className="product-price">{renderPrice(product.priceObj)}</p>
+                
               </Link>
               <div className="rating">
                 <span>{"⭐".repeat(Math.floor(product.ratingAvg))}</span>
@@ -383,7 +502,7 @@ export default function AllFurnitures({
             </div>
           ))
         ) : (
-          <p>No products found.</p>
+          <p>No products found matching those filters.</p>
         )}
       </div>
     </div>
