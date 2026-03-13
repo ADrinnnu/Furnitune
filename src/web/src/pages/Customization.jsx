@@ -442,7 +442,7 @@ export default function Customization() {
       setSizeOptions([...correctSizes]);
       
       setSize("Custom");
-      setCustomSizeDetails(dimensions);
+      setCustomSizeDetails("Based on AI Concept generation");
       
       const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
@@ -897,7 +897,7 @@ export default function Customization() {
           {/* 3 COMFORT (Conditional) */}
           {catConfig.hasFoam && (
             <div className="option">
-                <h3 className="option-title">3. COMFORT DENSITY</h3>
+                <h3 className="option-title">3. URATEX FOAM DENSITY</h3>
                 <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {FOAM_CHOICES.map((f) => (
                     <Chip key={f} active={foamDensity === f} onClick={() => setFoamDensity(prev => prev === f ? "" : f)}>
@@ -914,7 +914,7 @@ export default function Customization() {
             <div className="option">
                 <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
                 
-                <label className="sub-label">Outer Material</label>
+                <label className="sub-label">LEATHER / FABRIC TYPE</label>
                 <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                 {COVER_CHOICES.map((m) => (
                     <Chip key={m} active={coverMaterialType === m} onClick={() => setCoverMaterialType(prev => prev === m ? "" : m)}>
