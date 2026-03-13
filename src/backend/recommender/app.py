@@ -1,7 +1,7 @@
 from dotenv import load_dotenv, find_dotenv
 load_dotenv(find_dotenv())
 
-import os, re, base64, io, json, tempfile, urllib.parse, random
+import os, re, base64, io, json, tempfile, urllib.parse
 from typing import Dict, List, Optional
 
 import numpy as np
@@ -46,13 +46,14 @@ SIGNED_URL_EXPIRY = int(os.getenv("SIGNED_URL_EXPIRY", "3600"))
 PORT = int(os.getenv("PORT", "5000"))
 CORS_ALLOWED_ORIGIN = os.getenv("CORS_ALLOWED_ORIGIN", "http://localhost:5173")
 
-# Threshold to force AI if catalog doesn't match
 SUITABILITY_THRESHOLD = 0.68
 
+# 🚨 INITIALIZE AI KEYS 🚨
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "")
-gemini_client = None
-if GEMINI_API_KEY:
-    gemini_client = genai.Client(api_key=GEMINI_API_KEY)
+gemini_client = genai.Client(api_key=GEMINI_API_KEY) if GEMINI_API_KEY else None
+
+# Make sure you added OPENROUTER_API_KEY to your Render Environment Variables!
+OPENROUTER_API_KEY = os.getenv("OPENROUTER_API_KEY", "")
 
 app = Flask(__name__)
 CORS(app, origins=[CORS_ALLOWED_ORIGIN], supports_credentials=False)
@@ -61,18 +62,18 @@ db = firestore.Client(project=PROJECT_ID or None)
 gcs = storage.Client(project=PROJECT_ID or None)
 
 # -----------------------------------------------------------------------------
-# AI Interior Designer Logic
+# AI Interior Designer Logic (Gemini + OpenRouter Flux)
 # -----------------------------------------------------------------------------
 def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max_b):
     try:
         if not gemini_client:
-            return {"room_analysis": "🚨 DEBUG: No API Key found!", "custom_concepts": []}
+            return {"room_analysis": "🚨 DEBUG: No Gemini API Key found!", "custom_concepts": []}
 
         contents = []
 
         prompt = f"""
         You are an expert interior designer. A customer is looking for a specific furniture piece that is CURRENTLY OUT OF STOCK.
-        Analyze their room photo (if provided) and design 2 CUSTOM concepts that perfectly meet their requirements.
+        Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements.
         
         Customer Requirements:
         - Type: {f_type or 'Not specified'}
@@ -81,13 +82,14 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         Output ONLY valid JSON. Structure exactly like this:
         {{
-          "room_analysis": "A warm paragraph explaining that their exact item is out of stock, but you designed these custom concepts specifically to match their room.",
+          "room_analysis": "A warm paragraph explaining that their exact item is out of stock, but you designed this custom piece specifically to match their room.",
           "custom_concepts": [
             {{
               "title": "Short Creative Name of Furniture",
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
-              "suggested_color": "The recommended color."
+              "suggested_color": "The recommended color.",
+              "background_vibe": "A 5-word description of the exact lighting and aesthetic of the uploaded room photo (e.g., 'dark neon cyberpunk living room'). If no photo, write 'bright minimal luxury room'."
             }}
           ]
         }}
@@ -100,39 +102,60 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents.append(prompt)
 
+        # 1. Gemini writes the text analysis
         response = gemini_client.models.generate_content(
             model='gemini-2.5-flash',
             contents=contents
         )
         
         resp_text = response.text.strip()
-        
         start_idx = resp_text.find('{')
         end_idx = resp_text.rfind('}')
-        if start_idx != -1 and end_idx != -1:
-            json_str = resp_text[start_idx:end_idx+1]
-        else:
-            json_str = resp_text
+        json_str = resp_text[start_idx:end_idx+1] if start_idx != -1 and end_idx != -1 else resp_text
             
         parsed = json.loads(json_str)
 
+        # 2. OpenRouter Flux Draws the Image!
         for concept in parsed.get("custom_concepts", []):
-            # Extremely clean text
-            c_title = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("title", f_type or "Furniture"))).strip()
-            c_color = re.sub(r'[^a-zA-Z\s]', '', str(concept.get("suggested_color", color_pref or "Modern"))).strip()
+            c_title = str(concept.get("title", f_type or "Furniture"))
+            c_color = str(concept.get("suggested_color", color_pref or "Modern"))
+            c_vibe = str(concept.get("background_vibe", "bright minimal luxury room"))
             
-            c_color_short = " ".join(c_color.split()[:2])
-            c_title_short = " ".join(c_title.split()[:3])
+            img_prompt = f"Professional interior design photography. A photorealistic {c_color} {c_title} furniture piece placed perfectly inside a {c_vibe}. 8k resolution, highly detailed texture."
             
-            img_prompt_str = f"beautiful {c_color_short} {c_title_short} furniture isolated on white background"
-            encoded_prompt = urllib.parse.quote(img_prompt_str)
-            
-            # 🚨 THE FIX: Using the newest, official pollinations.ai endpoint so it loads perfectly.
-            concept["image_url"] = f"https://pollinations.ai/prompt/{encoded_prompt}?width=800&height=600&nologo=true"
+            if OPENROUTER_API_KEY:
+                try:
+                    # 🚨 Requesting the Base64 Image from OpenRouter Flux 🚨
+                    router_res = requests.post(
+                        "https://openrouter.ai/api/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {OPENROUTER_API_KEY}",
+                            "Content-Type": "application/json"
+                        },
+                        json={
+                            # Using Flux Schnell for lightning-fast, high-quality generation
+                            "model": "flux/flux-schnell", 
+                            "messages": [{"role": "user", "content": img_prompt}],
+                            "response_format": {"type": "b64_json"} # This tells OpenRouter we want Base64 data!
+                        },
+                        timeout=30
+                    )
+                    router_res.raise_for_status()
+                    data = router_res.json()
+                    
+                    # 🚨 AdBlock Immunity: We attach the raw image data directly. No URL needed!
+                    b64_string = data['choices'][0]['message']['content']
+                    concept["image_url"] = f"data:image/jpeg;base64,{b64_string}"
+                    
+                except Exception as e:
+                    print(f"OpenRouter Error: {e}")
+                    concept["image_url"] = "https://placehold.co/800x600/eeeeee/999999?text=Image+Generation+Failed"
+            else:
+                concept["image_url"] = "https://placehold.co/800x600/eeeeee/999999?text=Missing+OpenRouter+Key"
 
         return parsed
     except Exception as e:
-        print(f"Gemini Error: {e}")
+        print(f"Gemini Process Error: {e}")
         return {"room_analysis": f"🚨 DEBUG ERROR: {str(e)}", "custom_concepts": []}
 
 # -----------------------------------------------------------------------------
@@ -354,9 +377,6 @@ def _hydrate_images_from_firestore(pid: str, color_pref: Optional[str] = None, s
     except Exception:
         return []
 
-def _ensure_item_avg_lab(it: dict) -> dict:
-    return it
-
 art = ArtifactIndex(os.path.join(os.path.dirname(__file__), "artifacts"))
 art.load()
 encoder = ClipQueryEncoder()
@@ -412,7 +432,6 @@ def recommend():
     color_pref      = (data.get("color") or "").strip()
     force_ai        = bool(data.get("force_ai", False))
     
-    # 100% VISUAL AI
     w_image = 1.0 
     w_text  = 0.0
 
@@ -450,7 +469,6 @@ def recommend():
     
     force_ai_fallback = force_ai
 
-    # 🚨 SUITABILITY CHECK 🚨
     if img_b64 and len(top_matches) > 0:
         best_score = top_matches[0]["score"]
         if best_score < SUITABILITY_THRESHOLD:
