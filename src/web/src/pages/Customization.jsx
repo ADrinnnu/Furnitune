@@ -22,7 +22,7 @@ import { query, where } from "firebase/firestore";
 const CATEGORY_OPTIONS = {
   "Beds": {
     hasFoam: true,
-    hasCover: true, // 🚨 Forces Cover & Colors to ALWAYS show
+    hasCover: true,
     inclusions: "Main bed frame, structural wooden slats/base, and standard assembly hardware.",
     exclusions: "Mattress, foam toppers, pillows, and bed sheets are NOT included.",
     features: [
@@ -83,7 +83,7 @@ const CATEGORY_OPTIONS = {
   },
   "Dining Tables": {
     hasFoam: false,
-    hasCover: false, // 🚨 Forces Cover & Colors to HIDE
+    hasCover: false, 
     inclusions: "The main dining table top and the structural base/legs.",
     exclusions: "Dining chairs, table runners, and tableware/decorations are NOT included.",
     features: [
@@ -95,7 +95,7 @@ const CATEGORY_OPTIONS = {
   },
   "Tables": {
     hasFoam: false,
-    hasCover: false, // 🚨 Forces Cover & Colors to HIDE
+    hasCover: false, 
     inclusions: "The table top and the supporting legs/base.",
     exclusions: "Chairs, surrounding decor, and floor rugs are NOT included.",
     features: [
@@ -343,38 +343,48 @@ function CatalogDrawer({ open, onClose, productsByCategory, activeCategory, setA
 export default function Customization() {
   const navigate = useNavigate();
 
+  // catalog state
   const [catalogOpen, setCatalogOpen] = useState(false);
   const [productsByCategory, setProductsByCategory] = useState({});
   const [activeCategory, setActiveCategory] = useState("Beds");
 
+  // selection state
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [selectedCategory, setSelectedCategory] = useState("Others");
   
+  // 1. Size & Dimensions
   const [sizeOptions, setSizeOptions] = useState(["S", "M", "L", "Custom"]);
   const [size, setSize] = useState("S");
   const [customSizeDetails, setCustomSizeDetails] = useState("");
 
+  // 2. Dynamic Features
   const [featureSelections, setFeatureSelections] = useState({});
   const [customFeatureInputs, setCustomFeatureInputs] = useState({}); 
   const [foamDensity, setFoamDensity] = useState("");
 
+  // 3. Upholstery & Color 
   const [coverMaterialType, setCoverMaterialType] = useState("");
   const [coverColor, setCoverColor] = useState(""); 
+  const [coverEnabled, setCoverEnabled] = useState(true);
 
+  // pricing state
   const [pricing, setPricing] = useState(null);
   const [additionalsPricing, setAdditionalsPricing] = useState(null);
   const currency = additionalsPricing?.currency || pricing?.currency || "PHP";
 
+  // additionals UI
   const [additionalChoices, setAdditionalChoices] = useState([]);
   const [additionalPicked, setAdditionalPicked] = useState({});
   const [notes, setNotes] = useState("");
 
+  // Refs & Errors
   const [referenceImages, setReferenceImages] = useState([]); 
   const [placeOrderError, setPlaceOrderError] = useState("");
 
   const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
   const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
 
+  // Reset granular choices when category changes
   useEffect(() => {
     setFeatureSelections({});
     setCustomFeatureInputs({});
@@ -383,12 +393,12 @@ export default function Customization() {
     setCoverColor("");
   }, [selectedCategory]); 
 
+  // esc + scroll lock when drawer open
   useEffect(() => {
     const onKey = (e) => e.key === "Escape" && setCatalogOpen(false);
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, []);
-  
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = catalogOpen ? "hidden" : prev || "";
@@ -441,12 +451,14 @@ export default function Customization() {
   }, [loc.search]);
 
 
+  // Construct dynamic description for admins and preview
   const descriptionText = useMemo(() => {
     if (!selectedProduct) return "Please select a product to begin customization.";
     const attachments = Object.keys(additionalPicked).filter((k) => additionalPicked[k]);
 
     let finalDesc = `--- Custom Build Specifications ---\n`;
-    let primaryWoodStr = "Default Factory Wood/Material";
+
+    let primaryWoodStr = "Pending Selection";
 
     if (catConfig.features) {
       catConfig.features.forEach((feat) => {
@@ -455,13 +467,15 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} - ${customFeatureInputs[feat.id]}`;
         }
+
         if (feat.id === "woodMaterial") {
-            primaryWoodStr = val || "Default Factory Wood";
+            primaryWoodStr = val || "Pending Selection";
         }
+
         if (val) {
           finalDesc += `• ${titleCase(feat.label)}: ${val}\n`;
         } else {
-          finalDesc += `• ${titleCase(feat.label)}: Default Spec\n`;
+          finalDesc += `• ${titleCase(feat.label)}: (Pending)\n`;
         }
       });
     }
@@ -474,12 +488,11 @@ export default function Customization() {
     finalDesc += `• Constructed using: ${primaryWoodStr}\n`;
     
     if (catConfig.hasFoam) {
-      finalDesc += `• Foam / Padding: ${foamDensity || "Standard Factory Foam"}\n`;
+      finalDesc += `• Foam / Padding: ${foamDensity || "Pending Selection"}\n`;
     }
     
-    // 🚨 Always prints Cover details if the category allows it (ignoring DB rules)
     if (catConfig.hasCover) {
-      finalDesc += `• Upholstery Used: ${coverMaterialType || "Standard Material"} (Color: ${coverColor || "Default Color"})\n`;
+      finalDesc += `• Upholstery Used: ${coverMaterialType || "Pending Selection"} (Color: ${coverColor || "Pending"})\n`;
     }
 
     finalDesc += `\n--- Package Inclusions & Exclusions ---\n`;
@@ -493,6 +506,7 @@ export default function Customization() {
     return finalDesc.trim() || "No customizations selected.";
   }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, size, customSizeDetails, catConfig]);
 
+  // load products
   useEffect(() => {
     let alive = true;
     (async () => {
@@ -533,6 +547,7 @@ export default function Customization() {
     return () => { alive = false; };
   }, []); 
 
+  // load pricing tables
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -553,6 +568,7 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
+  // load additionals pricing
   useEffect(() => {
     let cancelled = false;
     (async () => {
@@ -567,6 +583,7 @@ export default function Customization() {
     return () => { cancelled = true; };
   }, [selectedCategory]);
 
+  // merge choices 
   useEffect(() => {
     const baseAdds = COMMON_ADDITIONALS[selectedCategory] || [];
     const pricedItems = (additionalsPricing?.items || []).map((a) => a.label || a.key);
@@ -631,6 +648,10 @@ export default function Customization() {
     if (!sizes.includes("Custom")) sizes.push("Custom");
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
+
+    const isCoverEnabled = (CATEGORY_OPTIONS[cat] || CATEGORY_OPTIONS["Others"]).hasCover && (p?.hasCover !== false);
+    setCoverEnabled(isCoverEnabled);
+
     setCatalogOpen(false);
   }
 
@@ -666,19 +687,51 @@ export default function Customization() {
     outline: activeValue === cHex ? "2px solid #111" : "1px solid #ccc",
   });
 
+  // 🚨 STRICT VALIDATION FUNCTION 🚨
   const handlePlaceOrder = async () => {
     setPlaceOrderError("");
     const missing = [];
-    if (!selectedProduct) missing.push("product");
-    if (!size) missing.push("size");
-    
-    if (missing.length) {
+
+    // Check Product & Size
+    if (!selectedProduct) missing.push("Product");
+    if (!size) missing.push("Size & Dimensions");
+    if (size === "Custom" && (!customSizeDetails || !customSizeDetails.trim())) {
+      missing.push("Custom Dimensions Details");
+    }
+
+    // Check all dynamic Architectural Features (Wood, Frame, Arms, etc.)
+    if (catConfig.features) {
+      catConfig.features.forEach(feat => {
+        if (!featureSelections[feat.id]) {
+          missing.push(feat.label);
+        } else if (featureSelections[feat.id].toLowerCase().includes("custom")) {
+          if (!customFeatureInputs[feat.id] || !customFeatureInputs[feat.id].trim()) {
+             missing.push(`${feat.label} (Custom Details)`);
+          }
+        }
+      });
+    }
+
+    // Check Foam (If applicable)
+    if (catConfig.hasFoam && !foamDensity) {
+      missing.push("Uratex Foam Density");
+    }
+
+    // Check Cover & Color (If applicable)
+    if (catConfig.hasCover && coverEnabled) {
+      if (!coverMaterialType) missing.push("Leather / Fabric Type");
+      if (!coverColor) missing.push("Cover Color");
+    }
+
+    // Block Checkout if anything is missing
+    if (missing.length > 0) {
       setPlaceOrderError(
-        `Please fill out the following before placing your order: ${missing.join(", ")}.`
+        `Please complete your selections for: ${missing.join(", ")}.`
       );
       return;
     }
 
+    // If passed, compile everything perfectly for the Admin Dashboard
     const compiledMaterials = {};
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
@@ -686,7 +739,7 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} (${customFeatureInputs[feat.id]})`;
         }
-        compiledMaterials[feat.label] = val || "Default Spec"; 
+        compiledMaterials[feat.label] = val; 
       });
     }
 
@@ -701,10 +754,9 @@ export default function Customization() {
         
         materials: {
           ...compiledMaterials,
-          "Uratex Foam Density": catConfig.hasFoam ? (foamDensity || "Standard") : null,
-          // 🚨 Always bundles Cover details if category permits, ignoring DB overrides
-          "Leather / Fabric Type": catConfig.hasCover ? (coverMaterialType || "Standard") : null,
-          "Cover Color": catConfig.hasCover ? (coverColor || "Default") : null,
+          "Uratex Foam Density": catConfig.hasFoam ? foamDensity : null,
+          "Leather / Fabric Type": (catConfig.hasCover && coverEnabled) ? coverMaterialType : null,
+          "Cover Color": (catConfig.hasCover && coverEnabled) ? coverColor : null,
         },
         
         additionals: pickedAdditionals,
@@ -806,7 +858,7 @@ export default function Customization() {
             <ul className="steps">
               <li>1. <strong>Product:</strong> Select a base model from our catalog.</li>
               <li>2. <strong>Dimensions:</strong> Choose standard sizing or specify custom shape requirements.</li>
-              <li>3. <strong>Architecture:</strong> Fine-tune the structural features. <br/><em>(Note: Leaving an item unpicked will use the standard default spec.)</em></li>
+              <li>3. <strong>Architecture:</strong> Fine-tune the structural features.</li>
               {catConfig.hasCover && <li>4. <strong>Aesthetics:</strong> Choose upholstery material and color.</li>}
               <li>5. <strong>Accessories:</strong> Add functional elements and visual references.</li>
             </ul>
@@ -942,7 +994,7 @@ export default function Customization() {
 
             {additionalChoices.length > 0 && (
               <>
-                <label className="sub-label">Functional Upgrades</label>
+                <label className="sub-label">Functional Upgrades (Optional)</label>
                 <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 16 }}>
                     {additionalChoices.map((label) => {
                     const row = findAdditionCI(additionsTable, label);
@@ -957,7 +1009,7 @@ export default function Customization() {
               </>
             )}
 
-            <label className="sub-label">Special Blueprints / Notes</label>
+            <label className="sub-label">Special Blueprints / Notes (Optional)</label>
             <textarea
               placeholder="e.g., 'Match the wood stain to my provided photo', 'Increase the armrest width by 2 inches'..."
               value={notes}
@@ -966,7 +1018,7 @@ export default function Customization() {
             />
 
             <div style={{ display: "grid", gap: 8 }}>
-              <label className="sub-label">Upload Inspiration Images (Max 3)</label>
+              <label className="sub-label">Upload Inspiration Images (Optional, Max 3)</label>
               <input type="file" accept="image/*" multiple onChange={onPickReferenceFiles} />
               {referenceImages.length > 0 && (
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap", marginTop: 8 }}>
