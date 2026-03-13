@@ -75,14 +75,16 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
 
         contents = []
 
+        # 🚨 BRUTALLY STRICT PROMPT INSTRUCTIONS 🚨
         prompt = f"""
         You are an expert interior designer. A customer is looking for a specific furniture piece.
         Analyze their room photo (if provided) and design 1 CUSTOM concept that perfectly meets their requirements.
         
-        Customer Requirements:
-        - Type: {f_type or 'Not specified'}
-        - Size: {size_pref or 'Not specified'}
-        - Color: {color_pref or 'Not specified'}
+        System Rules regarding Customer Requirements:
+        1. COMPLIANCE IS MANDATORY. If the user specified a requirement (Type: {f_type}, Size: {size_pref}, Color: {color_pref}), your concept MUST match it exactly.
+        
+        Image Composition Instruction:
+        If a room photo is provided, you must provide an obsessive visual breakdown of the room in the output field "background_vibe". Focus on recreating the *exact* environment: wall paint hex colors/textures, flooring material (e.g., dark walnut planks), window locations, and lighting. Do NOT describe the furniture in this field, ONLY the empty room background.
 
         Output ONLY valid JSON. Structure exactly like this:
         {{
@@ -93,9 +95,9 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
               "description": "Why this specific piece looks amazing in their room.",
               "category": "The category (e.g., Sofa, Bed)",
               "suggested_color": "The recommended color.",
-              "suggested_dimensions": "Specific size in inches or cm (e.g., 84 inches long, 36 inches deep). If their size preference is 'Custom Size', generate the ideal, realistic dimensions for this specific furniture type to fit the room.",
-              "suggested_material": "Specific materials (e.g., Walnut wood base with Boucle fabric).",
-              "background_vibe": "Describe the EXACT floor, walls, windows, and lighting from the uploaded room photo (e.g., 'dark wood floors, beige painted walls, natural sunlight from left window'). If no photo, write 'bright minimal luxury room'."
+              "suggested_dimensions": "Specific size in inches or cm matching their size preference.",
+              "suggested_material": "Specific materials.",
+              "background_vibe": "Describe the EXACT walls, floor, windows, and lighting from the uploaded photo so the room can be identical."
             }}
           ]
         }}
@@ -127,8 +129,19 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
             c_room = str(concept.get("background_vibe", "bright minimal luxury room"))
             c_mat = str(concept.get("suggested_material", "premium materials"))
             
-            # Force OpenRouter to place it inside the extracted room 
-            img_prompt = f"Professional interior design photography. A {c_color} {c_title} made of {c_mat}. The furniture is placed inside this exact room: {c_room}. 8k resolution, highly detailed texture, photorealistic lighting."
+            # 🚨 1. ENFORCE CUSHION COUNT BASED ON SIZE PREFERENCE
+            pref_reinforcement = ""
+            if size_pref:
+                pref_reinforcement += f" Size requirement: {size_pref}. "
+                if "4" in str(size_pref):
+                    pref_reinforcement += "CRITICAL: It MUST be an extra-long sofa with EXACTLY 4 distinct, separate seat cushions in a row. "
+                elif "5" in str(size_pref):
+                    pref_reinforcement += "CRITICAL: It MUST be a massive sofa with EXACTLY 5 distinct, separate seat cushions in a row. "
+                elif "3" in str(size_pref):
+                    pref_reinforcement += "CRITICAL: It MUST have EXACTLY 3 distinct, separate seat cushions. "
+
+            # 🚨 2. ENFORCE FRONT-FACING CAMERA ANGLE
+            img_prompt = f"A perfectly straight-on, symmetrical, front-facing photograph of a {c_color} {c_title} made of {c_mat}. {pref_reinforcement}. The furniture is facing directly forward, dead-centered in the frame. Background environment: {c_room}. Photorealistic, 8k resolution, eye-level camera angle."
             
             if OPENROUTER_API_KEY:
                 try:
@@ -141,7 +154,7 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
                         json={
                             "model": "black-forest-labs/flux.2-flex", 
                             "messages": [{"role": "user", "content": img_prompt}],
-                            "modalities": ["image"] 
+                            "modalities": ["image"]
                         },
                         timeout=45
                     )
@@ -164,7 +177,6 @@ def analyze_with_gemini(img_b64, text, f_type, size_pref, color_pref, min_b, max
     except Exception as e:
         print(f"Gemini Process Error: {e}")
         return {"room_analysis": f"🚨 DEBUG ERROR: {str(e)}", "custom_concepts": []}
-
 # -----------------------------------------------------------------------------
 # Helpers
 # -----------------------------------------------------------------------------
