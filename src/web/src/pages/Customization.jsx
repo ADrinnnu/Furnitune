@@ -26,9 +26,9 @@ const CATEGORY_OPTIONS = {
     inclusions: "Main bed frame, structural wooden slats/base, and standard assembly hardware.",
     exclusions: "Mattress, foam toppers, pillows, and bed sheets are NOT included.",
     features: [
-      { id: "woodMaterial", label: "WOOD / PRIMARY MATERIAL", choices: ["Mahogany Wood", "Oak Wood", "Pine Wood", "Metal Frame", "Upholstered Base"] },
-      { id: "headboardStyle", label: "HEADBOARD STYLE", choices: ["Deep Button Tufted", "Vertical Channel", "Plain Upholstered", "Slatted Wood", "Woven Rattan", "No Headboard"] },
-      { id: "legStyle", label: "BASE / LEG STYLE", choices: ["Tapered Wood Legs", "Metal Pin Legs", "Storage Drawer Base", "Floating Base", "Hidden Glides"] },
+      { id: "woodMaterial", label: "ARCHITECTURAL BED FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Metal Frame", "Rubberwood", "Acacia Wood"] },
+      { id: "headboardStyle", label: "HEADBOARD STYLE", choices: ["Wing Back", "Panel", "Sleigh", "Book Case", "Plain Upholstered", "Slatted Wood", "Deep Button Tufted", "Vertical Channel", "Quilted"] },
+      { id: "legStyle", label: "LEG STYLE", choices: ["Tapered Wood Legs", "Metal Legs", "Hidden Glides", "Block Legs", "Bun Feet Legs"] },
       { id: "frameHeight", label: "FRAME HEIGHT", choices: ["Low Profile (Minimalist)", "Standard Height", "High Clearance (Storage)", "Custom Height"] }
     ]
   },
@@ -38,11 +38,11 @@ const CATEGORY_OPTIONS = {
     inclusions: "Main sofa frame, primary seat cushions, and backrest cushions.",
     exclusions: "Throw pillows, decorative blankets, and center tables are NOT included.",
     features: [
-      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Kiln-Dried Hardwood", "Premium Plywood", "Steel Enforced", "Exposed Mahogany Wood"] },
-      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms (Square)", "Rolled Arms", "English Roll", "Pillow Top", "Flare Arms", "Armless"] },
-      { id: "backCushion", label: "BACK CUSHION STYLE", choices: ["Tight Back", "Loose Cushions", "Semi-Attached", "Tufted Back"] },
+      { id: "woodMaterial", label: "ARCHITECTURAL SOFA FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Rubberwood", "Acacia Wood"] },
+      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms", "English Roll Arms", "Rolled Arms", "Flared Arms", "Pillow Top Arms"] },
+      { id: "backCushion", label: "BACKREST STYLE", choices: ["Tight Back", "Loose Cushions", "Semi-Attached", "Tufted Back", "Quilted"] },
       { id: "seatDepth", label: "SEAT DEPTH", choices: ["Standard (21-22\")", "Deep Lounge (23-25\")", "Extra Deep (26\"+)", "Custom Depth"] },
-      { id: "legStyle", label: "LEG STYLE", choices: ["Mid-Century Wood Pegs", "Modern Metal Stiletto", "Block Wood Legs", "Hidden Glides"] }
+      { id: "legStyle", label: "LEG STYLE", choices: ["Tapered Wood Legs", "Metal Legs", "Hidden Glides", "Block Legs", "Bun Feet Legs"] }
     ]
   },
   "Sectionals": {
@@ -51,33 +51,12 @@ const CATEGORY_OPTIONS = {
     inclusions: "Complete sectional frame (all modular pieces), seat cushions, and back cushions.",
     exclusions: "Throw pillows, ottomans (unless added as an upgrade), and rugs are NOT included.",
     features: [
-      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Kiln-Dried Hardwood", "Premium Plywood", "Steel Enforced", "Exposed Oak Wood"] },
-      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms", "Rolled Arms", "Pillow Top", "Flare Arms"] },
+      { id: "woodMaterial", label: "ARCHITECTURAL SECTIONAL FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Rubberwood", "Acacia Wood"] },
       { id: "configuration", label: "CHAISE / SHAPE CONFIGURATION", choices: ["Left-Facing Chaise", "Right-Facing Chaise", "U-Shape", "Symmetrical L-Shape", "Custom Shape"] },
-      { id: "seatDepth", label: "SEAT DEPTH", choices: ["Standard", "Deep Lounge", "Extra Deep", "Custom Depth"] }
-    ]
-  },
-  "Dining Tables": {
-    hasFoam: false,
-    hasCover: false,
-    inclusions: "The main dining table top and the structural base/legs.",
-    exclusions: "Dining chairs, table runners, and tableware/decorations are NOT included.",
-    features: [
-      { id: "woodMaterial", label: "WOOD / TABLE TOP MATERIAL", choices: ["Solid Mahogany", "Walnut Veneer", "Tempered Glass", "Sintered Stone / Marble", "Live Edge Wood", "Epoxy Resin River"] },
-      { id: "edgeStyle", label: "TABLE EDGE STYLE", choices: ["Straight Edge", "Beveled Edge", "Bullnose (Rounded)", "Live Edge (Natural)", "Reverse Bevel"] },
-      { id: "baseDesign", label: "BASE / LEG DESIGN", choices: ["Standard 4-Post", "Trestle Base", "Double Pedestal", "Spider Metal Legs", "X-Shape Metal"] },
-      { id: "surfaceFinish", label: "SURFACE FINISH", choices: ["Matte Clear Coat", "High Gloss Polyurethane", "Natural Oil Rub", "Distressed / Rustic"] }
-    ]
-  },
-  "Tables": {
-    hasFoam: false,
-    hasCover: false,
-    inclusions: "The table top and the supporting legs/base.",
-    exclusions: "Chairs, surrounding decor, and floor rugs are NOT included.",
-    features: [
-      { id: "woodMaterial", label: "WOOD / TOP MATERIAL", choices: ["Solid Wood", "Tempered Glass", "Marble Top", "Concrete", "Travertine"] },
-      { id: "shapeType", label: "TOP SHAPE", choices: ["Rectangular", "Perfect Square", "Round", "Oval", "Abstract / Asymmetrical", "Custom Shape"] },
-      { id: "baseDesign", label: "BASE DESIGN", choices: ["Hairpin Metal Legs", "Geometric Metal", "Solid Wood Plinth", "Open Frame"] }
+      { id: "armrestStyle", label: "ARMREST STYLE", choices: ["Track Arms", "English Roll Arms", "Rolled Arms", "Flared Arms", "Pillow Top Arms"] },
+      { id: "backCushion", label: "BACKREST STYLE", choices: ["Tight Back", "Loose Cushions", "Semi-Attached", "Tufted Back", "Quilted"] },
+      { id: "seatDepth", label: "SEAT DEPTH", choices: ["Standard", "Deep Lounge", "Extra Deep", "Custom Depth"] },
+      { id: "legStyle", label: "LEG STYLE", choices: ["Tapered Wood Legs", "Metal Legs", "Hidden Glides", "Block Legs", "Bun Feet Legs"] }
     ]
   },
   "Chairs": {
@@ -86,8 +65,8 @@ const CATEGORY_OPTIONS = {
     inclusions: "The main chair unit and built-in seat padding/cushioning.",
     exclusions: "Extra decorative back pillows and footrests are NOT included.",
     features: [
-      { id: "woodMaterial", label: "WOOD / FRAME MATERIAL", choices: ["Ash Wood", "Mahogany", "Matte Black Steel", "Chrome Tube"] },
-      { id: "backrestStyle", label: "BACKREST STYLE", choices: ["High Back", "Mid Back", "Curved / Barrel", "Spindle Back", "Custom Height"] },
+      { id: "woodMaterial", label: "ARCHITECTURAL CHAIR FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Metal Frame", "Rubberwood", "Acacia Wood"] },
+      { id: "backrestStyle", label: "BACKREST STYLE", choices: ["High Back", "Mid Back", "Curved / Barrel", "Spindle Back", "Custom Height", "Quilted"] },
       { id: "armType", label: "ARMREST TYPE", choices: ["No Arms", "Sloped Wood Arms", "Upholstered Track Arms"] }
     ]
   },
@@ -97,9 +76,33 @@ const CATEGORY_OPTIONS = {
     inclusions: "The fully upholstered ottoman unit and base.",
     exclusions: "Decorative wooden trays and surrounding living room decor are NOT included.",
     features: [
-      { id: "woodMaterial", label: "WOOD / BASE FRAME", choices: ["Plywood Core", "Solid Wood Frame"] },
-      { id: "topStyle", label: "TOP SURFACE STYLE", choices: ["Flat / Smooth", "Button Tufted", "Pillow Top"] },
-      { id: "baseStyle", label: "BASE / LEGS", choices: ["Hidden Glides", "Caster Wheels", "Exposed Wood Base", "Metal Perimeter Base"] }
+      { id: "woodMaterial", label: "ARCHITECTURAL OTTOMAN FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Rubberwood", "Acacia Wood"] },
+      { id: "topStyle", label: "TOP SURFACE STYLE", choices: ["Pillow Top", "Plain Top", "Tufted Top", "Channel Tufted Top", "Quilted Top"] },
+      { id: "baseStyle", label: "LEG STYLE", choices: ["Tapered Wood Legs", "Metal Legs", "Hidden Glides", "Block Legs", "Bun Feet Legs"] }
+    ]
+  },
+  "Dining Tables": {
+    hasFoam: false,
+    hasCover: false,
+    inclusions: "The main dining table top and the structural base/legs.",
+    exclusions: "Dining chairs, table runners, and tableware/decorations are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "ARCHITECTURAL TABLE FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Rubberwood", "Acacia Wood", "Metal Frame"] },
+      { id: "shapeType", label: "TOP SHAPE", choices: ["Rectangular", "Perfect Square", "Round", "Oval", "Abstract / Asymmetrical", "Custom Shape"] },
+      { id: "edgeStyle", label: "EDGE PROFILE", choices: ["Straight Edge", "Beveled Edge", "Bullnose Edge", "Round Over Edge"] },
+      { id: "legProtection", label: "LEG PROTECTION", choices: ["Hidden Glides", "Rubber Pads", "Plastic Caps", "Anti Skid Pads"] }
+    ]
+  },
+  "Tables": {
+    hasFoam: false,
+    hasCover: false,
+    inclusions: "The table top and the supporting legs/base.",
+    exclusions: "Chairs, surrounding decor, and floor rugs are NOT included.",
+    features: [
+      { id: "woodMaterial", label: "ARCHITECTURAL TABLE FRAME", choices: ["Mahogany Wood", "Pine Wood", "Gmelina Wood", "Rubberwood", "Acacia Wood", "Metal Frame"] },
+      { id: "shapeType", label: "TOP SHAPE", choices: ["Rectangular", "Perfect Square", "Round", "Oval", "Abstract / Asymmetrical", "Custom Shape"] },
+      { id: "edgeStyle", label: "EDGE PROFILE", choices: ["Straight Edge", "Beveled Edge", "Bullnose Edge", "Round Over Edge"] },
+      { id: "legProtection", label: "LEG PROTECTION", choices: ["Hidden Glides", "Rubber Pads", "Plastic Caps", "Anti Skid Pads"] }
     ]
   },
   "Others": {
@@ -115,11 +118,11 @@ const CATEGORY_OPTIONS = {
 };
 
 const FOAM_CHOICES = ["Standard High Density", "Soft / Cloud Plush", "Extra Firm (Orthopedic)", "Memory Foam Topper"];
-const COVER_CHOICES = ["Fabric", "Premium Leather", "Velvet", "Linen", "Microfiber"];
+const COVER_CHOICES = ["Fabric", "Leather", "Linen", "Microfiber", "Velvet", "Cotton"];
 
 const COMMON_ADDITIONALS = {
   "Beds": ["Cabinets", "Pull out Bed"],
-  "Chairs": ["Cushions", "With or without armrest"],
+  "Chairs": ["Cushions", "Hidden Glides"],
   "Sofas": ["Cushions", "Footrest"],
   "Dining Tables": ["Glass on top", "Padded foam on top"],
   "Tables": ["Glass on top", "Padded foam on top"],
@@ -404,28 +407,23 @@ export default function Customization() {
   
   const loc = useLocation();
 
-  // 🚨 UPDATED LOGIC: LOAD IMAGE AND FULL SPECS FROM STORAGE 🚨
   useEffect(() => {
-    const isAiCustom = new URLSearchParams(loc.search).get("ai_custom");
+    const query = new URLSearchParams(loc.search);
+    const title = query.get("ai_title");
+    const color = query.get("ai_color");
+    const desc = query.get("ai_desc");
     
-    // Pull the image and the specs object out of storage
+    // Safely pull the giant image text code out of session storage
     const imgUrl = sessionStorage.getItem("ai_generated_image");
-    const specsRaw = sessionStorage.getItem("ai_generated_specs");
 
-    if (isAiCustom && imgUrl && specsRaw) {
-      const specs = JSON.parse(specsRaw);
-      const title = specs.title || "Custom AI Concept";
-      const color = specs.suggested_color || "Custom Color";
-      const desc = specs.description || "";
-      const dimensions = specs.suggested_dimensions || "Custom Size";
-      const material = specs.suggested_material || "Standard Materials";
-
+    if (title && imgUrl) {
       let cat = "Others";
       const tLower = title.toLowerCase();
-      if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee") || tLower.includes("sectional")) cat = "Sofas";
+      if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee")) cat = "Sofas";
       else if (tLower.includes("bed")) cat = "Beds";
       else if (tLower.includes("chair")) cat = "Chairs";
       else if (tLower.includes("table")) cat = "Tables";
+      else if (tLower.includes("sectional")) cat = "Sectionals";
       else if (tLower.includes("ottoman")) cat = "Ottomans";
 
       const aiProduct = {
@@ -440,21 +438,16 @@ export default function Customization() {
       setSelectedProduct(aiProduct);
       setSelectedCategory(cat);
       
-      // Load the correct size buttons for this specific furniture type
       const correctSizes = DEFAULT_SIZES_BY_TYPE[cat] || DEFAULT_SIZES_BY_TYPE["Others"];
       setSizeOptions([...correctSizes]);
       
-      // Auto-fill the custom dimensions box
       setSize("Custom");
       setCustomSizeDetails(dimensions);
       
-      // Auto-fill the notes with materials and color for the admin
-      const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nSuggested Dimensions: ${dimensions}\nTarget Color: ${color}\nRecommended Material: ${material}\nDesign Details: ${desc}`;
+      const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
       
-      // Cleanup
       sessionStorage.removeItem("ai_generated_image");
-      sessionStorage.removeItem("ai_generated_specs");
     }
   }, [loc.search]);
 
@@ -932,7 +925,7 @@ export default function Customization() {
 
                 <label className="sub-label">Cover Color</label>
                 <div className="colors" style={{flexWrap: "wrap"}}>
-                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#D3C6B3", "#A29B89", "#5E5E5E", "#B76E79", "#212121", "#9E6D4E", "#ffffff", "#000000"]).map((cHex) => (
+                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020"]).map((cHex) => (
                     <div
                     key={cHex}
                     className="color-box"
