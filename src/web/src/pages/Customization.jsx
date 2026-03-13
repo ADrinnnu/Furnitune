@@ -120,6 +120,8 @@ const CATEGORY_OPTIONS = {
 const FOAM_CHOICES = ["Standard High Density", "Soft / Cloud Plush", "Extra Firm (Orthopedic)", "Memory Foam Topper"];
 const COVER_CHOICES = ["Fabric", "Leather", "Linen", "Microfiber", "Velvet", "Cotton"];
 
+const DEFAULT_COLORS = ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020", "#008080", "#E1AD01", "#C08081", "#C0C0C0"];
+
 const COMMON_ADDITIONALS = {
   "Beds": ["Cabinets", "Pull out Bed"],
   "Chairs": ["Cushions", "Hidden Glides"],
@@ -364,7 +366,6 @@ export default function Customization() {
   // 3. Upholstery & Color 
   const [coverMaterialType, setCoverMaterialType] = useState("");
   const [coverColor, setCoverColor] = useState(""); 
-  const [coverPalette, setCoverPalette] = useState([]);
   const [coverEnabled, setCoverEnabled] = useState(true);
 
   // pricing state
@@ -413,7 +414,6 @@ export default function Customization() {
     const color = query.get("ai_color");
     const desc = query.get("ai_desc");
     
-    // Safely pull the giant image text code out of session storage
     const imgUrl = sessionStorage.getItem("ai_generated_image");
 
     if (title && imgUrl) {
@@ -517,7 +517,16 @@ export default function Customization() {
         const list = await hydrateProductImages(raw);
 
         const grouped = list.reduce((acc, p) => {
-          const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
+          const hay = [p.category, p.baseType, p.type, p.kind, p.categorySlug, p.name, p.title].filter(Boolean).map(s => String(s).toLowerCase()).join(" ");
+          let cat = "Others";
+          if (hay.includes("sectional")) cat = "Sectionals";
+          else if (hay.includes("sofa") || hay.includes("couch") || hay.includes("loveseat")) cat = "Sofas";
+          else if (hay.includes("bed")) cat = "Beds";
+          else if (hay.includes("chair")) cat = "Chairs";
+          else if (hay.includes("ottoman") || hay.includes("pouf")) cat = "Ottomans";
+          else if (hay.includes("dining") && hay.includes("table")) cat = "Dining Tables";
+          else if (hay.includes("table")) cat = "Tables";
+          
           if (!acc[cat]) acc[cat] = [];
           acc[cat].push(p);
           return acc;
@@ -620,9 +629,17 @@ export default function Customization() {
     });
   }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
 
-  // pick product 
   function handlePickProduct(p) {
-    const cat = normalizeCategory(p.category || p.baseType || p.type || p.kind || p.categorySlug);
+    const hay = [p.category, p.baseType, p.type, p.kind, p.categorySlug, p.name, p.title].filter(Boolean).map(s => String(s).toLowerCase()).join(" ");
+    let cat = "Others";
+    if (hay.includes("sectional")) cat = "Sectionals";
+    else if (hay.includes("sofa") || hay.includes("couch") || hay.includes("loveseat")) cat = "Sofas";
+    else if (hay.includes("bed")) cat = "Beds";
+    else if (hay.includes("chair")) cat = "Chairs";
+    else if (hay.includes("ottoman") || hay.includes("pouf")) cat = "Ottomans";
+    else if (hay.includes("dining") && hay.includes("table")) cat = "Dining Tables";
+    else if (hay.includes("table")) cat = "Tables";
+
     setSelectedProduct(p);
     setSelectedCategory(cat);
 
@@ -632,13 +649,8 @@ export default function Customization() {
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
 
-    const raw = Array.isArray(p?.colorOptions) ? p.colorOptions : [];
-    const palette = raw.map((c) => ({ hex: String(c?.hex || c?.color || "").trim(), name: c?.name || "" })).filter((c) => /^#([0-9a-f]{3}|[0-9a-f]{6})$/i.test(c.hex));
-    
     const isCoverEnabled = (CATEGORY_OPTIONS[cat] || CATEGORY_OPTIONS["Others"]).hasCover && (p?.hasCover !== false);
-    
     setCoverEnabled(isCoverEnabled);
-    setCoverPalette(palette);
 
     setCatalogOpen(false);
   }
@@ -688,6 +700,7 @@ export default function Customization() {
       return;
     }
 
+    // 🚨 FORMATTING CHOICES PERFECTLY FOR THE ADMIN DATABASE
     const compiledMaterials = {};
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
@@ -695,9 +708,8 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} (${customFeatureInputs[feat.id]})`;
         }
-        if (val) {
-          compiledMaterials[feat.id] = val;
-        }
+        // Save using the EXACT human-readable title (e.g. "ARCHITECTURAL BED FRAME")
+        compiledMaterials[feat.label] = val || "Default Spec"; 
       });
     }
 
@@ -710,12 +722,14 @@ export default function Customization() {
         size: size || null,
         customSizeDetails: size === "Custom" ? customSizeDetails : null,
         
+        // 🚨 PASSING STRUCTURED OBJECT SO FIREBASE CAN DISPLAY IT TO THE ADMIN
         materials: {
           ...compiledMaterials,
-          foamDensity: catConfig.hasFoam ? foamDensity : null,
+          "Uratex Foam Density": catConfig.hasFoam ? (foamDensity || "Standard") : null,
+          "Leather / Fabric Type": (catConfig.hasCover && coverEnabled) ? (coverMaterialType || "Standard") : null,
+          "Cover Color": (catConfig.hasCover && coverEnabled) ? (coverColor || "Default") : null,
         },
         
-        cover: (catConfig.hasCover && coverEnabled) ? { materialType: coverMaterialType, color: coverColor } : null,
         additionals: pickedAdditionals,
         notes: notes || "",
         referenceImagesData: referenceImages,
@@ -925,7 +939,7 @@ export default function Customization() {
 
                 <label className="sub-label">COLORS</label>
                 <div className="colors" style={{flexWrap: "wrap"}}>
-                {(coverPalette.length ? coverPalette.map((c) => c.hex) : ["#ffffff", "#000000", "#D3C6B3", "#5E5E5E", "#1E3F66", "#2D4739", "#8B4513", "#800020", "#008080", "#E1AD01", "#C08081", "#C0C0C0"]).map((cHex) => (
+                {DEFAULT_COLORS.map((cHex) => (
                     <div
                     key={cHex}
                     className="color-box"
