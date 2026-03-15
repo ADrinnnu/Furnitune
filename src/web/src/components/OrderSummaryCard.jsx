@@ -31,6 +31,10 @@ const PLACEHOLDER =
 /* ---------- helpers ---------- */
 function objectPathFromAnyStorageUrl(u) {
   if (!u || typeof u !== "string") return null;
+  
+  // 🚨 FIX: Never treat Base64 or SVG data strings as Firebase file paths!
+  if (u.startsWith("data:")) return null; 
+
   if (/^gs:\/\//i.test(u)) {
     const s = u.replace(/^gs:\/\//i, "");
     const i = s.indexOf("/");
@@ -40,35 +44,43 @@ function objectPathFromAnyStorageUrl(u) {
     const m = u.match(/\/o\/([^?]+)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
-  if (!/^https?:\/\//i.test(u)) return u; // looks like a storage path already
+  if (!/^https?:\/\//i.test(u)) return u; 
   return null;
 }
+
 function isStorageLikeUrl(u) {
   return !!objectPathFromAnyStorageUrl(u);
 }
+
 async function resolveStorageUrl(val) {
   if (!val) return "";
+  
+  // 🚨 FIX: Return data URLs immediately without touching Firebase Storage
+  if (val.startsWith("data:")) return val; 
+
   try {
     const path = objectPathFromAnyStorageUrl(val);
     if (path) return await getDownloadURL(ref(storage, path));
-    return val; // plain http(s)
+    return val; 
   } catch {
     return "";
   }
 }
+
 async function resolveMany(urls) {
   const uniq = [...new Set((urls || []).filter(Boolean))];
   return Promise.all(uniq.map(resolveStorageUrl));
 }
+
 function safeImageSrc(primaryResolvedUrl, original) {
   if (primaryResolvedUrl) return primaryResolvedUrl;
   if (isStorageLikeUrl(original)) return PLACEHOLDER;
   return original || PLACEHOLDER;
 }
+
 const peso = (v) => `₱${Number(v || 0).toLocaleString("en-PH")}`;
 const toCents = (n) => Math.max(0, Math.round(Number(n || 0) * 100));
 
-/* 🔹 unified way to pick an item image (also checks nested product.*) */
 function getItemImageCandidate(it = {}) {
   return (
     it.image ||
@@ -79,7 +91,6 @@ function getItemImageCandidate(it = {}) {
   );
 }
 
-/* 🔹 NEW: order-level image candidate (handles mobile shape with root "product") */
 function getOrderImageCandidate(order = {}) {
   return (
     order.imageUrl ||
@@ -88,7 +99,6 @@ function getOrderImageCandidate(order = {}) {
   );
 }
 
-/* ---------- status helpers (keep in sync with OrderSummary.jsx) ---------- */
 const STATUS_RANK = {
   processing: 1,
   preparing: 2,
@@ -123,7 +133,6 @@ function pickBestStatusKey(candidates) {
   return best;
 }
 
-/* ---------- which fields to merge from linked docs ---------- */
 const MERGE_FIELDS = [
   "assessedTotalCents",
   "depositCents",
@@ -164,22 +173,20 @@ export default function OrderSummaryCard({
   const [depositProofUrls, setDepositProofUrls] = useState([]);
   const [additionalProofUrls, setAdditionalProofUrls] = useState([]);
 
-  /* ---------- allow parent override ---------- */
   useEffect(() => {
     if (orderFromParent !== null) setOrder(orderFromParent);
   }, [orderFromParent]);
 
-  /* ---------- items passed directly ---------- */
   useEffect(() => {
     (async () => {
       if (!passedItems) return;
 
-      const parentOrder = orderFromParent || {}; // 🔹 may hold product.imageUrl from mobile
+      const parentOrder = orderFromParent || {}; 
       const orderImg = getOrderImageCandidate(parentOrder);
 
       const withUrls = await Promise.all(
         passedItems.map(async (it) => {
-          const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 fallback to order-level image
+          const rawImg = getItemImageCandidate(it) || orderImg; 
           return {
             ...it,
             imageResolved: await resolveStorageUrl(rawImg),
@@ -191,7 +198,6 @@ export default function OrderSummaryCard({
     })();
   }, [passedItems, orderFromParent]);
 
-  /* ---------- fetch order if needed ---------- */
   useEffect(() => {
     if (passedItems || orderFromParent) return;
     let stopAuth = () => {};
@@ -234,7 +240,6 @@ export default function OrderSummaryCard({
     };
   }, [orderId, passedItems, orderFromParent]);
 
-  /* ---------- subscribe to linked customization (if any) ---------- */
   useEffect(() => {
     if (!order) {
       setLinkedCustom(null);
@@ -266,7 +271,6 @@ export default function OrderSummaryCard({
       return stop;
     }
 
-    // reverse lookup by orderId
     const qRef = query(
       collection(firestore, "custom_orders"),
       where("orderId", "==", order.id),
@@ -283,7 +287,6 @@ export default function OrderSummaryCard({
     return stop;
   }, [order]);
 
-  /* ---------- subscribe to linked repair (if any) ---------- */
   useEffect(() => {
     if (!order) {
       setLinkedRepair(null);
@@ -311,7 +314,6 @@ export default function OrderSummaryCard({
       return stop;
     }
 
-    // reverse lookup by orderId
     const qRef = query(
       collection(firestore, "repairs"),
       where("orderId", "==", order.id),
@@ -328,18 +330,15 @@ export default function OrderSummaryCard({
     return stop;
   }, [order]);
 
-  /* ---------- resolve item images from order (handles custom_orders shape) ---------- */
   useEffect(() => {
     if (passedItems) return;
     (async () => {
       if (!order) return;
 
-      const orderImg = getOrderImageCandidate(order); // 🔹 from root order/product
+      const orderImg = getOrderImageCandidate(order); 
 
-      // start with normal items[]
       let src = Array.isArray(order.items) ? order.items : [];
 
-      // if no items (like mobile custom_orders), synthesize one from the doc
       if (!src.length) {
         const img =
           (Array.isArray(order.images) && order.images[0]) ||
@@ -372,7 +371,7 @@ export default function OrderSummaryCard({
 
       const withUrls = await Promise.all(
         src.map(async (it) => {
-          const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 item → order fallback
+          const rawImg = getItemImageCandidate(it) || orderImg; 
           return {
             ...it,
             imageResolved: await resolveStorageUrl(rawImg),
@@ -383,7 +382,6 @@ export default function OrderSummaryCard({
     })();
   }, [order, passedItems]);
 
-  /* ---------- merge order + linked docs for display ---------- */
   const NUMERIC_FIELDS = new Set([
     "assessedTotalCents",
     "depositCents",
@@ -399,16 +397,14 @@ export default function OrderSummaryCard({
   }
 
   const merged = useMemo(() => {
-    if (!order) return order; // pass through undefined/null
+    if (!order) return order; 
 
-    // order first, then custom, then repair
     const chain = [order, linkedCustom, linkedRepair].filter(Boolean);
     const out = { ...order };
 
     for (const k of MERGE_FIELDS) {
       const base = out[k];
 
-      // allow overlays to override when base is unset OR zero (for numeric)
       const baseUnset = NUMERIC_FIELDS.has(k)
         ? base == null || Number(base) === 0
         : isEmptyVal(base);
@@ -436,7 +432,6 @@ export default function OrderSummaryCard({
     return out;
   }, [order, linkedCustom, linkedRepair]);
 
-  /* ---------- resolve proof images (deposit + additional) ---------- */
   useEffect(() => {
     (async () => {
       const m = merged || {};
@@ -458,7 +453,6 @@ export default function OrderSummaryCard({
         ? m.additionalPaymentProofs.map((p) => p?.url || p).filter(Boolean)
         : [];
 
-      // 👉 If we have an array, treat it as source of truth; otherwise use singles
       const depositSources = depositList.length > 0 ? depositList : depositSingles;
       const additionalSources = addList.length > 0 ? addList : addSingles;
 
@@ -467,7 +461,6 @@ export default function OrderSummaryCard({
     })();
   }, [merged]);
 
-  /* ---------- money sections (now aware of priceBreakdown for customs) ---------- */
   const subtotal = useMemo(() => {
     if (subtotalOverride != null) return Number(subtotalOverride);
     if (merged?.subtotal != null && !passedItems) return Number(merged.subtotal);
@@ -480,12 +473,10 @@ export default function OrderSummaryCard({
       );
     }
 
-    // mobile custom_orders / custom_orders fallback
     const pb = merged?.priceBreakdown;
     if (pb?.basePHP != null) return Number(pb.basePHP);
     if (merged?.unitPrice != null) return Number(merged.unitPrice);
 
-    // 🔁 REPAIR fallback: use total/assessed/intended
     if (merged?.origin === "repair") {
       if (typeof merged.total === "number") return Number(merged.total);
       if (
@@ -510,7 +501,6 @@ export default function OrderSummaryCard({
     if (merged?.shippingFee != null) return Number(merged.shippingFee);
     if (merged?.shipping != null) return Number(merged.shipping);
 
-    // derive from priceBreakdown if available
     const pb = merged?.priceBreakdown;
     if (pb?.totalPHP != null && pb?.basePHP != null) {
       return Number(pb.totalPHP) - Number(pb.basePHP);
@@ -546,10 +536,8 @@ export default function OrderSummaryCard({
 
     const netPaidC = Math.max(0, depositC + addsC - refundsC);
 
-    // Default computed balance from assessed
     let balanceC = Math.max(0, assessedC - netPaidC);
 
-    // If admin explicitly requested an additional amount, reflect that in Balance Due
     if (requestedC > 0 && (status === "awaiting_additional_payment" || balanceC === 0)) {
       balanceC = Math.max(balanceC, requestedC);
     }
@@ -630,7 +618,6 @@ export default function OrderSummaryCard({
   const lineItems = items.length ? items : srcOrder.items || [];
   const count = lineItems.reduce((s, it) => s + Number(it.qty || 1), 0);
 
-  // pick the furthest stage among order, custom, and repair
   const statusKey = pickBestStatusKey([
     linkedCustom?.status,
     linkedRepair?.status,
@@ -640,7 +627,7 @@ export default function OrderSummaryCard({
 
   const paymentText = String(srcOrder?.paymentStatus || "pending").toUpperCase();
 
-  const orderImg = getOrderImageCandidate(srcOrder); // 🔹 order-level image for render
+  const orderImg = getOrderImageCandidate(srcOrder); 
 
   return (
     <div className={`checkout-summary ${className}`}>
@@ -709,7 +696,7 @@ export default function OrderSummaryCard({
         const qty = Number(it.qty || 1);
         const price = Number(it.price || 0);
 
-        const rawImg = getItemImageCandidate(it) || orderImg; // 🔹 item → order fallback
+        const rawImg = getItemImageCandidate(it) || orderImg; 
         const src = safeImageSrc(
           it.imageResolved,
           rawImg
