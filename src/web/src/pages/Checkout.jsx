@@ -26,34 +26,31 @@ const isValidEmail = (v = "") => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 const isValidPHZip = (digits = "") => /^\d{4}$/.test(digits);
 const isValidMobilePH = (digits = "") => /^\d{10,11}$/.test(digits);
 
-// 🔹 ROBUST URL RESOLVER (Converts gs:// -> https://)
+// 🔹 ROBUST URL RESOLVER (Fixed to stop breaking valid http images)
 async function resolveStorageUrl(path) {
   if (!path || typeof path !== "string") return null;
-  
+
+  // If it's already a working web link or base64 image, skip Firebase resolution
   if (path.startsWith("http") || path.startsWith("data:")) return path;
 
-  if (path.startsWith("gs://") || path.includes("firebasestorage")) {
+  if (path.startsWith("gs://")) {
     try {
       let relativePath = path;
-      if (path.startsWith("gs://")) {
-        const bucketEndIndex = path.indexOf("/", 5);
-        if (bucketEndIndex !== -1) {
-          relativePath = path.substring(bucketEndIndex + 1);
-        }
+      const bucketEndIndex = path.indexOf("/", 5);
+      if (bucketEndIndex !== -1) {
+        relativePath = path.substring(bucketEndIndex + 1);
       }
-      
+
       const storageRef = ref(storage, relativePath);
       return await getDownloadURL(storageRef);
     } catch (e) {
       console.error("Error resolving image URL:", path, e);
-      return null;
+      return null; 
     }
   }
   return path;
 }
 
-// 🔹 FIX 1: UPDATE THE GATEKEEPER
-// We add 'uniqueSpecs', 'customDimensions', and 'notes' to the list so they aren't deleted.
 const slimItems = (items = []) =>
   items.map((it) => ({
     id: it.id,
@@ -76,12 +73,12 @@ const slimItems = (items = []) =>
     selectedMaterial: it.selectedMaterial ?? null,
     additionals: Array.isArray(it.additionals) ? it.additionals : [],
 
-    // 👇 THIS IS THE MISSING PART THAT WAS DELETING YOUR DATA
+    // 👇 PRESERVE NEW CUSTOM MATERIALS
+    materials: it.materials || {},
     uniqueSpecs: it.uniqueSpecs || {},
     customDimensions: it.customDimensions || {},
     notes: it.notes || it.note || "", 
   }));
-
 
 export default function Checkout() {
   const navigate = useNavigate();
@@ -119,9 +116,8 @@ export default function Checkout() {
     if (items.length > 0) resolveImages();
   }, [items.length, customMode, repairId]); 
 
-
   // ---------------------------------------------
-  // 🔹 FIX 2: LOAD THE SPECS FROM STORAGE
+  // LOAD THE SPECS FROM STORAGE FOR CUSTOM ORDER
   // ---------------------------------------------
   useEffect(() => {
     if (!customMode) return;
@@ -139,9 +135,10 @@ export default function Checkout() {
         const rawImage = 
           (Array.isArray(draft.images) && draft.images[0]) ||
           (draft.imageUrls && draft.imageUrls[0]) ||
-          (typeof draft.image === "string" ? draft.image : null);
+          (typeof draft.image === "string" ? draft.image : null) ||
+          draft.image; // Fallback to raw property
 
-        const resolvedImage = await resolveStorageUrl(rawImage);
+        const resolvedImage = await resolveStorageUrl(rawImage) || rawImage;
 
         setItems([
           {
@@ -157,15 +154,12 @@ export default function Checkout() {
             size: draft.size || null,
             selectedSize: draft.size || null,
             
-            color: draft?.cover?.color || null,
-            selectedColor: draft?.cover?.color || null,
-            
-            material: draft?.cover?.materialType || null,
-            selectedMaterial: draft?.cover?.materialType || null,
+            color: draft?.materials?.["Cover Color"] || null,
+            material: draft?.materials?.["Leather / Fabric Type"] || null,
             
             additionals: Array.isArray(draft.additionals) ? draft.additionals : [],
             
-            // 👇 LOAD THE DATA SO IT EXISTS IN THE ITEM LIST
+            materials: draft.materials || {},
             uniqueSpecs: draft.uniqueSpecs || {},
             customDimensions: draft.customDimensions || {},
             notes: draft.notes || "",
@@ -179,7 +173,6 @@ export default function Checkout() {
     };
     loadCustomDraft();
   }, [customMode]);
-
 
   // ---------------------------------------------
   // RESOLVE IMAGES FOR REPAIR ORDERS
@@ -195,7 +188,7 @@ export default function Checkout() {
         const price = Number(r?.total ?? (r?.typePrice || 0) + (r?.coverMaterialPrice || 0) + (r?.frameMaterialPrice || 0)) || 0;
         
         const rawImage = Array.isArray(r?.images) && r.images[0] ? r.images[0] : null;
-        const resolvedImage = await resolveStorageUrl(rawImage);
+        const resolvedImage = await resolveStorageUrl(rawImage) || rawImage;
 
         setItems([
           {
@@ -366,7 +359,7 @@ export default function Checkout() {
     };
 
     const pendingPayload = {
-      items: slimItems(items), // <--- NOW INCLUDES SPECS
+      items: slimItems(items), 
       subtotal,
       shippingFee,
       total,

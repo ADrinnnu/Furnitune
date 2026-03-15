@@ -308,9 +308,11 @@ export default function Payment() {
 
       // any additionals attached to the cart item
       additionals: Array.isArray(it.additionals) ? it.additionals : [],
+
+      // 👇 ADDED THIS: Preseves materials for Customization Checkouts!
+      materials: it.materials || {},
     };
   });
-
 
   const buildSafeAddress = (addr) =>
     addr
@@ -585,39 +587,39 @@ export default function Payment() {
         });
 
         const repairPatch = deepSanitizeForFirestore({
-    userId: uid,
-    status: "processing",
-    origin: "repair",
-    shippingAddress: safeAddress || null,
-    contactEmail: safeAddress?.email || null,
+          userId: uid,
+          status: "processing",
+          origin: "repair",
+          shippingAddress: safeAddress || null,
+          contactEmail: safeAddress?.email || null,
 
-    // 🔹 store order money fields so OrderSummaryCard can read them
-    subtotal,
-    shippingFee,
-    total,
+          // 🔹 store order money fields so OrderSummaryCard can read them
+          subtotal,
+          shippingFee,
+          total,
 
-    // unified payment fields
-    paymentStatus: "pending",
-    assessmentStatus: "pending",
-    assessedTotalCents: null,
-    depositCents: 0,
-    depositIntendedCents: toC(total),
-    additionalPaymentsCents: 0,
-    refundsCents: 0,
-    requestedAdditionalPaymentCents: 0,
+          // unified payment fields
+          paymentStatus: "pending",
+          assessmentStatus: "pending",
+          assessedTotalCents: null,
+          depositCents: 0,
+          depositIntendedCents: toC(total),
+          additionalPaymentsCents: 0,
+          refundsCents: 0,
+          requestedAdditionalPaymentCents: 0,
 
-    paymentProofPendingReview: true,
-    paymentProofType: "deposit",
-    paymentProofUpdatedAt: new Date(),
-    paymentProofUrl: url || null,
-    depositPaymentProofUrl: url || null,
-    depositPaymentProofs: arrayUnion({
-      url: url || null,
-      uploadedAt: new Date(),
-      amountCents: null,
-      note: null,
-    }),
-  });
+          paymentProofPendingReview: true,
+          paymentProofType: "deposit",
+          paymentProofUpdatedAt: new Date(),
+          paymentProofUrl: url || null,
+          depositPaymentProofUrl: url || null,
+          depositPaymentProofs: arrayUnion({
+            url: url || null,
+            uploadedAt: new Date(),
+            amountCents: null,
+            note: null,
+          }),
+        });
 
         await updateDoc(repairRef, repairPatch);
 
@@ -727,11 +729,11 @@ export default function Payment() {
           productTitle: customDraft.productTitle ?? null,
           category: customDraft.category ?? null,
           size: customDraft.size ?? null,
+          customSizeDetails: customDraft.customSizeDetails ?? null,
 
-          cover: {
-            materialType: customDraft?.cover?.materialType ?? null,
-            color: customDraft?.cover?.color ?? null,
-          },
+          // 🚨 SECURELY LOAD MATERIALS FROM THE CUSTOM_DRAFT 🚨
+          materials: customDraft.materials || {},
+
           additionals: Array.isArray(customDraft.additionals)
             ? customDraft.additionals.map(String)
             : [],
