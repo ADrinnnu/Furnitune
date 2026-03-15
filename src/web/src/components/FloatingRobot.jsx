@@ -213,7 +213,6 @@ export default function FloatingRobot() {
 
         snap.forEach(doc => {
           const data = doc.data();
-          // Filter out expired messages in case TTL hasn't swept them yet
           if (data.expireAt && data.expireAt.toDate() > now) {
             loadedMsgs.push({ role: data.role, text: data.text });
           }
@@ -637,15 +636,24 @@ export default function FloatingRobot() {
                         <strong>Color:</strong> {m.customConcept.suggested_color}
                       </div>
                       
+                      {/* 🚨 SAFE REDIRECT: Removes Image Before Saving Specs to prevent QuotaExceededError 🚨 */}
                       <button className="btn" onClick={() => {
+                          const conceptToSave = { ...m.customConcept };
+                          delete conceptToSave.image_url; // Strip giant image out to save space
+
                           try {
                               sessionStorage.setItem("ai_generated_image", m.customConcept.image_url || "");
                           } catch (e) {
-                              console.warn("Storage quota exceeded. Image too large.", e);
+                              console.warn("Storage quota exceeded for image.", e);
                               sessionStorage.setItem("ai_generated_image", "https://placehold.co/800x600/eeeeee/999999?text=AI+Concept");
                           }
                           
-                          sessionStorage.setItem("ai_generated_specs", JSON.stringify(m.customConcept));
+                          try {
+                              sessionStorage.setItem("ai_generated_specs", JSON.stringify(conceptToSave));
+                          } catch (e) {
+                              console.warn("Storage quota exceeded for specs.", e);
+                          }
+                          
                           window.location.href = `/customization?ai_custom=true`;
                       }}>
                         Build This Custom
