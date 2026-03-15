@@ -371,12 +371,14 @@ export default function Customization() {
 
   const [referenceImages, setReferenceImages] = useState([]); 
   
-  // ERROR TRACKING STATE
   const [placeOrderError, setPlaceOrderError] = useState("");
   const [validationErrors, setValidationErrors] = useState({});
 
   const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
   const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
+  
+  // 🚨 QUICK CHECK: Is this an AI Custom Design? 🚨
+  const isAICustom = selectedProduct?.id === "ai-custom-concept";
 
   const getErrorStyle = (key) => ({
     padding: validationErrors[key] ? "12px" : "0",
@@ -411,13 +413,12 @@ export default function Customization() {
   
   const loc = useLocation();
 
-  // 🚨 BULLETPROOF AI INTERCEPTOR 🚨
   useEffect(() => {
     const query = new URLSearchParams(loc.search);
-    const isAiCustom = query.get("ai_custom") === "true";
-    const fallbackTitle = query.get("ai_title"); // For old URL params
+    const isAiCustomFlag = query.get("ai_custom") === "true";
+    const fallbackTitle = query.get("ai_title");
 
-    if (isAiCustom || fallbackTitle) {
+    if (isAiCustomFlag || fallbackTitle) {
       const imgUrl = sessionStorage.getItem("ai_generated_image") || "https://placehold.co/800x600/eeeeee/999999?text=AI+Concept";
       const specsRaw = sessionStorage.getItem("ai_generated_specs");
       
@@ -426,7 +427,6 @@ export default function Customization() {
       let desc = query.get("ai_desc") || "";
       let dims = "Based on AI Concept generation";
 
-      // If JSON specs exist, prioritize them
       if (specsRaw) {
           try {
              const specs = JSON.parse(specsRaw);
@@ -467,7 +467,6 @@ export default function Customization() {
       const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
       
-      // Delay cleanup so React Strict Mode doesn't break the reload
       setTimeout(() => {
           sessionStorage.removeItem("ai_generated_image");
           sessionStorage.removeItem("ai_generated_specs");
@@ -481,7 +480,7 @@ export default function Customization() {
     const attachments = Object.keys(additionalPicked).filter((k) => additionalPicked[k]);
 
     let finalDesc = `--- Custom Build Specifications ---\n`;
-    let primaryWoodStr = "Pending Selection";
+    let primaryWoodStr = isAICustom ? "Determined by AI Design" : "Pending Selection";
 
     if (catConfig.features) {
       catConfig.features.forEach((feat) => {
@@ -491,12 +490,12 @@ export default function Customization() {
             val = `${val} - ${customFeatureInputs[feat.id]}`;
         }
         if (feat.id === "woodMaterial") {
-            primaryWoodStr = val || "Pending Selection";
+            primaryWoodStr = val || (isAICustom ? "Determined by AI Design" : "Pending Selection");
         }
         if (val) {
           finalDesc += `• ${titleCase(feat.label)}: ${val}\n`;
         } else {
-          finalDesc += `• ${titleCase(feat.label)}: (Pending)\n`;
+          finalDesc += `• ${titleCase(feat.label)}: ${isAICustom ? "(As per AI Blueprint)" : "(Pending)"}\n`;
         }
       });
     }
@@ -509,11 +508,11 @@ export default function Customization() {
     finalDesc += `• Constructed using: ${primaryWoodStr}\n`;
     
     if (catConfig.hasFoam) {
-      finalDesc += `• Foam / Padding: ${foamDensity || "Pending Selection"}\n`;
+      finalDesc += `• Foam / Padding: ${foamDensity || (isAICustom ? "Determined by AI Design" : "Pending Selection")}\n`;
     }
     
     if (catConfig.hasCover) {
-      finalDesc += `• Upholstery Used: ${coverMaterialType || "Pending Selection"} (Color: ${coverColor || "Pending"})\n`;
+      finalDesc += `• Upholstery Used: ${coverMaterialType || (isAICustom ? "Determined by AI Design" : "Pending Selection")} (Color: ${coverColor || (isAICustom ? "As per Blueprint" : "Pending")})\n`;
     }
 
     finalDesc += `\n--- Package Inclusions & Exclusions ---\n`;
@@ -525,7 +524,7 @@ export default function Customization() {
     }
 
     return finalDesc.trim() || "No customizations selected.";
-  }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, size, customSizeDetails, catConfig]);
+  }, [selectedProduct, additionalPicked, featureSelections, customFeatureInputs, foamDensity, coverMaterialType, coverColor, size, customSizeDetails, catConfig, isAICustom]);
 
   useEffect(() => {
     let alive = true;
@@ -630,7 +629,7 @@ export default function Customization() {
 
   const priceBreakdown = useMemo(() => {
     if (!selectedProduct) return null;
-    if (selectedProduct.id === "ai-custom-concept") return null;
+    if (isAICustom) return null;
 
     const base = selectedProduct.basePriceCents != null ? selectedProduct.basePriceCents : toCents(selectedProduct.price ?? selectedProduct.basePrice ?? 0);
     const sizeForPricing = canonicalSize(selectedCategory, size);
@@ -644,7 +643,7 @@ export default function Customization() {
       additionsTable,
       additionsArePesos, 
     });
-  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory]);
+  }, [selectedProduct, size, coverMaterialType, pickedAdditionals, pricing, additionalsPricing, selectedCategory, isAICustom]);
 
   function handlePickProduct(p) {
     const hay = [p.category, p.baseType, p.type, p.kind, p.categorySlug, p.name, p.title].filter(Boolean).map(s => String(s).toLowerCase()).join(" ");
@@ -703,6 +702,7 @@ export default function Customization() {
     outline: activeValue === cHex ? "3px solid #111" : "1px solid #ccc",
   });
 
+  // 🚨 SMART VALIDATION & SCROLL LOGIC 🚨
   const handlePlaceOrder = async () => {
     setPlaceOrderError("");
     const newErrors = {};
@@ -721,23 +721,26 @@ export default function Customization() {
       markError("customSize");
     }
 
-    if (catConfig.features) {
-      catConfig.features.forEach(feat => {
-        if (!featureSelections[feat.id]) {
-          markError(feat.id);
-        } else if (featureSelections[feat.id].toLowerCase().includes("custom")) {
-          if (!customFeatureInputs[feat.id] || !customFeatureInputs[feat.id].trim()) {
-             markError(`${feat.id}_custom`);
-          }
+    // 🚨 IF NOT AN AI CONCEPT, ENFORCE STRICT VALIDATION 🚨
+    if (!isAICustom) {
+        if (catConfig.features) {
+          catConfig.features.forEach(feat => {
+            if (!featureSelections[feat.id]) {
+              markError(feat.id);
+            } else if (featureSelections[feat.id].toLowerCase().includes("custom")) {
+              if (!customFeatureInputs[feat.id] || !customFeatureInputs[feat.id].trim()) {
+                 markError(`${feat.id}_custom`);
+              }
+            }
+          });
         }
-      });
-    }
 
-    if (catConfig.hasFoam && !foamDensity) markError("foam");
+        if (catConfig.hasFoam && !foamDensity) markError("foam");
 
-    if (catConfig.hasCover) {
-      if (!coverMaterialType) markError("coverMaterial");
-      if (!coverColor) markError("coverColor");
+        if (catConfig.hasCover) {
+          if (!coverMaterialType) markError("coverMaterial");
+          if (!coverColor) markError("coverColor");
+        }
     }
 
     setValidationErrors(newErrors);
@@ -758,7 +761,8 @@ export default function Customization() {
         if (val?.toLowerCase().includes("custom") && customFeatureInputs[feat.id]) {
             val = `${val} (${customFeatureInputs[feat.id]})`;
         }
-        compiledMaterials[feat.label] = val; 
+        // Save choice, or fallback to AI default if it was skipped
+        compiledMaterials[feat.label] = val || (isAICustom ? "Determined by AI Design" : "Pending"); 
       });
     }
 
@@ -773,9 +777,9 @@ export default function Customization() {
         
         materials: {
           ...compiledMaterials,
-          "Uratex Foam Density": catConfig.hasFoam ? foamDensity : null,
-          "Leather / Fabric Type": catConfig.hasCover ? coverMaterialType : null,
-          "Cover Color": catConfig.hasCover ? coverColor : null,
+          "Uratex Foam Density": catConfig.hasFoam ? (foamDensity || (isAICustom ? "Determined by AI Design" : null)) : null,
+          "Leather / Fabric Type": catConfig.hasCover ? (coverMaterialType || (isAICustom ? "Determined by AI Design" : null)) : null,
+          "Cover Color": catConfig.hasCover ? (coverColor || (isAICustom ? "Determined by AI Design" : null)) : null,
         },
         
         additionals: pickedAdditionals,
@@ -936,7 +940,7 @@ export default function Customization() {
                   
                   return (
                   <div key={feat.id} id={`error-${feat.id}`} style={{marginBottom: 20, ...getErrorStyle(feat.id)}}>
-                      <label className="sub-label">{feat.label} <span style={{color: '#d9534f'}}>*</span></label>
+                      <label className="sub-label">{feat.label} {!isAICustom && <span style={{color: '#d9534f'}}>*</span>}</label>
                       <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                       {feat.choices.map((choice) => (
                           <Chip 
@@ -978,7 +982,7 @@ export default function Customization() {
           {/* 3 COMFORT (Conditional) */}
           {catConfig.hasFoam && (
             <div className="option" id="error-foam" style={getErrorStyle("foam")}>
-                <h3 className="option-title">3. URATEX FOAM DENSITY <span style={{color: '#d9534f'}}>*</span></h3>
+                <h3 className="option-title">3. URATEX FOAM DENSITY {!isAICustom && <span style={{color: '#d9534f'}}>*</span>}</h3>
                 <div className="buttons-row" style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
                 {FOAM_CHOICES.map((f) => (
                     <Chip key={f} active={foamDensity === f} onClick={() => {
@@ -999,7 +1003,7 @@ export default function Customization() {
                 <h3 className="option-title">4. UPHOLSTERY & COLOR</h3>
                 
                 <div id="error-coverMaterial" style={{marginBottom: 16, ...getErrorStyle("coverMaterial")}}>
-                  <label className="sub-label">LEATHER / FABRIC TYPE <span style={{color: '#d9534f'}}>*</span></label>
+                  <label className="sub-label">LEATHER / FABRIC TYPE {!isAICustom && <span style={{color: '#d9534f'}}>*</span>}</label>
                   <div className="buttons-row" style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
                   {COVER_CHOICES.map((m) => (
                       <Chip key={m} active={coverMaterialType === m} onClick={() => {
@@ -1013,7 +1017,7 @@ export default function Customization() {
                 </div>
 
                 <div id="error-coverColor" style={getErrorStyle("coverColor")}>
-                  <label className="sub-label">COLORS <span style={{color: '#d9534f'}}>*</span></label>
+                  <label className="sub-label">COLORS {!isAICustom && <span style={{color: '#d9534f'}}>*</span>}</label>
                   <div className="colors" style={{flexWrap: "wrap"}}>
                   {DEFAULT_COLORS.map((cHex) => (
                       <div
@@ -1100,7 +1104,7 @@ export default function Customization() {
           <div className="option">
             <h3 className="option-title">ESTIMATED PRICE</h3>
             {/* 🚨 AI PRICE HANDLING 🚨 */}
-            {selectedProduct?.id === "ai-custom-concept" ? (
+            {isAICustom ? (
               <div className="text" style={{ padding: "16px", background: "#eef8e9", borderRadius: "8px", border: "1px solid #2F6F62", color: "#1E2C2B" }}>
                 <strong>🛠️ Fully Custom AI Build</strong><br/>
                 Since this is a 100% unique design generated by AI, our master upholsterers will review your blueprints and provide a custom price quote after you submit this request!
