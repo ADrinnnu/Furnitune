@@ -26,11 +26,9 @@ const isValidEmail = (v = "") => /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v);
 const isValidPHZip = (digits = "") => /^\d{4}$/.test(digits);
 const isValidMobilePH = (digits = "") => /^\d{10,11}$/.test(digits);
 
-// 🔹 ROBUST URL RESOLVER (Fixed to stop breaking valid http images)
+// 🔹 ROBUST URL RESOLVER
 async function resolveStorageUrl(path) {
   if (!path || typeof path !== "string") return null;
-
-  // If it's already a working web link or base64 image, skip Firebase resolution
   if (path.startsWith("http") || path.startsWith("data:")) return path;
 
   if (path.startsWith("gs://")) {
@@ -40,12 +38,10 @@ async function resolveStorageUrl(path) {
       if (bucketEndIndex !== -1) {
         relativePath = path.substring(bucketEndIndex + 1);
       }
-
       const storageRef = ref(storage, relativePath);
       return await getDownloadURL(storageRef);
     } catch (e) {
-      console.error("Error resolving image URL:", path, e);
-      return null; 
+      return null;
     }
   }
   return path;
@@ -60,23 +56,18 @@ const slimItems = (items = []) =>
     qty: Number(it.qty || 1),
     price: Number(it.price || 0),
     image: it.image || it.imageUrl || null, 
-
     size: it.size || it.selectedSize || null,
     selectedSize: it.selectedSize ?? it.size ?? null,
-
     color: it.color || it.selectedColor || it.colorName || null,
     selectedColor: it.selectedColor ?? it.color ?? it.colorName ?? null,
     colorName: it.colorName ?? it.selectedColor ?? null,
     colorHex: it.colorHex ?? null,
-
     material: it.material || null,
     selectedMaterial: it.selectedMaterial ?? null,
     additionals: Array.isArray(it.additionals) ? it.additionals : [],
-
-    // 👇 PRESERVE NEW CUSTOM MATERIALS
-    materials: it.materials || {},
     uniqueSpecs: it.uniqueSpecs || {},
     customDimensions: it.customDimensions || {},
+    materials: it.materials || {},
     notes: it.notes || it.note || "", 
   }));
 
@@ -86,21 +77,16 @@ export default function Checkout() {
   const repairId = params.get("repairId");
   const customMode = params.get("custom") === "1";
 
-  // Start empty if custom mode to prevent flashing cart items
   const [items, setItems] = useState(customMode ? [] : getCheckoutItems());
 
-  // ---------------------------------------------
-  // RESOLVE IMAGES FOR STANDARD CART ITEMS
-  // ---------------------------------------------
   useEffect(() => {
     if (customMode || repairId) return; 
-    
     const resolveImages = async () => {
       let hasChanges = false;
       const resolvedItems = await Promise.all(
         items.map(async (item) => {
           const raw = item.image || item.imageUrl;
-          if (raw && (raw.startsWith("gs://") || !raw.startsWith("http"))) {
+          if (raw && raw.startsWith("gs://")) {
             const url = await resolveStorageUrl(raw);
             if (url && url !== raw) {
               hasChanges = true;
@@ -112,31 +98,24 @@ export default function Checkout() {
       );
       if (hasChanges) setItems(resolvedItems);
     };
-
     if (items.length > 0) resolveImages();
   }, [items.length, customMode, repairId]); 
 
-  // ---------------------------------------------
-  // LOAD THE SPECS FROM STORAGE FOR CUSTOM ORDER
-  // ---------------------------------------------
   useEffect(() => {
     if (!customMode) return;
-    
     const loadCustomDraft = async () => {
       try {
         const raw = sessionStorage.getItem("custom_draft");
         if (!raw) return;
 
         const draft = JSON.parse(raw);
-
         const title = draft.productTitle || "Customized Furniture";
         const price = Number(draft.unitPrice || 0);
         
         const rawImage = 
           (Array.isArray(draft.images) && draft.images[0]) ||
           (draft.imageUrls && draft.imageUrls[0]) ||
-          (typeof draft.image === "string" ? draft.image : null) ||
-          draft.image; // Fallback to raw property
+          (typeof draft.image === "string" ? draft.image : null);
 
         const resolvedImage = await resolveStorageUrl(rawImage) || rawImage;
 
@@ -150,20 +129,15 @@ export default function Checkout() {
             price,
             image: resolvedImage, 
             imageUrl: resolvedImage,
-            
             size: draft.size || null,
             selectedSize: draft.size || null,
-            
             color: draft?.materials?.["Cover Color"] || null,
             material: draft?.materials?.["Leather / Fabric Type"] || null,
-            
             additionals: Array.isArray(draft.additionals) ? draft.additionals : [],
-            
             materials: draft.materials || {},
             uniqueSpecs: draft.uniqueSpecs || {},
             customDimensions: draft.customDimensions || {},
             notes: draft.notes || "",
-
             meta: { custom: true },
           },
         ]);
@@ -174,9 +148,6 @@ export default function Checkout() {
     loadCustomDraft();
   }, [customMode]);
 
-  // ---------------------------------------------
-  // RESOLVE IMAGES FOR REPAIR ORDERS
-  // ---------------------------------------------
   useEffect(() => {
     if (!repairId || customMode) return;
     (async () => {
@@ -233,7 +204,6 @@ export default function Checkout() {
     });
   }, []);
 
-  /* --- HANDLERS --- */
   const handleRegionChange = (e) => {
     const code = e.target.value;
     const name = e.target.options[e.target.selectedIndex].text;
@@ -271,7 +241,6 @@ export default function Checkout() {
     setAddrCodes((prev) => ({ ...prev, barangay: code }));
   };
 
-  /* --- VALIDATION & SUBMIT --- */
   const [errors, setErrors] = useState({});
   const [submitAttempted, setSubmitAttempted] = useState(false);
 
@@ -358,8 +327,16 @@ export default function Checkout() {
       newsletterOptIn: !!news,
     };
 
+    // 🚨 QUOTA CRASH FIX: Strip giant AI images out before saving to temporary storage
+    const slimmedItemsWithNoBase64 = slimItems(items).map(it => {
+       if (it.image && it.image.startsWith("data:image/")) {
+           return { ...it, image: "RESTORE_FROM_CUSTOM_DRAFT", imageUrl: "RESTORE_FROM_CUSTOM_DRAFT" };
+       }
+       return it;
+    });
+
     const pendingPayload = {
-      items: slimItems(items), 
+      items: slimmedItemsWithNoBase64, 
       subtotal,
       shippingFee,
       total,
