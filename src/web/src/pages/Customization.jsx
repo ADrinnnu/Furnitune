@@ -371,14 +371,13 @@ export default function Customization() {
 
   const [referenceImages, setReferenceImages] = useState([]); 
   
-  // 🚨 ERROR TRACKING STATE
+  // ERROR TRACKING STATE
   const [placeOrderError, setPlaceOrderError] = useState("");
   const [validationErrors, setValidationErrors] = useState({});
 
   const catConfig = CATEGORY_OPTIONS[selectedCategory] || CATEGORY_OPTIONS["Others"];
   const productTitle = selectedProduct?.title || selectedProduct?.name || selectedProduct?.id || "";
 
-  // Helper to generate a red warning box if an error exists
   const getErrorStyle = (key) => ({
     padding: validationErrors[key] ? "12px" : "0",
     backgroundColor: validationErrors[key] ? "#ffebee" : "transparent",
@@ -412,15 +411,32 @@ export default function Customization() {
   
   const loc = useLocation();
 
+  // 🚨 BULLETPROOF AI INTERCEPTOR 🚨
   useEffect(() => {
     const query = new URLSearchParams(loc.search);
-    const title = query.get("ai_title");
-    const color = query.get("ai_color");
-    const desc = query.get("ai_desc");
-    
-    const imgUrl = sessionStorage.getItem("ai_generated_image");
+    const isAiCustom = query.get("ai_custom") === "true";
+    const fallbackTitle = query.get("ai_title"); // For old URL params
 
-    if (title && imgUrl) {
+    if (isAiCustom || fallbackTitle) {
+      const imgUrl = sessionStorage.getItem("ai_generated_image") || "https://placehold.co/800x600/eeeeee/999999?text=AI+Concept";
+      const specsRaw = sessionStorage.getItem("ai_generated_specs");
+      
+      let title = fallbackTitle || "Custom AI Concept";
+      let color = query.get("ai_color") || "Custom Color";
+      let desc = query.get("ai_desc") || "";
+      let dims = "Based on AI Concept generation";
+
+      // If JSON specs exist, prioritize them
+      if (specsRaw) {
+          try {
+             const specs = JSON.parse(specsRaw);
+             title = specs.title || title;
+             color = specs.suggested_color || color;
+             desc = specs.description || desc;
+             dims = specs.suggested_dimensions || dims;
+          } catch(e) {}
+      }
+
       let cat = "Others";
       const tLower = title.toLowerCase();
       if (tLower.includes("sofa") || tLower.includes("loveseat") || tLower.includes("settee")) cat = "Sofas";
@@ -446,12 +462,16 @@ export default function Customization() {
       setSizeOptions([...correctSizes]);
       
       setSize("Custom");
-      setCustomSizeDetails("Based on AI Concept generation");
+      setCustomSizeDetails(dims);
       
       const aiBlueprint = `--- AI CUSTOM CONCEPT ---\nConcept Name: ${title}\nTarget Color / Upholstery: ${color}\nDesign Details: ${desc}`;
       setNotes(aiBlueprint);
       
-      sessionStorage.removeItem("ai_generated_image");
+      // Delay cleanup so React Strict Mode doesn't break the reload
+      setTimeout(() => {
+          sessionStorage.removeItem("ai_generated_image");
+          sessionStorage.removeItem("ai_generated_specs");
+      }, 1500);
     }
   }, [loc.search]);
 
@@ -646,7 +666,6 @@ export default function Customization() {
     setSizeOptions(sizes);
     setSize(sizes[0] || "Standard");
 
-    // Reset validations on new product pick
     setValidationErrors({});
     setPlaceOrderError("");
     setCatalogOpen(false);
@@ -684,7 +703,6 @@ export default function Customization() {
     outline: activeValue === cHex ? "3px solid #111" : "1px solid #ccc",
   });
 
-  // 🚨 STRICT VALIDATION & SCROLL LOGIC 🚨
   const handlePlaceOrder = async () => {
     setPlaceOrderError("");
     const newErrors = {};
@@ -695,19 +713,14 @@ export default function Customization() {
       if (!firstErrorId) firstErrorId = `error-${key}`;
     };
 
-    // 1. Check Product
-    if (!selectedProduct) {
-      markError("product");
-    }
-
-    // 2. Check Size
+    if (!selectedProduct) markError("product");
+    
     if (!size) {
       markError("size");
     } else if (size === "Custom" && (!customSizeDetails || !customSizeDetails.trim())) {
       markError("customSize");
     }
 
-    // 3. Check Architectural Features
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
         if (!featureSelections[feat.id]) {
@@ -720,12 +733,8 @@ export default function Customization() {
       });
     }
 
-    // 4. Check Foam
-    if (catConfig.hasFoam && !foamDensity) {
-      markError("foam");
-    }
+    if (catConfig.hasFoam && !foamDensity) markError("foam");
 
-    // 5. Check Cover & Color
     if (catConfig.hasCover) {
       if (!coverMaterialType) markError("coverMaterial");
       if (!coverColor) markError("coverColor");
@@ -733,21 +742,15 @@ export default function Customization() {
 
     setValidationErrors(newErrors);
 
-    // If there are ANY errors, stop and scroll to the first one!
     if (Object.keys(newErrors).length > 0) {
       setPlaceOrderError("Please complete all highlighted selections (marked in red) before checking out.");
-      
-      // Smoothly scroll to the missing element
       setTimeout(() => {
         const el = document.getElementById(firstErrorId);
-        if (el) {
-          el.scrollIntoView({ behavior: "smooth", block: "center" });
-        }
+        if (el) el.scrollIntoView({ behavior: "smooth", block: "center" });
       }, 100);
       return;
     }
 
-    // If perfectly validated, proceed to bundle data for checkout
     const compiledMaterials = {};
     if (catConfig.features) {
       catConfig.features.forEach(feat => {
@@ -811,7 +814,6 @@ export default function Customization() {
     }
   };
 
-  /* ───────── UI ───────── */
   return (
     <div className="customization-container">
       <div className="customization-grid">

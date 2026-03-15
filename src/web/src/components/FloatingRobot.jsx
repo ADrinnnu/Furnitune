@@ -2,8 +2,11 @@ import React, { useState, useEffect, useRef } from "react";
 import { useLocation } from "react-router-dom";
 import "../FloatingRobot.css";
 import botImg from "../assets/letter-f.png";
+
+// FIRESTORE IMPORTS
 import { onAuthStateChanged } from "firebase/auth";
-import { auth } from "../firebase";
+import { auth, firestore } from "../firebase";
+import { collection, addDoc, query, where, orderBy, getDocs, Timestamp } from "firebase/firestore";
 
 const API_BASE = (import.meta.env.VITE_RECO_API || "/reco").replace(/\/+$/, "");
 const BIZCHAT_BASE = (import.meta.env.VITE_BIZCHAT_API || "/bizchat").replace(/\/+$/, "");
@@ -82,29 +85,29 @@ const TYPES = ["Bed","Sofa","Table","Chair","Sectional","Ottoman","Bench"];
 
 const TYPE_QUESTIONS = {
   Sofa: [
-    { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater", "Custom Size"] },
+    { key: "size",  prompt: "Size (seats)?", options: ["1 seater","2 seater","3 seater","4 seater","5 seater"] },
     { key: "color", prompt: "What color?",  options: ["Red","White","Black","Brown","None"] },
   ],
   Sectional: [
-    { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape", "Custom Size"] },
+    { key: "size",  prompt: "Layout / size?", options: ["L-shape small","L-shape large","U-shape"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Chair: [
-    { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar", "Custom Size"] },
+    { key: "size",  prompt: "Seat height?",   options: ["Standard","Counter","Bar"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Table: [
-    { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people", "Custom Size"] },
+    { key: "size",  prompt: "Size / seating?", options: ["2 people","4 people","6 people","8 people"] },
   ],
   Bed: [
-    { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King", "Custom Size"] },
+    { key: "size",  prompt: "Mattress size?", options: ["Single","Double","Queen","King"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
   Bench: [
-    { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long", "Custom Size"] },
+    { key: "size",  prompt: "Length?",        options: ["Short","Medium","Long"] },
   ],
   Ottoman: [
-    { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large", "Custom Size"] },
+    { key: "size",  prompt: "Size?",          options: ["Small","Medium","Large"] },
     { key: "color", prompt: "What color?",    options: ["Red","White","Black","Brown","None"] },
   ],
 };
@@ -164,14 +167,6 @@ export default function FloatingRobot() {
   }, [open]);
 
   const [meName, setMeName] = useState("Guest");
-  useEffect(() => {
-    const unsub = onAuthStateChanged(auth, (u) => {
-      if (!u) { setMeName("Guest"); return; }
-      const fallback = u.email ? u.email.split("@")[0] : "Guest";
-      setMeName((u.displayName && u.displayName.trim()) || fallback || "Guest");
-    });
-    return () => unsub();
-  }, []);
 
   const [recoOpen, setRecoOpen] = useState(false);
   const [recoInitialized, setRecoInitialized] = useState(false);
@@ -191,7 +186,70 @@ export default function FloatingRobot() {
   const [faqInput, setFaqInput] = useState("");
   const [faqBusy, setFaqBusy] = useState(false);
   const [faqError, setFaqError] = useState("");
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const faqScrollRef = useRef(null);
+
+  // LOAD CHAT HISTORY FROM FIRESTORE ON MOUNT
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, async (u) => {
+      if (!u) { 
+        setMeName("Guest"); 
+        setHistoryLoaded(true);
+        return; 
+      }
+      
+      const fallback = u.email ? u.email.split("@")[0] : "Guest";
+      setMeName((u.displayName && u.displayName.trim()) || fallback || "Guest");
+
+      try {
+        const q = query(
+          collection(firestore, "chat_logs"),
+          where("userId", "==", u.uid),
+          orderBy("timestamp", "asc")
+        );
+        const snap = await getDocs(q);
+        const loadedMsgs = [];
+        const now = new Date();
+
+        snap.forEach(doc => {
+          const data = doc.data();
+          // Filter out expired messages in case TTL hasn't swept them yet
+          if (data.expireAt && data.expireAt.toDate() > now) {
+            loadedMsgs.push({ role: data.role, text: data.text });
+          }
+        });
+
+        if (loadedMsgs.length > 0) {
+          setFaqMessages(loadedMsgs);
+        }
+      } catch (e) {
+        console.error("Failed to load chat history. You might need to click the index link in the console:", e);
+      }
+      setHistoryLoaded(true);
+    });
+    return () => unsub();
+  }, []);
+
+  // SAVE CHAT FUNCTION
+  const saveFaqMessage = async (role, text) => {
+    const user = auth.currentUser;
+    if (!user || user.isAnonymous) return; 
+    
+    try {
+      const expireDate = new Date();
+      expireDate.setDate(expireDate.getDate() + 1); // Expires 1 Day from now!
+
+      await addDoc(collection(firestore, "chat_logs"), {
+        userId: user.uid,
+        role: role,
+        text: text,
+        timestamp: Timestamp.now(),
+        expireAt: expireDate
+      });
+    } catch (e) {
+      console.error("Error saving chat:", e);
+    }
+  };
 
   useEffect(() => {
     window.FurnituneFAQ = { open: () => setFaqOpen(true), close: () => setFaqOpen(false), toggle: () => setFaqOpen(v => !v) };
@@ -419,6 +477,7 @@ export default function FloatingRobot() {
     { q:"What can I customize?", a:"Request custom furniture (dimensions, materials, colors) and add reference images.", tags:["customization"] },
     { q:"Do you accept furniture repair requests?", a:"Yes—even for items not purchased from us. Submit photos and details for assessment.", tags:["repairs"] },
   ];
+  
   function faqBoot(){
     const hi = meName ? `Hi ${meName}!` : "Hi Guest!";
     setFaqMessages([
@@ -426,7 +485,10 @@ export default function FloatingRobot() {
       { role:"bot", text:"Pick a quick question below, or type your own:", chips:FAQS.map(x=>x.q) }
     ]);
   }
-  useEffect(()=>{ if(faqOpen && faqMessages.length===0) faqBoot(); },[faqOpen, meName, faqMessages.length]);
+  
+  useEffect(() => { 
+    if (faqOpen && faqMessages.length === 0 && historyLoaded) faqBoot(); 
+  }, [faqOpen, meName, faqMessages.length, historyLoaded]);
 
   function answerFor(s0){
     const s=s0.trim().toLowerCase();
@@ -455,9 +517,14 @@ export default function FloatingRobot() {
       const safeAnswer = stripped.length < 3
         ? `I’m not sure about that yet. Please email ${CONTACT.email} or call ${CONTACT.phone}.`
         : raw;
+      
       setFaqMessages(p => [...p, { role:"bot", text: safeAnswer }]);
+      saveFaqMessage("bot", safeAnswer); 
+      
     } catch(e){
-      setFaqMessages(p => [...p, { role:"bot", text: answerFor(question) }]);
+      const fallback = answerFor(question);
+      setFaqMessages(p => [...p, { role:"bot", text: fallback }]);
+      saveFaqMessage("bot", fallback); 
       setFaqError(e.message || "BizChat failed");
     } finally{
       setFaqBusy(false);
@@ -471,6 +538,7 @@ export default function FloatingRobot() {
       return;
     }
     setFaqMessages(p=>[...p,{role:"user",text:q}]);
+    saveFaqMessage("user", q); 
     askBiz(q);
   }
 
@@ -478,6 +546,7 @@ export default function FloatingRobot() {
     const msg=faqInput.trim(); if(!msg) return;
     setFaqInput("");
     setFaqMessages(p=>[...p,{role:"user",text:msg}]);
+    saveFaqMessage("user", msg); 
     askBiz(msg);
   }
 
@@ -569,11 +638,14 @@ export default function FloatingRobot() {
                       </div>
                       
                       <button className="btn" onClick={() => {
-                          // 🚨 SAVES THE 1-MILLION CHARACTER IMAGE TO SESSION STORAGE SO CHROME DOESN'T CRASH!
-                          sessionStorage.setItem("ai_generated_image", m.customConcept.image_url);
-                          // 🚨 NEW: Save ALL the specs to send to the customization page
-                          sessionStorage.setItem("ai_generated_specs", JSON.stringify(m.customConcept));
+                          try {
+                              sessionStorage.setItem("ai_generated_image", m.customConcept.image_url || "");
+                          } catch (e) {
+                              console.warn("Storage quota exceeded. Image too large.", e);
+                              sessionStorage.setItem("ai_generated_image", "https://placehold.co/800x600/eeeeee/999999?text=AI+Concept");
+                          }
                           
+                          sessionStorage.setItem("ai_generated_specs", JSON.stringify(m.customConcept));
                           window.location.href = `/customization?ai_custom=true`;
                       }}>
                         Build This Custom
